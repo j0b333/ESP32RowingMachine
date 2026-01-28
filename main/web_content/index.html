@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Crivit Rowing Monitor</title>
+    <link rel="stylesheet" href="/style.css">
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚣 Rowing Monitor</h1>
+            <div class="status-bar">
+                <span id="connection-status" class="status disconnected">Disconnected</span>
+                <span id="activity-status" class="status idle">Idle</span>
+            </div>
+        </header>
+
+        <main>
+            <!-- Primary Metrics -->
+            <section class="metrics-grid primary">
+                <div class="metric-card large">
+                    <div class="metric-label">Distance</div>
+                    <div class="metric-value" id="distance">0</div>
+                    <div class="metric-unit">meters</div>
+                </div>
+                
+                <div class="metric-card large">
+                    <div class="metric-label">Time</div>
+                    <div class="metric-value" id="elapsed-time">0:00</div>
+                    <div class="metric-unit">elapsed</div>
+                </div>
+
+                <div class="metric-card large highlight">
+                    <div class="metric-label">Pace /500m</div>
+                    <div class="metric-value" id="pace">--:--</div>
+                    <div class="metric-unit">min:sec</div>
+                </div>
+            </section>
+
+            <!-- Secondary Metrics -->
+            <section class="metrics-grid secondary">
+                <div class="metric-card">
+                    <div class="metric-label">Power</div>
+                    <div class="metric-value" id="power">0</div>
+                    <div class="metric-unit">watts</div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-label">Stroke Rate</div>
+                    <div class="metric-value" id="stroke-rate">0</div>
+                    <div class="metric-unit">spm</div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-label">Strokes</div>
+                    <div class="metric-value" id="stroke-count">0</div>
+                    <div class="metric-unit">total</div>
+                </div>
+
+                <div class="metric-card">
+                    <div class="metric-label">Calories</div>
+                    <div class="metric-value" id="calories">0</div>
+                    <div class="metric-unit">kcal</div>
+                </div>
+            </section>
+
+            <!-- Average Metrics -->
+            <section class="metrics-grid averages">
+                <div class="metric-card small">
+                    <div class="metric-label">Avg Pace</div>
+                    <div class="metric-value" id="avg-pace">--:--</div>
+                </div>
+
+                <div class="metric-card small">
+                    <div class="metric-label">Avg Power</div>
+                    <div class="metric-value" id="avg-power">0</div>
+                </div>
+
+                <div class="metric-card small">
+                    <div class="metric-label">Avg SPM</div>
+                    <div class="metric-value" id="avg-stroke-rate">0</div>
+                </div>
+
+                <div class="metric-card small">
+                    <div class="metric-label">Drag Factor</div>
+                    <div class="metric-value" id="drag-factor">--</div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <div class="controls">
+                <button id="btn-reset" class="btn btn-danger">Reset Session</button>
+                <button id="btn-settings" class="btn btn-secondary">Settings</button>
+            </div>
+            <div class="info">
+                <span>ESP32 Rowing Monitor v1.0.0</span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2>Settings</h2>
+            <form id="settings-form">
+                <div class="form-group">
+                    <label for="user-weight">Weight (kg)</label>
+                    <input type="number" id="user-weight" min="30" max="200" step="0.5" value="75">
+                </div>
+                <div class="form-group">
+                    <label for="units">Units</label>
+                    <select id="units">
+                        <option value="metric">Metric</option>
+                        <option value="imperial">Imperial</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="show-power" checked> Show Power
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="show-calories" checked> Show Calories
+                    </label>
+                </div>
+                <div class="modal-actions">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <button type="button" id="btn-close-settings" class="btn btn-secondary">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+</html>

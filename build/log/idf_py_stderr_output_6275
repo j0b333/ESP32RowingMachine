@@ -1,0 +1,33 @@
+Command: cmake -G Ninja -B /home/runner/work/ESP32RowingMachine/ESP32RowingMachine/build -DPYTHON_DEPS_CHECKED=1 -DPYTHON=/home/runner/.espressif/python_env/idf6.0_py3.12_env/bin/python -DESP_PLATFORM=1 -DIDF_TARGET=esp32s3 -DCCACHE_ENABLE=False /home/runner/work/ESP32RowingMachine/ESP32RowingMachine
+Configuration Report                                                                                                    
+ ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+   Parser Version: 1                                                                                                    
+   Verbosity: default                                                                                                   
+   Defaults policy: sdkconfig                                                                                           
+   Status: Finished with notifications                                                                                  
+                                                                                                                        
+  Disabled Symbols/Choices With User-Set Value                                                                          
+   ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────   
+    * IDF_TARGET (defined at /home/runner/esp/esp-idf/Kconfig:68) with user-set value esp32s3 from                      
+    /tmp/kconfgen_tmpygrpd40l                                                                                           
+    * ESPTOOLPY_FLASHSIZE (defined at /home/runner/esp/esp-idf/components/esptool_py/Kconfig.projbuild:136) with        
+    user-set value 16MB from /tmp/kconfgen_tmpygrpd40l                                                                  
+    * ESP_WIFI_TX_BUFFER_TYPE (defined at /home/runner/esp/esp-idf/components/esp_wifi/Kconfig:84) with user-set        
+    value 1 from /tmp/kconfgen_tmpygrpd40l                                                                              
+   ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────   
+ ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 
+Traceback (most recent call last):
+  File "/home/runner/esp/esp-idf/components/esp_rom/gen_gdbinit.py", line 72, in <module>
+    gdbinit_lines = generate_gdbinit_rom_add_symbols(target)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/esp/esp-idf/components/esp_rom/gen_gdbinit.py", line 31, in generate_gdbinit_rom_add_symbols
+    raise OSError(
+OSError: ESP_ROM_ELF_DIR environment variable is not defined. Please try to run IDF "install" and "export" scripts.
+CMake Warning at /home/runner/esp/esp-idf/tools/cmake/gdbinit.cmake:52 (message):
+  Error while generating esp_rom gdbinit
+Call Stack (most recent call first):
+  /home/runner/esp/esp-idf/tools/cmake/project.cmake:357 (__generate_gdbinit)
+  /home/runner/esp/esp-idf/tools/cmake/project.cmake:972 (__project_info)
+  CMakeLists.txt:7 (project)
+
+

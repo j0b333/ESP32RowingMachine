@@ -1,0 +1,31 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "sensor_manager.c"
+        "rowing_physics.c"
+        "stroke_detector.c"
+        "metrics_calculator.c"
+        "ble_ftms_server.c"
+        "wifi_manager.c"
+        "web_server.c"
+        "config_manager.c"
+        "session_manager.c"
+        "utils.c"
+    INCLUDE_DIRS
+        "."
+    EMBED_FILES
+        "web_content/index.html"
+        "web_content/style.css"
+        "web_content/app.js"
+        "web_content/favicon.ico"
+    REQUIRES
+        esp_driver_gpio
+        esp_timer
+        nvs_flash
+        esp_wifi
+        esp_http_server
+        esp_event
+        bt
+        esp_netif
+        cJSON
+)

@@ -1,0 +1,2 @@
+source /home/runner/work/ESP32RowingMachine/ESP32RowingMachine/build/gdbinit/symbols
+source /home/runner/work/ESP32RowingMachine/ESP32RowingMachine/build/gdbinit/connect

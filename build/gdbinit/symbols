@@ -1,0 +1,9 @@
+
+
+# Load bootloader symbols
+set confirm off
+    add-symbol-file /home/runner/work/ESP32RowingMachine/ESP32RowingMachine/build/bootloader/bootloader.elf
+set confirm on
+
+# Load application symbols
+file /home/runner/work/ESP32RowingMachine/ESP32RowingMachine/build/rowing_monitor.elf
