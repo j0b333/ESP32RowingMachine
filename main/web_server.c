@@ -9,6 +9,7 @@
  * - Session control endpoints
  * 
  * Compatible with ESP-IDF 6.0+
+ * Thread-safe WebSocket client management with mutex
  */
 
 #include "web_server.h"
@@ -20,9 +21,13 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "cJSON.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 #include <string.h>
 #include <stdlib.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 static const char *TAG = "WEB_SERVER";
 
@@ -33,9 +38,27 @@ static httpd_handle_t g_server = NULL;
 #define MAX_WS_CLIENTS 4
 static int g_ws_fds[MAX_WS_CLIENTS] = {-1, -1, -1, -1};
 
+// Mutex for thread-safe WebSocket client list access
+static SemaphoreHandle_t g_ws_mutex = NULL;
+
 // Pointers to shared data
 static rowing_metrics_t *g_metrics = NULL;
 static config_t *g_config = NULL;
+
+// Mutex helper macros
+#define WS_MUTEX_TAKE() \
+    do { \
+        if (g_ws_mutex != NULL) { \
+            xSemaphoreTake(g_ws_mutex, portMAX_DELAY); \
+        } \
+    } while(0)
+
+#define WS_MUTEX_GIVE() \
+    do { \
+        if (g_ws_mutex != NULL) { \
+            xSemaphoreGive(g_ws_mutex); \
+        } \
+    } while(0)
 
 // ============================================================================
 // Embedded Web Content Declarations
@@ -262,30 +285,36 @@ static esp_err_t api_config_handler(httpd_req_t *req) {
 // ============================================================================
 
 /**
- * Add WebSocket client to list
+ * Add WebSocket client to list (thread-safe)
  */
 static void ws_add_client(int fd) {
+    WS_MUTEX_TAKE();
     for (int i = 0; i < MAX_WS_CLIENTS; i++) {
         if (g_ws_fds[i] < 0) {
             g_ws_fds[i] = fd;
             ESP_LOGI(TAG, "WebSocket client added: fd=%d", fd);
+            WS_MUTEX_GIVE();
             return;
         }
     }
+    WS_MUTEX_GIVE();
     ESP_LOGW(TAG, "WebSocket client list full");
 }
 
 /**
- * Remove WebSocket client from list
+ * Remove WebSocket client from list (thread-safe)
  */
 static void ws_remove_client(int fd) {
+    WS_MUTEX_TAKE();
     for (int i = 0; i < MAX_WS_CLIENTS; i++) {
         if (g_ws_fds[i] == fd) {
             g_ws_fds[i] = -1;
             ESP_LOGI(TAG, "WebSocket client removed: fd=%d", fd);
+            WS_MUTEX_GIVE();
             return;
         }
     }
+    WS_MUTEX_GIVE();
 }
 
 /**
@@ -453,6 +482,15 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
         return ESP_OK;
     }
     
+    // Create mutex for WebSocket client list
+    if (g_ws_mutex == NULL) {
+        g_ws_mutex = xSemaphoreCreateMutex();
+        if (g_ws_mutex == NULL) {
+            ESP_LOGE(TAG, "Failed to create WebSocket mutex");
+            return ESP_FAIL;
+        }
+    }
+    
     g_metrics = metrics;
     g_config = config;
     
@@ -468,6 +506,8 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     http_config.uri_match_fn = httpd_uri_match_wildcard;
     http_config.open_fn = ws_open_callback;
     http_config.close_fn = ws_close_callback;
+    http_config.recv_wait_timeout = 10;  // 10 second timeout for receive
+    http_config.send_wait_timeout = 10;  // 10 second timeout for send
     
     ESP_LOGI(TAG, "Starting web server on port %d", http_config.server_port);
     
@@ -502,10 +542,44 @@ void web_server_stop(void) {
         g_server = NULL;
         ESP_LOGI(TAG, "Web server stopped");
     }
+    
+    // Clean up WebSocket client list
+    WS_MUTEX_TAKE();
+    for (int i = 0; i < MAX_WS_CLIENTS; i++) {
+        g_ws_fds[i] = -1;
+    }
+    WS_MUTEX_GIVE();
+    
+    // Delete mutex
+    if (g_ws_mutex != NULL) {
+        vSemaphoreDelete(g_ws_mutex);
+        g_ws_mutex = NULL;
+    }
+}
+
+/**
+ * Check if a socket is still valid and connected
+ */
+static bool is_socket_valid(httpd_handle_t hd, int fd) {
+    if (hd == NULL || fd < 0) {
+        return false;
+    }
+    
+    // Try to get socket info - if it fails, socket is invalid
+    struct sockaddr_in6 addr;
+    socklen_t addr_len = sizeof(addr);
+    
+    // Use getpeername to check if socket is still connected
+    if (getpeername(fd, (struct sockaddr *)&addr, &addr_len) < 0) {
+        return false;
+    }
+    
+    return true;
 }
 
 /**
  * Broadcast metrics to all connected WebSocket clients
+ * Thread-safe with proper error handling
  */
 esp_err_t web_server_broadcast_metrics(const rowing_metrics_t *metrics) {
     if (g_server == NULL || metrics == NULL) {
@@ -519,51 +593,97 @@ esp_err_t web_server_broadcast_metrics(const rowing_metrics_t *metrics) {
         return ESP_FAIL;
     }
     
-    // Send to all connected WebSocket clients
+    // Prepare WebSocket frame
     httpd_ws_frame_t ws_pkt;
     memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
     ws_pkt.payload = (uint8_t*)buffer;
     ws_pkt.len = len;
     ws_pkt.type = HTTPD_WS_TYPE_TEXT;
+    ws_pkt.final = true;
     
-    int sent_count = 0;
+    // Take a snapshot of current clients under mutex
+    int fds_to_send[MAX_WS_CLIENTS];
+    WS_MUTEX_TAKE();
     for (int i = 0; i < MAX_WS_CLIENTS; i++) {
-        if (g_ws_fds[i] >= 0) {
-            esp_err_t ret = httpd_ws_send_frame_async(g_server, g_ws_fds[i], &ws_pkt);
-            if (ret != ESP_OK) {
-                ESP_LOGW(TAG, "Failed to send to fd %d: %s", g_ws_fds[i], esp_err_to_name(ret));
-                // Remove dead client
-                g_ws_fds[i] = -1;
-            } else {
+        fds_to_send[i] = g_ws_fds[i];
+    }
+    WS_MUTEX_GIVE();
+    
+    // Send to all clients (outside mutex to avoid blocking)
+    int sent_count = 0;
+    int dead_fds[MAX_WS_CLIENTS];
+    int dead_count = 0;
+    
+    for (int i = 0; i < MAX_WS_CLIENTS; i++) {
+        int fd = fds_to_send[i];
+        if (fd >= 0) {
+            // First check if socket is still valid
+            if (!is_socket_valid(g_server, fd)) {
+                ESP_LOGD(TAG, "Socket fd %d is no longer valid", fd);
+                dead_fds[dead_count++] = fd;
+                continue;
+            }
+            
+            // Try async send
+            esp_err_t ret = httpd_ws_send_frame_async(g_server, fd, &ws_pkt);
+            if (ret == ESP_OK) {
                 sent_count++;
+            } else if (ret == ESP_ERR_INVALID_ARG) {
+                // Socket closed or invalid
+                ESP_LOGD(TAG, "Socket fd %d invalid for async send", fd);
+                dead_fds[dead_count++] = fd;
+            } else {
+                // Other error - log but don't remove yet (might be temporary)
+                ESP_LOGD(TAG, "Failed to send to fd %d: %s (will retry)", fd, esp_err_to_name(ret));
             }
         }
+    }
+    
+    // Remove dead clients under mutex
+    if (dead_count > 0) {
+        WS_MUTEX_TAKE();
+        for (int d = 0; d < dead_count; d++) {
+            for (int i = 0; i < MAX_WS_CLIENTS; i++) {
+                if (g_ws_fds[i] == dead_fds[d]) {
+                    g_ws_fds[i] = -1;
+                    ESP_LOGI(TAG, "Removed dead WebSocket client: fd=%d", dead_fds[d]);
+                    break;
+                }
+            }
+        }
+        WS_MUTEX_GIVE();
     }
     
     return (sent_count > 0) ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
 
 /**
- * Check if any WebSocket clients are connected
+ * Check if any WebSocket clients are connected (thread-safe)
  */
 bool web_server_has_ws_clients(void) {
+    bool has_clients = false;
+    WS_MUTEX_TAKE();
     for (int i = 0; i < MAX_WS_CLIENTS; i++) {
         if (g_ws_fds[i] >= 0) {
-            return true;
+            has_clients = true;
+            break;
         }
     }
-    return false;
+    WS_MUTEX_GIVE();
+    return has_clients;
 }
 
 /**
- * Get number of active connections
+ * Get number of active connections (thread-safe)
  */
 int web_server_get_connection_count(void) {
     int count = 0;
+    WS_MUTEX_TAKE();
     for (int i = 0; i < MAX_WS_CLIENTS; i++) {
         if (g_ws_fds[i] >= 0) {
             count++;
         }
     }
+    WS_MUTEX_GIVE();
     return count;
 }
