@@ -1,5 +1,6 @@
 package com.example.rowingsync.data
 
+import com.example.rowingsync.BuildConfig
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -15,7 +16,12 @@ object ApiClient {
     private var api: Esp32Api? = null
     
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
-        level = HttpLoggingInterceptor.Level.BODY
+        // Only log full bodies in debug builds to avoid performance/security issues
+        level = if (BuildConfig.DEBUG) {
+            HttpLoggingInterceptor.Level.BODY
+        } else {
+            HttpLoggingInterceptor.Level.BASIC
+        }
     }
     
     private val okHttpClient = OkHttpClient.Builder()
@@ -58,8 +64,8 @@ object ApiClient {
             normalized = "http://$normalized"
         }
         
-        // Add trailing slash if missing
-        if (!normalized.endsWith("/")) {
+        // Only add trailing slash if URL doesn't contain query parameters
+        if (!normalized.endsWith("/") && !normalized.contains("?")) {
             normalized = "$normalized/"
         }
         

@@ -356,6 +356,9 @@ static esp_err_t hr_get_handler(httpd_req_t *req) {
 // Session Management Endpoints
 // ============================================================================
 
+// Maximum number of sessions to return per request
+#define MAX_SESSIONS_PER_PAGE 20
+
 /**
  * GET /api/sessions - List all stored sessions
  */
@@ -365,8 +368,11 @@ static esp_err_t api_sessions_list_handler(httpd_req_t *req) {
     
     uint32_t count = session_manager_get_session_count();
     
-    // Get sessions in reverse order (newest first)
-    for (int i = (int)count; i > 0 && i > (int)count - 20; i--) {
+    // Get sessions in reverse order (newest first), limit to MAX_SESSIONS_PER_PAGE
+    int start = (int)count;
+    int end = (count > MAX_SESSIONS_PER_PAGE) ? (int)(count - MAX_SESSIONS_PER_PAGE) : 0;
+    
+    for (int i = start; i > end; i--) {
         session_record_t record;
         if (session_manager_get_session((uint32_t)i, &record) == ESP_OK) {
             cJSON *session = cJSON_CreateObject();
@@ -409,16 +415,27 @@ static esp_err_t api_session_detail_handler(httpd_req_t *req) {
     // Parse session ID from URI: /api/sessions/123
     const char *uri = req->uri;
     const char *id_start = strrchr(uri, '/');
-    if (id_start == NULL) {
+    if (id_start == NULL || *(id_start + 1) == '\0') {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid session ID");
         return ESP_FAIL;
     }
     
-    uint32_t session_id = (uint32_t)atoi(id_start + 1);
-    if (session_id == 0) {
+    // Check if the string after '/' contains only digits
+    const char *id_str = id_start + 1;
+    for (const char *p = id_str; *p != '\0'; p++) {
+        if (*p < '0' || *p > '9') {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid session ID format");
+            return ESP_FAIL;
+        }
+    }
+    
+    // Session IDs start from 1, not 0
+    long session_id_long = strtol(id_str, NULL, 10);
+    if (session_id_long <= 0 || session_id_long > UINT32_MAX) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid session ID");
         return ESP_FAIL;
     }
+    uint32_t session_id = (uint32_t)session_id_long;
     
     session_record_t record;
     if (session_manager_get_session(session_id, &record) != ESP_OK) {

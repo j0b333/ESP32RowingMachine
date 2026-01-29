@@ -66,6 +66,18 @@ class HealthConnectManager(private val context: Context) {
      * @return true if sync was successful
      */
     suspend fun syncSession(session: SessionDetail): Boolean {
+        // Check if Health Connect is available
+        if (!isAvailable()) {
+            Log.e(TAG, "Health Connect is not available")
+            return false
+        }
+        
+        // Check permissions before attempting to write
+        if (!hasAllPermissions()) {
+            Log.e(TAG, "Missing required Health Connect permissions")
+            return false
+        }
+        
         return try {
             val startTime = Instant.ofEpochMilli(session.startTime)
             val endTime = startTime.plusSeconds(session.duration.toLong())

@@ -77,7 +77,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         isConnected = false,
-                        error = "ESP32 is not online"
+                        error = "ESP32 reports it is not ready"
                     )
                 }
             } catch (e: Exception) {
@@ -95,6 +95,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Sync a single session to Health Connect
      */
     fun syncSession(sessionId: Int) {
+        // Check if Health Connect is available before attempting sync
+        if (!_uiState.value.healthConnectAvailable) {
+            _uiState.value = _uiState.value.copy(
+                error = "Health Connect is not available on this device"
+            )
+            return
+        }
+        
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(syncingSessionId = sessionId)
             
@@ -106,13 +114,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 
                 if (success) {
                     // Mark as synced on ESP32
-                    api.markSynced(sessionId)
+                    try {
+                        val markResponse = api.markSynced(sessionId)
+                        if (markResponse.error != null) {
+                            Log.w(TAG, "Failed to mark session as synced on ESP32: ${markResponse.error}")
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to mark session as synced on ESP32", e)
+                        // Continue anyway since the Health Connect sync succeeded
+                    }
                     
                     // Refresh session list
                     refreshSessions()
                 } else {
                     _uiState.value = _uiState.value.copy(
-                        error = "Failed to sync to Health Connect"
+                        error = "Failed to sync to Health Connect. Please check permissions."
                     )
                 }
             } catch (e: Exception) {

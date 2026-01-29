@@ -118,24 +118,38 @@ esp_err_t hr_receiver_update(uint8_t bpm) {
 
 /**
  * Get current heart rate
+ * Note: For simplicity, reads s_current_hr without mutex since uint8_t read is atomic
+ * on most platforms. If stricter thread safety is needed, add mutex protection.
  */
 uint8_t hr_receiver_get_current(void) {
     if (!hr_receiver_is_valid()) {
         return 0;
     }
-    return s_current_hr;
+    
+    uint8_t hr;
+    xSemaphoreTake(s_hr_mutex, portMAX_DELAY);
+    hr = s_current_hr;
+    xSemaphoreGive(s_hr_mutex);
+    
+    return hr;
 }
 
 /**
- * Check if current heart rate is valid
+ * Check if current heart rate is valid (not stale)
  */
 bool hr_receiver_is_valid(void) {
-    if (s_last_update_time_ms == 0) {
+    int64_t last_update;
+    
+    xSemaphoreTake(s_hr_mutex, portMAX_DELAY);
+    last_update = s_last_update_time_ms;
+    xSemaphoreGive(s_hr_mutex);
+    
+    if (last_update == 0) {
         return false;
     }
     
     int64_t now = get_time_ms();
-    return (now - s_last_update_time_ms) < HR_STALE_TIMEOUT_MS;
+    return (now - last_update) < HR_STALE_TIMEOUT_MS;
 }
 
 /**
@@ -170,9 +184,12 @@ void hr_receiver_stop_recording(void) {
 
 /**
  * Get recorded HR samples
+ * @param samples Output array for samples (must not be NULL)
+ * @param max_samples Maximum samples to return (must be > 0)
+ * @return Number of samples copied
  */
 int hr_receiver_get_samples(hr_sample_t *samples, int max_samples) {
-    if (samples == NULL || s_hr_buffer == NULL) {
+    if (samples == NULL || max_samples <= 0 || s_hr_buffer == NULL) {
         return 0;
     }
     
@@ -180,7 +197,9 @@ int hr_receiver_get_samples(hr_sample_t *samples, int max_samples) {
     
     xSemaphoreTake(s_hr_mutex, portMAX_DELAY);
     count = (s_buffer_index < max_samples) ? s_buffer_index : max_samples;
-    memcpy(samples, s_hr_buffer, count * sizeof(hr_sample_t));
+    if (count > 0) {
+        memcpy(samples, s_hr_buffer, count * sizeof(hr_sample_t));
+    }
     xSemaphoreGive(s_hr_mutex);
     
     return count;
