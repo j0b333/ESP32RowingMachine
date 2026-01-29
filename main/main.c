@@ -253,6 +253,7 @@ static esp_err_t init_subsystems(void) {
         } else {
             ESP_LOGI(TAG, "  Mode: Access Point (Captive Portal)");
             ESP_LOGI(TAG, "  WiFi SSID: %s", g_config.wifi_ssid);
+            ESP_LOGI(TAG, "  Direct access: http://192.168.4.1");
             ESP_LOGI(TAG, "  Setup page: http://%s/setup", ip_str);
         }
         ESP_LOGI(TAG, "====================================");
