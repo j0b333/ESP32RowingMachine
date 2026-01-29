@@ -303,7 +303,8 @@ async function toggleStartPause() {
             const response = await fetch('/workout/pause', { method: 'POST' });
             if (!response.ok) throw new Error('Server error');
             const data = await response.json();
-            if (data.success) {
+            // Accept paused or already_paused status
+            if (data.status === 'paused' || data.status === 'already_paused') {
                 workoutPaused = true;
                 elements.btnStartPause.textContent = '▶ Resume';
                 elements.btnStartPause.classList.remove('running');
@@ -314,7 +315,8 @@ async function toggleStartPause() {
             const response = await fetch('/workout/resume', { method: 'POST' });
             if (!response.ok) throw new Error('Server error');
             const data = await response.json();
-            if (data.success) {
+            // Accept resumed or not_paused status
+            if (data.status === 'resumed' || data.status === 'not_paused') {
                 workoutPaused = false;
                 elements.btnStartPause.textContent = '⏸ Pause';
                 elements.btnStartPause.classList.remove('paused');

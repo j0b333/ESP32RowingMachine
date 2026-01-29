@@ -601,6 +601,17 @@ static esp_err_t workout_stop_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
     
+    // Clear any paused state before stopping
+    if (g_metrics->is_paused) {
+        int64_t now = esp_timer_get_time();
+        int64_t paused_duration_us = now - g_metrics->pause_start_time_us;
+        if (paused_duration_us > 0) {
+            g_metrics->total_paused_time_ms += (uint32_t)(paused_duration_us / 1000);
+        }
+        g_metrics->is_paused = false;
+        g_metrics->pause_start_time_us = 0;
+    }
+    
     // Stop HR recording
     hr_receiver_stop_recording();
     
@@ -645,16 +656,19 @@ static esp_err_t workout_pause_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
     
+    cJSON *root = cJSON_CreateObject();
+    
     // Set paused state and record when pause started
     if (!g_metrics->is_paused) {
         g_metrics->is_paused = true;
         g_metrics->pause_start_time_us = esp_timer_get_time();
+        cJSON_AddStringToObject(root, "status", "paused");
+        cJSON_AddBoolToObject(root, "success", true);
         ESP_LOGI(TAG, "Workout paused via API");
+    } else {
+        cJSON_AddStringToObject(root, "status", "already_paused");
+        cJSON_AddBoolToObject(root, "success", false);
     }
-    
-    cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "status", "paused");
-    cJSON_AddBoolToObject(root, "success", true);
     
     char *json_string = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
@@ -676,19 +690,26 @@ static esp_err_t workout_resume_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
     
+    cJSON *root = cJSON_CreateObject();
+    
     // Resume from paused state
     if (g_metrics->is_paused) {
         int64_t now = esp_timer_get_time();
-        uint32_t paused_duration_ms = (uint32_t)((now - g_metrics->pause_start_time_us) / 1000);
-        g_metrics->total_paused_time_ms += paused_duration_ms;
+        int64_t paused_duration_us = now - g_metrics->pause_start_time_us;
+        // Prevent negative/overflow issues
+        if (paused_duration_us > 0) {
+            g_metrics->total_paused_time_ms += (uint32_t)(paused_duration_us / 1000);
+        }
         g_metrics->is_paused = false;
         g_metrics->pause_start_time_us = 0;
-        ESP_LOGI(TAG, "Workout resumed via API (was paused for %lu ms)", (unsigned long)paused_duration_ms);
+        cJSON_AddStringToObject(root, "status", "resumed");
+        cJSON_AddBoolToObject(root, "success", true);
+        ESP_LOGI(TAG, "Workout resumed via API (was paused for %lu ms)", 
+                 (unsigned long)(paused_duration_us / 1000));
+    } else {
+        cJSON_AddStringToObject(root, "status", "not_paused");
+        cJSON_AddBoolToObject(root, "success", false);
     }
-    
-    cJSON *root = cJSON_CreateObject();
-    cJSON_AddStringToObject(root, "status", "resumed");
-    cJSON_AddBoolToObject(root, "success", true);
     
     char *json_string = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
