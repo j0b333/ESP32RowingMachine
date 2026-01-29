@@ -9,151 +9,165 @@
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>🚣 Rowing Monitor</h1>
-            <div class="status-bar">
-                <span id="connection-status" class="status disconnected">Disconnected</span>
-                <span id="activity-status" class="status idle">Idle</span>
-            </div>
-        </header>
+        <!-- Hidden status for JS tracking -->
+        <span id="connection-status" class="hidden">Disconnected</span>
+        <span id="activity-status" class="hidden">Idle</span>
 
         <main>
-            <!-- Row 1: Power | Distance | HR -->
-            <section class="metrics-grid row-3">
-                <div class="metric-card large">
-                    <div class="metric-label">Power</div>
-                    <div class="metric-value" id="power">0</div>
-                    <div class="metric-unit">watts</div>
-                </div>
-                
-                <div class="metric-card large">
-                    <div class="metric-label">Distance</div>
-                    <div class="metric-value" id="distance">0</div>
-                    <div class="metric-unit">meters</div>
-                </div>
+            <!-- Tab Content: Row -->
+            <div id="tab-row" class="tab-content active">
+                <!-- Row 1: Power | Distance | HR -->
+                <section class="metrics-grid row-3">
+                    <div class="metric-card large">
+                        <div class="metric-label">Power</div>
+                        <div class="metric-value" id="power">0</div>
+                        <div class="metric-unit">watts</div>
+                    </div>
+                    
+                    <div class="metric-card large">
+                        <div class="metric-label">Distance</div>
+                        <div class="metric-value" id="distance">0</div>
+                        <div class="metric-unit">meters</div>
+                    </div>
 
-                <div class="metric-card large heart-rate" id="hr-card">
-                    <div class="metric-label">❤️ Heart Rate</div>
-                    <div class="metric-value" id="heart-rate">--</div>
-                    <div class="metric-unit" id="hr-status">bpm</div>
-                </div>
-            </section>
+                    <div class="metric-card large heart-rate" id="hr-card">
+                        <div class="metric-label">❤️ Heart Rate</div>
+                        <div class="metric-value" id="heart-rate">--</div>
+                        <div class="metric-unit" id="hr-status">bpm</div>
+                    </div>
+                </section>
 
-            <!-- Row 2: Time | Pace /500m -->
-            <section class="metrics-grid row-2">
-                <div class="metric-card large">
-                    <div class="metric-label">Time</div>
-                    <div class="metric-value" id="elapsed-time">0:00</div>
-                    <div class="metric-unit">elapsed</div>
-                </div>
+                <!-- Row 2: Time | Pace /500m -->
+                <section class="metrics-grid row-2">
+                    <div class="metric-card large">
+                        <div class="metric-label">Time</div>
+                        <div class="metric-value" id="elapsed-time">0:00</div>
+                        <div class="metric-unit">elapsed</div>
+                    </div>
 
-                <div class="metric-card large highlight">
-                    <div class="metric-label">Pace /500m</div>
-                    <div class="metric-value" id="pace">--:--</div>
-                    <div class="metric-unit">min:sec</div>
-                </div>
-            </section>
+                    <div class="metric-card large highlight">
+                        <div class="metric-label">Pace /500m</div>
+                        <div class="metric-value" id="pace">--:--</div>
+                        <div class="metric-unit">min:sec</div>
+                    </div>
+                </section>
 
-            <!-- Row 3: Peak Power | Stroke Rate | Strokes | Calories -->
-            <section class="metrics-grid row-4">
-                <div class="metric-card">
-                    <div class="metric-label">Peak Power</div>
-                    <div class="metric-value" id="peak-power">0</div>
-                    <div class="metric-unit">watts</div>
-                </div>
+                <!-- Row 3: Peak Power | Stroke Rate | Strokes | Calories -->
+                <section class="metrics-grid row-4">
+                    <div class="metric-card">
+                        <div class="metric-label">Peak Power</div>
+                        <div class="metric-value" id="peak-power">0</div>
+                        <div class="metric-unit">watts</div>
+                    </div>
 
-                <div class="metric-card">
-                    <div class="metric-label">Stroke Rate</div>
-                    <div class="metric-value" id="stroke-rate">0</div>
-                    <div class="metric-unit">spm</div>
-                </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Stroke Rate</div>
+                        <div class="metric-value" id="stroke-rate">0</div>
+                        <div class="metric-unit">spm</div>
+                    </div>
 
-                <div class="metric-card">
-                    <div class="metric-label">Strokes</div>
-                    <div class="metric-value" id="stroke-count">0</div>
-                    <div class="metric-unit">total</div>
-                </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Strokes</div>
+                        <div class="metric-value" id="stroke-count">0</div>
+                        <div class="metric-unit">total</div>
+                    </div>
 
-                <div class="metric-card">
-                    <div class="metric-label">Calories</div>
-                    <div class="metric-value" id="calories">0</div>
-                    <div class="metric-unit">kcal</div>
-                </div>
-            </section>
+                    <div class="metric-card">
+                        <div class="metric-label">Calories</div>
+                        <div class="metric-value" id="calories">0</div>
+                        <div class="metric-unit">kcal</div>
+                    </div>
+                </section>
 
-            <!-- Row 4: Avg Power | Avg SPM | Avg HR | Avg Pace -->
-            <section class="metrics-grid row-4 averages">
-                <div class="metric-card small">
-                    <div class="metric-label">Avg Power</div>
-                    <div class="metric-value" id="avg-power">0</div>
-                </div>
+                <!-- Row 4: Avg Power | Avg SPM | Avg HR | Avg Pace -->
+                <section class="metrics-grid row-4 averages">
+                    <div class="metric-card small">
+                        <div class="metric-label">Avg Power</div>
+                        <div class="metric-value" id="avg-power">0</div>
+                    </div>
 
-                <div class="metric-card small">
-                    <div class="metric-label">Avg SPM</div>
-                    <div class="metric-value" id="avg-stroke-rate">0</div>
-                </div>
+                    <div class="metric-card small">
+                        <div class="metric-label">Avg SPM</div>
+                        <div class="metric-value" id="avg-stroke-rate">0</div>
+                    </div>
 
-                <div class="metric-card small">
-                    <div class="metric-label">Avg HR</div>
-                    <div class="metric-value" id="avg-heart-rate">--</div>
-                </div>
+                    <div class="metric-card small">
+                        <div class="metric-label">Avg HR</div>
+                        <div class="metric-value" id="avg-heart-rate">--</div>
+                    </div>
 
-                <div class="metric-card small">
-                    <div class="metric-label">Avg Pace</div>
-                    <div class="metric-value" id="avg-pace">--:--</div>
-                </div>
-            </section>
+                    <div class="metric-card small">
+                        <div class="metric-label">Avg Pace</div>
+                        <div class="metric-value" id="avg-pace">--:--</div>
+                    </div>
+                </section>
+            </div>
 
-            <!-- Workout Controls -->
-            <section class="workout-controls">
-                <button id="btn-start-pause" class="btn btn-workout btn-start">▶ Start</button>
-                <button id="btn-reset-workout" class="btn btn-workout btn-reset-workout">↺ Reset</button>
-                <button id="btn-finish" class="btn btn-workout btn-finish">✓ Finish</button>
-            </section>
+            <!-- Tab Content: Chart (placeholder) -->
+            <div id="tab-chart" class="tab-content">
+                <div class="placeholder-content">
+                    <h2>📊 Chart</h2>
+                    <p>Charts coming soon...</p>
+                </div>
+            </div>
+
+            <!-- Tab Content: History (placeholder) -->
+            <div id="tab-history" class="tab-content">
+                <div class="placeholder-content">
+                    <h2>📜 History</h2>
+                    <p>Workout history coming soon...</p>
+                </div>
+            </div>
+
+            <!-- Tab Content: Settings -->
+            <div id="tab-settings" class="tab-content">
+                <div class="settings-content">
+                    <h2>⚙ Settings</h2>
+                    <form id="settings-form">
+                        <div class="form-group">
+                            <label for="user-weight">Weight (kg)</label>
+                            <input type="number" id="user-weight" min="30" max="200" step="0.5" value="75">
+                        </div>
+                        <div class="form-group">
+                            <label for="units">Units</label>
+                            <select id="units">
+                                <option value="metric">Metric</option>
+                                <option value="imperial">Imperial</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="show-power" checked> Show Power
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="show-calories" checked> Show Calories
+                            </label>
+                        </div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">Save Settings</button>
+                            <span id="settings-feedback" class="settings-feedback"></span>
+                        </div>
+                    </form>
+                </div>
+            </div>
         </main>
 
-        <footer>
-            <div class="controls">
-                <button id="btn-settings" class="btn btn-secondary">⚙ Settings</button>
+        <!-- Bottom Navigation Bar -->
+        <nav class="bottom-nav">
+            <div class="nav-controls">
+                <button id="btn-start-pause" class="btn btn-nav btn-start" aria-label="Start workout">▶</button>
+                <button id="btn-reset-workout" class="btn btn-nav btn-reset-workout" aria-label="Reset workout">↺</button>
+                <button id="btn-finish" class="btn btn-nav btn-finish" aria-label="Finish workout">✓</button>
             </div>
-            <div class="info">
-                <span>ESP32 Rowing Monitor v1.0.0</span>
+            <div class="nav-tabs">
+                <button class="btn btn-tab active" data-tab="row">Row</button>
+                <button class="btn btn-tab disabled" data-tab="chart">Chart</button>
+                <button class="btn btn-tab disabled" data-tab="history">History</button>
+                <button class="btn btn-tab" data-tab="settings">Settings</button>
             </div>
-        </footer>
-    </div>
-
-    <!-- Settings Modal -->
-    <div id="settings-modal" class="modal hidden">
-        <div class="modal-content">
-            <h2>Settings</h2>
-            <form id="settings-form">
-                <div class="form-group">
-                    <label for="user-weight">Weight (kg)</label>
-                    <input type="number" id="user-weight" min="30" max="200" step="0.5" value="75">
-                </div>
-                <div class="form-group">
-                    <label for="units">Units</label>
-                    <select id="units">
-                        <option value="metric">Metric</option>
-                        <option value="imperial">Imperial</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="show-power" checked> Show Power
-                    </label>
-                </div>
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="show-calories" checked> Show Calories
-                    </label>
-                </div>
-                <div class="modal-actions">
-                    <button type="submit" class="btn btn-primary">Save</button>
-                    <button type="button" id="btn-close-settings" class="btn btn-secondary">Cancel</button>
-                </div>
-            </form>
-        </div>
+        </nav>
     </div>
 
     <!-- Confirmation Modal -->
