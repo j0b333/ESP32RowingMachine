@@ -828,8 +828,10 @@ static esp_err_t api_wifi_connect_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
     cJSON_AddBoolToObject(response, "success", true);
-    cJSON_AddStringToObject(response, "message", "WiFi credentials saved. Reboot to connect.");
+    cJSON_AddStringToObject(response, "message", "WiFi credentials saved. Device will reboot and connect to your network.");
     cJSON_AddStringToObject(response, "ssid", ssid_str);
+    cJSON_AddStringToObject(response, "redirect_url", "http://rower.local");
+    cJSON_AddNumberToObject(response, "redirect_delay", 5);
     
     char *json_string = cJSON_PrintUnformatted(response);
     cJSON_Delete(response);
@@ -932,9 +934,40 @@ static esp_err_t api_wifi_disconnect_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
-// ============================================================================
-// WebSocket Handler
-// ============================================================================
+/**
+ * POST /api/reboot - Reboot the device
+ */
+static esp_err_t api_reboot_handler(httpd_req_t *req) {
+    ESP_LOGI(TAG, "Reboot requested via API");
+    
+    cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    cJSON_AddBoolToObject(root, "success", true);
+    cJSON_AddStringToObject(root, "message", "Device will reboot in 2 seconds");
+    
+    char *json_string = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    
+    if (json_string == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, json_string);
+    
+    free(json_string);
+    
+    // Schedule reboot after response is sent
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    esp_restart();
+    
+    return ESP_OK;  // Won't reach here
+}
 
 /**
  * Add WebSocket client to list (thread-safe)
@@ -1255,6 +1288,13 @@ static const httpd_uri_t uri_api_wifi_disconnect = {
     .user_ctx = NULL
 };
 
+static const httpd_uri_t uri_api_reboot = {
+    .uri = "/api/reboot",
+    .method = HTTP_POST,
+    .handler = api_reboot_handler,
+    .user_ctx = NULL
+};
+
 // ============================================================================
 // Open/Close Callbacks for connection tracking
 // ============================================================================
@@ -1368,6 +1408,7 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     REGISTER_URI(uri_api_wifi_connect);
     REGISTER_URI(uri_api_wifi_status);
     REGISTER_URI(uri_api_wifi_disconnect);
+    REGISTER_URI(uri_api_reboot);
     
     // Captive portal detection handlers (redirect to setup page)
     REGISTER_URI(uri_generate_204);

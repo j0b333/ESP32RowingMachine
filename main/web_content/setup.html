@@ -390,17 +390,36 @@
                 const data = await response.json();
                 
                 if (data.success) {
-                    showStatus('✅ WiFi credentials saved! The device will connect on next reboot. You can reboot the device now or continue using AP mode.', 'success');
-                    checkStatus();
+                    const redirectUrl = data.redirect_url || 'http://rower.local';
+                    let countdown = data.redirect_delay || 5;
+                    
+                    // Show success with countdown
+                    const updateCountdown = () => {
+                        if (countdown > 0) {
+                            showStatus(`✅ ${data.message || 'Credentials saved!'} Redirecting to ${redirectUrl} in ${countdown} seconds...`, 'success');
+                            countdown--;
+                            setTimeout(updateCountdown, 1000);
+                        } else {
+                            showStatus('🔄 Rebooting device... Please reconnect to your home WiFi and visit ' + redirectUrl, 'success');
+                            // Trigger reboot
+                            fetch('/api/reboot', { method: 'POST' }).catch(() => {});
+                            // Redirect after a short delay
+                            setTimeout(() => {
+                                window.location.href = redirectUrl;
+                            }, 3000);
+                        }
+                    };
+                    updateCountdown();
                 } else {
                     showStatus('❌ Failed: ' + (data.error || 'Unknown error'), 'error');
+                    btn.disabled = false;
+                    btn.innerHTML = 'Connect';
                 }
             } catch (e) {
                 showStatus('❌ Connection failed: ' + e.message, 'error');
+                btn.disabled = false;
+                btn.innerHTML = 'Connect';
             }
-            
-            btn.disabled = false;
-            btn.innerHTML = 'Connect';
         }
 
         async function forgetWifi() {

@@ -661,23 +661,58 @@ int wifi_manager_scan(wifi_ap_record_t *ap_records, uint16_t max_records) {
         return 0;
     }
     
-    // Configure scan
+    esp_err_t ret;
+    wifi_mode_t original_mode;
+    
+    // Get current WiFi mode
+    ret = esp_wifi_get_mode(&original_mode);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get WiFi mode: %s", esp_err_to_name(ret));
+        return 0;
+    }
+    
+    // If in pure AP mode, we need to switch to APSTA mode to scan
+    // Scanning requires the STA interface to be active
+    bool switched_mode = false;
+    if (original_mode == WIFI_MODE_AP) {
+        ESP_LOGI(TAG, "Switching to APSTA mode for scanning...");
+        
+        // Create STA netif if not exists
+        if (s_netif_sta == NULL) {
+            s_netif_sta = esp_netif_create_default_wifi_sta();
+        }
+        
+        ret = esp_wifi_set_mode(WIFI_MODE_APSTA);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to set APSTA mode: %s", esp_err_to_name(ret));
+            return 0;
+        }
+        switched_mode = true;
+        
+        // Small delay to let mode switch take effect
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    
+    // Configure scan - use passive scan which is more reliable
     wifi_scan_config_t scan_config = {
         .ssid = NULL,
         .bssid = NULL,
         .channel = 0,
         .show_hidden = false,
-        .scan_type = WIFI_SCAN_TYPE_ACTIVE,
-        .scan_time.active.min = 100,
-        .scan_time.active.max = 300,
+        .scan_type = WIFI_SCAN_TYPE_PASSIVE,
+        .scan_time.passive = 300,
     };
     
     ESP_LOGI(TAG, "Starting WiFi scan...");
     
     // Start blocking scan
-    esp_err_t ret = esp_wifi_scan_start(&scan_config, true);
+    ret = esp_wifi_scan_start(&scan_config, true);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "WiFi scan failed: %s", esp_err_to_name(ret));
+        // Restore original mode if we switched
+        if (switched_mode) {
+            esp_wifi_set_mode(original_mode);
+        }
         return 0;
     }
     
@@ -686,6 +721,9 @@ int wifi_manager_scan(wifi_ap_record_t *ap_records, uint16_t max_records) {
     ret = esp_wifi_scan_get_ap_num(&ap_count);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to get AP count: %s", esp_err_to_name(ret));
+        if (switched_mode) {
+            esp_wifi_set_mode(original_mode);
+        }
         return 0;
     }
     
@@ -698,7 +736,16 @@ int wifi_manager_scan(wifi_ap_record_t *ap_records, uint16_t max_records) {
     ret = esp_wifi_scan_get_ap_records(&records_to_get, ap_records);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to get AP records: %s", esp_err_to_name(ret));
+        if (switched_mode) {
+            esp_wifi_set_mode(original_mode);
+        }
         return 0;
+    }
+    
+    // Restore original mode if we switched (keep AP running for provisioning)
+    if (switched_mode) {
+        ESP_LOGI(TAG, "Restoring AP mode after scan");
+        esp_wifi_set_mode(original_mode);
     }
     
     return records_to_get;
