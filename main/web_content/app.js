@@ -533,7 +533,7 @@ let selectedWorkoutId = null;
 function formatDuration(seconds) {
     const hours = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
+    const secs = Math.floor(seconds % 60);
     
     if (hours > 0) {
         return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
@@ -574,6 +574,9 @@ async function loadWorkoutHistory() {
     
     try {
         const response = await fetch('/api/sessions');
+        if (!response.ok) {
+            throw new Error('Server returned ' + response.status);
+        }
         const data = await response.json();
         
         loadingEl.classList.add('hidden');
@@ -629,21 +632,27 @@ function showWorkoutDetail(session) {
     const modal = document.getElementById('workout-detail-modal');
     if (!modal) return;
     
+    // Helper to safely set element text content
+    const setElement = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+    };
+    
     // Populate detail fields
-    document.getElementById('detail-title').textContent = `Workout #${session.id}`;
-    document.getElementById('detail-date').textContent = formatDate(session.startTime);
-    document.getElementById('detail-duration').textContent = formatDuration(session.duration);
+    setElement('detail-title', `Workout #${session.id}`);
+    setElement('detail-date', formatDate(session.startTime));
+    setElement('detail-duration', formatDuration(session.duration));
     
     const distanceStr = session.distance >= 1000 
         ? (session.distance / 1000).toFixed(2) + ' km'
         : Math.round(session.distance) + ' m';
-    document.getElementById('detail-distance').textContent = distanceStr;
+    setElement('detail-distance', distanceStr);
     
-    document.getElementById('detail-pace').textContent = formatPace(session.avgPace);
-    document.getElementById('detail-power').textContent = Math.round(session.avgPower) + ' W';
-    document.getElementById('detail-strokes').textContent = session.strokes;
-    document.getElementById('detail-calories').textContent = session.calories + ' kcal';
-    document.getElementById('detail-drag').textContent = session.dragFactor ? session.dragFactor.toFixed(1) : '--';
+    setElement('detail-pace', formatPace(session.avgPace));
+    setElement('detail-power', Math.round(session.avgPower) + ' W');
+    setElement('detail-strokes', session.strokes);
+    setElement('detail-calories', session.calories + ' kcal');
+    setElement('detail-drag', session.dragFactor ? session.dragFactor.toFixed(1) : '--');
     
     modal.classList.remove('hidden');
 }
@@ -741,15 +750,6 @@ function init() {
         }
     });
     
-    // Close modal on Escape key
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            if (!elements.confirmModal.classList.contains('hidden')) {
-                hideConfirmDialog();
-            }
-        }
-    });
-    
     // Connect to WebSocket
     connectWebSocket();
     
@@ -778,9 +778,15 @@ function init() {
         });
     }
     
-    // Also close workout detail modal on Escape
+    // Close all modals on Escape key (consolidated handler)
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
+            // Close confirm dialog if open
+            if (!elements.confirmModal.classList.contains('hidden')) {
+                hideConfirmDialog();
+                return;
+            }
+            // Close workout detail modal if open
             const detailModal = document.getElementById('workout-detail-modal');
             if (detailModal && !detailModal.classList.contains('hidden')) {
                 closeWorkoutDetail();
