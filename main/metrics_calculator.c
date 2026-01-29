@@ -76,6 +76,11 @@ int metrics_calculator_to_json(const rowing_metrics_t *metrics, char *buffer, si
     uint8_t heart_rate = hr_receiver_get_current();
     bool hr_valid = hr_receiver_is_valid();
     
+    // Get HR statistics
+    uint8_t avg_hr = 0, max_hr = 0;
+    uint16_t hr_count = 0;
+    hr_receiver_get_stats(&avg_hr, &max_hr, &hr_count);
+    
     // Get BLE HR client state
     ble_hr_state_t hr_state = ble_hr_client_get_state();
     const char *hr_status;
@@ -117,6 +122,7 @@ int metrics_calculator_to_json(const rowing_metrics_t *metrics, char *buffer, si
         "\"isActive\":%s,"
         "\"phase\":\"%s\","
         "\"heartRate\":%u,"
+        "\"avgHeartRate\":%u,"
         "\"hrValid\":%s,"
         "\"hrStatus\":\"%s\""
         "}",
@@ -139,6 +145,7 @@ int metrics_calculator_to_json(const rowing_metrics_t *metrics, char *buffer, si
         metrics->current_phase == STROKE_PHASE_IDLE ? "idle" : 
             (metrics->current_phase == STROKE_PHASE_DRIVE ? "drive" : "recovery"),
         (unsigned int)heart_rate,
+        (unsigned int)avg_hr,
         hr_valid ? "true" : "false",
         hr_status
     );

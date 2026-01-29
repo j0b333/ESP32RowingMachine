@@ -21,11 +21,13 @@ const elements = {
     avgPace: document.getElementById('avg-pace'),
     avgPower: document.getElementById('avg-power'),
     avgStrokeRate: document.getElementById('avg-stroke-rate'),
-    dragFactor: document.getElementById('drag-factor'),
+    avgHeartRate: document.getElementById('avg-heart-rate'),
     heartRate: document.getElementById('heart-rate'),
     hrStatus: document.getElementById('hr-status'),
     hrCard: document.getElementById('hr-card'),
-    btnReset: document.getElementById('btn-reset'),
+    btnStartPause: document.getElementById('btn-start-pause'),
+    btnResetWorkout: document.getElementById('btn-reset-workout'),
+    btnFinish: document.getElementById('btn-finish'),
     btnSettings: document.getElementById('btn-settings'),
     settingsModal: document.getElementById('settings-modal'),
     settingsForm: document.getElementById('settings-form'),
@@ -33,8 +35,17 @@ const elements = {
     userWeight: document.getElementById('user-weight'),
     units: document.getElementById('units'),
     showPower: document.getElementById('show-power'),
-    showCalories: document.getElementById('show-calories')
+    showCalories: document.getElementById('show-calories'),
+    confirmModal: document.getElementById('confirm-modal'),
+    confirmTitle: document.getElementById('confirm-title'),
+    confirmMessage: document.getElementById('confirm-message'),
+    btnConfirmYes: document.getElementById('btn-confirm-yes'),
+    btnConfirmNo: document.getElementById('btn-confirm-no')
 };
+
+// Workout state
+let workoutRunning = false;
+let confirmCallback = null;
 
 /**
  * Format time in seconds to MM:SS or HH:MM:SS
@@ -98,15 +109,17 @@ function updateMetrics(data) {
     // Update calories
     elements.calories.textContent = data.calories;
     
-    // Update drag factor
-    if (data.dragFactor > 0) {
-        elements.dragFactor.textContent = data.dragFactor.toFixed(0);
-    } else {
-        elements.dragFactor.textContent = '--';
-    }
-    
     // Update heart rate display
     updateHeartRate(data);
+    
+    // Update average heart rate
+    if (elements.avgHeartRate) {
+        if (data.avgHeartRate && data.avgHeartRate > 0) {
+            elements.avgHeartRate.textContent = Math.round(data.avgHeartRate);
+        } else {
+            elements.avgHeartRate.textContent = '--';
+        }
+    }
     
     // Update activity status
     if (data.isActive) {
@@ -141,13 +154,13 @@ function updateHeartRate(data) {
     const hrValid = data.hrValid || false;
     
     // Remove all status classes first
-    elements.hrCard.classList.remove('hr-connected', 'hr-scanning', 'hr-disconnected', 'hr-pulse');
+    elements.hrCard.classList.remove('hr-connected', 'hr-scanning', 'hr-disconnected');
     
     if (hrStatus === 'connected' && hrValid && heartRate > 0) {
         // Connected and receiving data
         elements.heartRate.textContent = heartRate;
         elements.hrStatus.textContent = 'Connected';
-        elements.hrCard.classList.add('hr-connected', 'hr-pulse');
+        elements.hrCard.classList.add('hr-connected');
     } else if (hrStatus === 'connected' && !hrValid) {
         // Connected but data is stale
         elements.heartRate.textContent = heartRate > 0 ? heartRate : '--';
@@ -244,39 +257,115 @@ function connectWebSocket() {
 }
 
 /**
- * Send reset command
+ * Show confirmation modal
  */
-async function resetSession() {
-    if (!confirm('Are you sure you want to reset the session?')) {
-        return;
-    }
-    
+function showConfirmDialog(title, message, callback) {
+    elements.confirmTitle.textContent = title;
+    elements.confirmMessage.textContent = message;
+    confirmCallback = callback;
+    elements.confirmModal.classList.remove('hidden');
+}
+
+/**
+ * Hide confirmation modal
+ */
+function hideConfirmDialog() {
+    elements.confirmModal.classList.add('hidden');
+    confirmCallback = null;
+}
+
+/**
+ * Toggle Start/Pause workout
+ */
+async function toggleStartPause() {
     try {
-        const response = await fetch('/api/reset', { method: 'POST' });
-        const data = await response.json();
-        
-        if (data.success) {
-            console.log('Session reset');
-            // Clear local display immediately
-            updateMetrics({
-                distance: 0,
-                pace: 0,
-                avgPace: 0,
-                power: 0,
-                avgPower: 0,
-                strokeRate: 0,
-                avgStrokeRate: 0,
-                strokeCount: 0,
-                calories: 0,
-                elapsedTime: 0,
-                dragFactor: 0,
-                isActive: false
-            });
+        if (workoutRunning) {
+            // Stop workout (pause not supported, so we just stop the session recording)
+            const response = await fetch('/workout/stop', { method: 'POST' });
+            const data = await response.json();
+            if (data.status === 'stopped') {
+                workoutRunning = false;
+                elements.btnStartPause.textContent = '▶ Start';
+                elements.btnStartPause.classList.remove('paused');
+            }
+        } else {
+            // Start workout
+            const response = await fetch('/workout/start', { method: 'POST' });
+            const data = await response.json();
+            if (data.status === 'started') {
+                workoutRunning = true;
+                elements.btnStartPause.textContent = '⏸ Stop';
+                elements.btnStartPause.classList.add('paused');
+            }
         }
     } catch (e) {
-        console.error('Failed to reset session:', e);
-        alert('Failed to reset session');
+        console.error('Failed to toggle workout:', e);
     }
+}
+
+/**
+ * Reset workout with confirmation
+ */
+function resetWorkout() {
+    showConfirmDialog('Reset Workout', 'Are you sure you want to reset the workout? All data will be lost.', async () => {
+        try {
+            const response = await fetch('/api/reset', { method: 'POST' });
+            const data = await response.json();
+            
+            if (data.success) {
+                console.log('Workout reset');
+                workoutRunning = false;
+                elements.btnStartPause.textContent = '▶ Start';
+                elements.btnStartPause.classList.remove('paused');
+                
+                // Clear local display immediately
+                updateMetrics({
+                    distance: 0,
+                    pace: 0,
+                    avgPace: 0,
+                    power: 0,
+                    avgPower: 0,
+                    strokeRate: 0,
+                    avgStrokeRate: 0,
+                    strokeCount: 0,
+                    calories: 0,
+                    elapsedTime: 0,
+                    isActive: false,
+                    heartRate: 0,
+                    hrValid: false,
+                    hrStatus: 'idle'
+                });
+            }
+        } catch (e) {
+            console.error('Failed to reset workout:', e);
+            alert('Failed to reset workout');
+        }
+    });
+}
+
+/**
+ * Finish workout with confirmation (saves for export)
+ */
+function finishWorkout() {
+    showConfirmDialog('Finish Workout', 'Are you sure you want to finish and save this workout?', async () => {
+        try {
+            // Stop the workout and save
+            const stopResponse = await fetch('/workout/stop', { method: 'POST' });
+            const stopData = await stopResponse.json();
+            
+            if (stopData.status === 'stopped') {
+                console.log('Workout finished and saved, session #' + stopData.sessionId);
+                workoutRunning = false;
+                elements.btnStartPause.textContent = '▶ Start';
+                elements.btnStartPause.classList.remove('paused');
+                
+                alert('Workout saved! Session #' + stopData.sessionId + '\nDistance: ' + Math.round(stopData.distance) + 'm');
+            }
+        } catch (e) {
+            console.error('Failed to finish workout:', e);
+            alert('Failed to finish workout');
+        }
+    });
 }
 
 /**
@@ -364,16 +453,34 @@ async function pollMetrics() {
  * Initialize the application
  */
 function init() {
-    // Set up event listeners
-    elements.btnReset.addEventListener('click', resetSession);
+    // Set up workout control event listeners
+    elements.btnStartPause.addEventListener('click', toggleStartPause);
+    elements.btnResetWorkout.addEventListener('click', resetWorkout);
+    elements.btnFinish.addEventListener('click', finishWorkout);
+    
+    // Settings event listeners
     elements.btnSettings.addEventListener('click', showSettings);
     elements.btnCloseSettings.addEventListener('click', closeSettings);
     elements.settingsForm.addEventListener('submit', saveSettings);
     
-    // Close modal on background click
+    // Confirmation modal event listeners
+    elements.btnConfirmYes.addEventListener('click', () => {
+        if (confirmCallback) {
+            confirmCallback();
+        }
+        hideConfirmDialog();
+    });
+    elements.btnConfirmNo.addEventListener('click', hideConfirmDialog);
+    
+    // Close modals on background click
     elements.settingsModal.addEventListener('click', (e) => {
         if (e.target === elements.settingsModal) {
             closeSettings();
+        }
+    });
+    elements.confirmModal.addEventListener('click', (e) => {
+        if (e.target === elements.confirmModal) {
+            hideConfirmDialog();
         }
     });
     

@@ -375,20 +375,6 @@ footer {
     background: var(--bg-card);
 }
 
-/* Heart rate pulse animation when receiving data */
-.metric-card.hr-pulse {
-    animation: hrPulse 1s ease-in-out infinite;
-}
-
-@keyframes hrPulse {
-    0%, 100% {
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-    }
-    50% {
-        box-shadow: 0 4px 20px rgba(74, 222, 128, 0.4);
-    }
-}
-
 .metric-card.heart-rate .metric-label {
     color: #e94560;
 }
@@ -399,4 +385,51 @@ footer {
 
 .metric-card.hr-scanning .metric-label {
     color: var(--warning);
+}
+
+/* Workout Controls */
+.workout-controls {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+}
+
+.btn-workout {
+    padding: 15px 30px;
+    font-size: 1.1em;
+    min-width: 120px;
+}
+
+.btn-start {
+    background: var(--success);
+    color: #000;
+}
+
+.btn-start.paused {
+    background: var(--warning);
+    color: #000;
+}
+
+.btn-reset-workout {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 2px solid var(--warning);
+}
+
+.btn-finish {
+    background: var(--accent-primary);
+    color: #000;
+}
+
+/* Confirm Dialog */
+.confirm-dialog {
+    text-align: center;
+}
+
+.confirm-dialog p {
+    margin-bottom: 20px;
+    color: var(--text-secondary);
+    font-size: 1.1em;
 }
