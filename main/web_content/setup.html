@@ -396,17 +396,35 @@
                     // Show success with countdown
                     const updateCountdown = () => {
                         if (countdown > 0) {
-                            showStatus(`✅ ${data.message || 'Credentials saved!'} Redirecting to ${redirectUrl} in ${countdown} seconds...`, 'success');
+                            showStatus(`✅ ${data.message || 'Credentials saved!'} Rebooting in ${countdown}...`, 'success');
                             countdown--;
                             setTimeout(updateCountdown, 1000);
                         } else {
-                            showStatus('🔄 Rebooting device... Please reconnect to your home WiFi and visit ' + redirectUrl, 'success');
                             // Trigger reboot
                             fetch('/api/reboot', { method: 'POST' }).catch(() => {});
-                            // Redirect after a short delay
-                            setTimeout(() => {
-                                window.location.href = redirectUrl;
-                            }, 3000);
+                            
+                            // Show final message with green styling
+                            const statusEl = document.getElementById('status-message');
+                            statusEl.innerHTML = `
+                                <div style="background: #166534; color: white; padding: 30px; border-radius: 12px; text-align: center;">
+                                    <h2 style="margin: 0 0 15px 0; font-size: 1.5em;">✅ Setup Complete!</h2>
+                                    <p style="margin: 0 0 15px 0;">The device is rebooting and will connect to your WiFi.</p>
+                                    <p style="margin: 0 0 20px 0; font-size: 0.9em; opacity: 0.9;">
+                                        1. Close this page<br>
+                                        2. Connect your phone to your home WiFi<br>
+                                        3. Open <strong>${redirectUrl}</strong> in your browser
+                                    </p>
+                                    <p style="margin: 0; font-size: 0.8em; opacity: 0.7;">
+                                        You can now close this captive portal.
+                                    </p>
+                                </div>
+                            `;
+                            statusEl.className = 'status-message';  // Remove any error/success class
+                            
+                            // Try to close the captive portal window (works on some devices)
+                            try {
+                                window.close();
+                            } catch (e) {}
                         }
                     };
                     updateCountdown();

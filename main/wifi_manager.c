@@ -700,7 +700,7 @@ int wifi_manager_scan(wifi_ap_record_t *ap_records, uint16_t max_records) {
         .channel = 0,
         .show_hidden = false,
         .scan_type = WIFI_SCAN_TYPE_PASSIVE,
-        .scan_time.passive = 300,
+        .scan_time.passive = 0,  // Use ESP-IDF default (required when BT is enabled)
     };
     
     ESP_LOGI(TAG, "Starting WiFi scan...");
