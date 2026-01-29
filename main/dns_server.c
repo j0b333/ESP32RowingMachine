@@ -8,9 +8,9 @@
 
 #include "dns_server.h"
 #include "esp_log.h"
-#include "esp_netif.h"
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
+#include "lwip/inet.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -180,7 +180,7 @@ static void dns_server_task(void *pvParameters) {
         }
         
         // Log that we received a DNS query (debug level to avoid spam)
-        ESP_LOGD(TAG, "DNS query received from " IPSTR, IP2STR((esp_ip4_addr_t*)&client_addr.sin_addr));
+        ESP_LOGD(TAG, "DNS query received from %s", inet_ntoa(client_addr.sin_addr));
         
         // Build response
         int resp_len = build_dns_response(rx_buffer, len, tx_buffer, sizeof(tx_buffer));
