@@ -179,8 +179,8 @@ static void dns_server_task(void *pvParameters) {
             continue;
         }
         
-        // Log that we received a DNS query
-        ESP_LOGI(TAG, "DNS query received from " IPSTR, IP2STR((esp_ip4_addr_t*)&client_addr.sin_addr.s_addr));
+        // Log that we received a DNS query (debug level to avoid spam)
+        ESP_LOGD(TAG, "DNS query received from " IPSTR, IP2STR((esp_ip4_addr_t*)&client_addr.sin_addr));
         
         // Build response
         int resp_len = build_dns_response(rx_buffer, len, tx_buffer, sizeof(tx_buffer));
@@ -196,7 +196,6 @@ static void dns_server_task(void *pvParameters) {
     }
     
     ESP_LOGI(TAG, "DNS server task stopped");
-    s_dns_task_handle = NULL;
     vTaskDelete(NULL);
 }
 

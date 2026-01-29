@@ -141,7 +141,8 @@ static esp_err_t captive_portal_handler(httpd_req_t *req) {
     httpd_resp_set_type(req, "text/html");
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
     httpd_resp_set_hdr(req, "Pragma", "no-cache");
-    httpd_resp_send(req, captive_response, strlen(captive_response));
+    httpd_resp_set_hdr(req, "Expires", "0");
+    httpd_resp_send(req, captive_response, sizeof(captive_response) - 1);
     
     return ESP_OK;
 }
