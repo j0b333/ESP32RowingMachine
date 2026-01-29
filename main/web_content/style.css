@@ -433,21 +433,25 @@ footer {
     background: var(--bg-secondary);
     border-top: 1px solid var(--bg-card);
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 10px;
-    gap: 10px;
+    justify-content: center;
+    align-items: stretch;
+    padding: 0;
+    gap: 20px;
     z-index: 100;
+    height: var(--nav-height);
 }
 
 .nav-controls {
     display: flex;
     gap: 5px;
+    align-items: center;
+    padding: 8px 0;
 }
 
 .nav-tabs {
     display: flex;
-    gap: 5px;
+    gap: 0;
+    align-items: stretch;
 }
 
 .btn-nav {
@@ -458,12 +462,16 @@ footer {
 }
 
 .btn-tab {
-    padding: 8px 12px;
+    padding: 8px 16px;
     font-size: 0.85em;
     background: var(--bg-card);
     color: var(--text-secondary);
     border: none;
-    border-radius: 6px;
+    border-radius: 8px 8px 0 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 0;
 }
 
 .btn-tab.active {
@@ -522,7 +530,7 @@ footer {
 /* Responsive for bottom nav */
 @media (max-width: 480px) {
     .bottom-nav {
-        padding: 6px 5px;
+        gap: 15px;
     }
     
     .btn-nav {
@@ -532,7 +540,79 @@ footer {
     }
     
     .btn-tab {
-        padding: 6px 8px;
+        padding: 6px 10px;
         font-size: 0.75em;
+    }
+}
+
+/* Landscape / horizontal screen support */
+@media (orientation: landscape) and (max-height: 500px) {
+    body {
+        padding: 3px;
+        padding-bottom: calc(var(--nav-height) + 5px);
+    }
+    
+    .container {
+        max-width: 70%;
+        margin: 0 auto;
+    }
+    
+    main {
+        max-height: calc(100vh - var(--nav-height) - 10px);
+        overflow-y: auto;
+    }
+    
+    .metrics-grid {
+        gap: 5px;
+        margin-bottom: 8px;
+    }
+    
+    .metric-card {
+        padding: 8px;
+    }
+    
+    .metric-card.large {
+        padding: 10px;
+    }
+    
+    .metric-card.small {
+        padding: 6px;
+    }
+    
+    .metric-value {
+        font-size: 1.4em;
+    }
+    
+    .metric-card.large .metric-value {
+        font-size: 1.6em;
+    }
+    
+    .metric-card.small .metric-value {
+        font-size: 1.2em;
+    }
+    
+    .metric-label {
+        font-size: 0.65em;
+        margin-bottom: 2px;
+    }
+    
+    .metric-unit {
+        font-size: 0.6em;
+        margin-top: 1px;
+    }
+    
+    :root {
+        --nav-height: 50px;
+    }
+    
+    .btn-nav {
+        padding: 6px 10px;
+        font-size: 1em;
+        min-width: 36px;
+    }
+    
+    .btn-tab {
+        padding: 4px 8px;
+        font-size: 0.7em;
     }
 }
