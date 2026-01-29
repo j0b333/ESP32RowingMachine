@@ -299,7 +299,7 @@ async function toggleStartPause() {
                 elements.btnStartPause.classList.add('running');
             }
         } else if (!workoutPaused) {
-            // Pause workout (just update UI state, session continues but we track it's paused)
+            // Pause workout (UI state only - metrics continue accumulating)
             workoutPaused = true;
             elements.btnStartPause.textContent = '▶ Resume';
             elements.btnStartPause.classList.remove('running');
@@ -312,8 +312,8 @@ async function toggleStartPause() {
             elements.btnStartPause.classList.add('running');
         }
     } catch (e) {
-        console.error('Failed to toggle workout:', e);
-        alert('Failed to start workout');
+        console.error('Failed to start workout:', e);
+        alert('Failed to start workout. Please check connection.');
     } finally {
         elements.btnStartPause.disabled = false;
     }
