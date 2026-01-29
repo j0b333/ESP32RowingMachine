@@ -61,10 +61,6 @@ static int ble_hr_gatt_disc_chr_cb(uint16_t conn_handle,
                                     const struct ble_gatt_error *error,
                                     const struct ble_gatt_chr *chr,
                                     void *arg);
-static int ble_hr_gatt_notify_cb(uint16_t conn_handle,
-                                  const struct ble_gatt_error *error,
-                                  struct ble_gatt_attr *attr,
-                                  void *arg);
 
 // ============================================================================
 // Helper functions
@@ -95,9 +91,9 @@ static uint8_t parse_heart_rate(const uint8_t *data, uint16_t len) {
         hr = data[1];
     }
     
-    // Clamp to valid range
-    if (hr > 220) {
-        hr = 220;
+    // Validate heart rate range (30-220 bpm considered valid)
+    if (hr < 30 || hr > 220) {
+        return 0;  // Invalid reading, likely sensor error
     }
     
     return (uint8_t)hr;
@@ -109,12 +105,13 @@ static uint8_t parse_heart_rate(const uint8_t *data, uint16_t len) {
 static void subscribe_to_hr_notifications(void) {
     if (s_hr_measurement_handle == 0) {
         ESP_LOGE(TAG, "HR measurement handle not discovered");
+        s_state = BLE_HR_STATE_ERROR;
         return;
     }
     
     // The CCCD (Client Characteristic Configuration Descriptor) handle is typically
-    // the characteristic handle + 1 (for the value) + 1 (for CCCD)
-    // However, we should use the proper API for subscribing
+    // the characteristic value handle + 1
+    // Note: This is a common convention but not guaranteed by BLE spec
     
     ESP_LOGI(TAG, "Subscribing to HR notifications on handle %d", s_hr_measurement_handle);
     
@@ -128,6 +125,7 @@ static void subscribe_to_hr_notifications(void) {
                                    NULL, NULL);
     if (rc != 0) {
         ESP_LOGE(TAG, "Failed to subscribe to notifications: %d", rc);
+        s_state = BLE_HR_STATE_ERROR;
     } else {
         ESP_LOGI(TAG, "Subscribed to HR notifications");
         s_state = BLE_HR_STATE_CONNECTED;
@@ -146,7 +144,6 @@ static int ble_hr_gatt_disc_svc_cb(uint16_t conn_handle,
         // Service discovery complete, now discover characteristics
         ESP_LOGI(TAG, "Service discovery complete, discovering characteristics...");
         
-        ble_uuid16_t hr_svc_uuid = BLE_UUID16_INIT(HRS_SERVICE_UUID);
         int rc = ble_gattc_disc_all_chrs(conn_handle, 1, 0xFFFF,
                                           ble_hr_gatt_disc_chr_cb, NULL);
         if (rc != 0) {
@@ -207,32 +204,13 @@ static int ble_hr_gatt_disc_chr_cb(uint16_t conn_handle,
     return 0;
 }
 
-static int ble_hr_gatt_notify_cb(uint16_t conn_handle,
-                                  const struct ble_gatt_error *error,
-                                  struct ble_gatt_attr *attr,
-                                  void *arg) {
-    if (error->status != 0) {
-        ESP_LOGW(TAG, "Notify callback error: %d", error->status);
-        return 0;
-    }
-    
-    if (attr != NULL) {
-        uint8_t hr = parse_heart_rate(attr->om->om_data, attr->om->om_len);
-        if (hr > 0) {
-            ESP_LOGD(TAG, "Heart rate: %d bpm", hr);
-            hr_receiver_update(hr);
-        }
-    }
-    
-    return 0;
-}
-
 // ============================================================================
 // GAP Event Handler
 // ============================================================================
 
 static int ble_hr_gap_event(struct ble_gap_event *event, void *arg) {
     struct ble_gap_conn_desc desc;
+    int rc;
     
     switch (event->type) {
         case BLE_GAP_EVENT_DISC:
@@ -242,7 +220,7 @@ static int ble_hr_gap_event(struct ble_gap_event *event, void *arg) {
                 
                 // Check if device advertises Heart Rate Service
                 struct ble_hs_adv_fields fields;
-                int rc = ble_hs_adv_parse_fields(&fields, event->disc.data,
+                rc = ble_hs_adv_parse_fields(&fields, event->disc.data,
                                                   event->disc.length_data);
                 if (rc != 0) {
                     return 0;
@@ -266,7 +244,7 @@ static int ble_hr_gap_event(struct ble_gap_event *event, void *arg) {
                     // Connect to device
                     s_state = BLE_HR_STATE_CONNECTING;
                     rc = ble_gap_connect(BLE_OWN_ADDR_PUBLIC, &event->disc.addr,
-                                          30000, NULL, ble_hr_gap_event, NULL);
+                                          BLE_HR_CONNECT_TIMEOUT_MS, NULL, ble_hr_gap_event, NULL);
                     if (rc != 0) {
                         ESP_LOGE(TAG, "Failed to connect: %d", rc);
                         s_state = BLE_HR_STATE_ERROR;
@@ -317,9 +295,11 @@ static int ble_hr_gap_event(struct ble_gap_event *event, void *arg) {
             s_hr_measurement_handle = 0;
             s_state = BLE_HR_STATE_IDLE;
             
-            // Attempt to reconnect by starting scan again
-            ESP_LOGI(TAG, "Restarting scan for HR monitors...");
-            ble_hr_client_start_scan();
+            // Attempt to reconnect by starting scan again (only if still initialized)
+            if (s_initialized) {
+                ESP_LOGI(TAG, "Restarting scan for HR monitors...");
+                ble_hr_client_start_scan();
+            }
             break;
             
         case BLE_GAP_EVENT_NOTIFY_RX:

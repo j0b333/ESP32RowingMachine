@@ -82,6 +82,7 @@
 // BLE HR Client configuration
 #define BLE_HR_CLIENT_ENABLED           1       // Enable BLE HR client by default
 #define BLE_HR_SCAN_TIMEOUT_SEC         120     // Scan timeout (matches Heart for Bluetooth pairing window)
+#define BLE_HR_CONNECT_TIMEOUT_MS       30000   // Connection timeout (30 seconds)
 
 // ============================================================================
 // WIFI CONFIGURATION
