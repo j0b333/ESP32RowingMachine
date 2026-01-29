@@ -16,6 +16,7 @@
 #include "esp_timer.h"
 #include <string.h>
 #include <math.h>
+#include <inttypes.h>
 
 static const char *TAG = "PHYSICS";
 
@@ -330,5 +331,5 @@ void rowing_physics_format_pace(float pace_seconds, char *buffer, size_t buf_len
     uint32_t seconds = total_seconds % 60;
     uint32_t tenths = (uint32_t)((pace_seconds - (float)total_seconds) * 10.0f);
     
-    snprintf(buffer, buf_len, "%02u:%02u.%01u", minutes, seconds, tenths);
+    snprintf(buffer, buf_len, "%02" PRIu32 ":%02" PRIu32 ".%01" PRIu32, minutes, seconds, tenths);
 }

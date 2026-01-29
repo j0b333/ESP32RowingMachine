@@ -1,9 +1,0 @@
-
-
-# Load bootloader symbols
-set confirm off
-    # Bootloader elf was not found
-set confirm on
-
-# Load application symbols
-file /home/runner/work/ESP32RowingMachine/ESP32RowingMachine/build/bootloader/bootloader.elf

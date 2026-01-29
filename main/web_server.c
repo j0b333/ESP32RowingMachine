@@ -349,21 +349,6 @@ static esp_err_t ws_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
-/**
- * Async send structure
- */
-typedef struct {
-    httpd_handle_t hd;
-    int fd;
-} async_resp_arg_t;
-
-/**
- * Callback for async send completion
- */
-static void ws_async_send(void *arg) {
-    // Placeholder for async completion handling
-}
-
 // ============================================================================
 // URI Definitions
 // ============================================================================

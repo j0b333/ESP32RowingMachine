@@ -92,10 +92,6 @@ static void metrics_update_task(void *arg) {
 static void broadcast_task(void *arg) {
     ESP_LOGI(TAG, "Broadcast task started");
     
-    TickType_t last_wake_time = xTaskGetTickCount();
-    const TickType_t ble_period = pdMS_TO_TICKS(BLE_NOTIFY_INTERVAL_MS);
-    const TickType_t ws_period = pdMS_TO_TICKS(WS_BROADCAST_INTERVAL_MS);
-    
     uint32_t ble_counter = 0;
     uint32_t ws_counter = 0;
     const uint32_t ble_divisor = BLE_NOTIFY_INTERVAL_MS / 100;
