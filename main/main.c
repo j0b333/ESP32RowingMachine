@@ -36,6 +36,8 @@
 #include "web_server.h"
 #include "config_manager.h"
 #include "session_manager.h"
+#include "hr_receiver.h"
+#include "dns_server.h"
 #include "utils.h"
 
 static const char *TAG = "MAIN";
@@ -130,6 +132,9 @@ static void broadcast_task(void *arg) {
 static esp_err_t init_subsystems(void) {
     esp_err_t ret;
     
+    // Enable debug logging for DNS server to help diagnose captive portal issues
+    esp_log_level_set("DNS_SERVER", ESP_LOG_DEBUG);
+    
     // Initialize NVS and load configuration
     ESP_LOGI(TAG, "Initializing configuration manager...");
     ret = config_manager_init();
@@ -149,6 +154,13 @@ static esp_err_t init_subsystems(void) {
     ret = session_manager_init();
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Failed to initialize session manager");
+    }
+    
+    // Initialize heart rate receiver
+    ESP_LOGI(TAG, "Initializing heart rate receiver...");
+    ret = hr_receiver_init();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to initialize heart rate receiver");
     }
     
     // Initialize metrics calculator
@@ -183,12 +195,42 @@ static esp_err_t init_subsystems(void) {
             return ret;
         }
         
-        // Start WiFi in AP mode
-        ESP_LOGI(TAG, "Starting WiFi AP: %s", g_config.wifi_ssid);
-        ret = wifi_manager_start_ap(g_config.wifi_ssid, g_config.wifi_password);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to start WiFi AP");
-            return ret;
+        // Check if STA credentials are configured
+        bool sta_connected = false;
+        if (g_config.sta_configured && strlen(g_config.sta_ssid) > 0) {
+            ESP_LOGI(TAG, "Saved WiFi credentials found: %s", g_config.sta_ssid);
+            ESP_LOGI(TAG, "Attempting to connect (60 second timeout)...");
+            
+            // Try to connect with 60 second timeout
+            sta_connected = wifi_manager_connect_sta_with_timeout(
+                g_config.sta_ssid, 
+                g_config.sta_password, 
+                60  // 60 second timeout
+            );
+            
+            if (!sta_connected) {
+                ESP_LOGW(TAG, "Could not connect to %s within 60 seconds", g_config.sta_ssid);
+                ESP_LOGI(TAG, "Falling back to AP mode for WiFi provisioning");
+            }
+        } else {
+            ESP_LOGI(TAG, "No saved WiFi credentials, starting in provisioning mode");
+        }
+        
+        // Start WiFi in AP mode if STA not configured or connection failed
+        if (!sta_connected) {
+            ESP_LOGI(TAG, "Starting WiFi AP: %s", g_config.wifi_ssid);
+            ret = wifi_manager_start_ap(g_config.wifi_ssid, g_config.wifi_password);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to start WiFi AP");
+                return ret;
+            }
+            
+            // Start DNS server for captive portal (only in AP mode)
+            ESP_LOGI(TAG, "Starting DNS server for captive portal...");
+            esp_err_t dns_ret = dns_server_start("192.168.4.1");
+            if (dns_ret != ESP_OK) {
+                ESP_LOGW(TAG, "DNS server failed to start - captive portal may not work automatically");
+            }
         }
         
         // Start web server
@@ -204,8 +246,14 @@ static esp_err_t init_subsystems(void) {
         wifi_manager_get_ip_string(ip_str, sizeof(ip_str));
         ESP_LOGI(TAG, "====================================");
         ESP_LOGI(TAG, "  Web interface: http://%s", ip_str);
-        ESP_LOGI(TAG, "  WiFi SSID: %s", g_config.wifi_ssid);
-        ESP_LOGI(TAG, "  WiFi Password: %s", g_config.wifi_password);
+        ESP_LOGI(TAG, "  Also available at: http://rower.local");
+        if (sta_connected) {
+            ESP_LOGI(TAG, "  Mode: Station (connected to %s)", g_config.sta_ssid);
+        } else {
+            ESP_LOGI(TAG, "  Mode: Access Point (Captive Portal)");
+            ESP_LOGI(TAG, "  WiFi SSID: %s", g_config.wifi_ssid);
+            ESP_LOGI(TAG, "  Setup page: http://%s/setup", ip_str);
+        }
         ESP_LOGI(TAG, "====================================");
     }
     
@@ -318,6 +366,7 @@ void app_main(void) {
     wifi_manager_deinit();
     ble_ftms_deinit();
     sensor_manager_deinit();
+    hr_receiver_deinit();
     
     ESP_LOGI(TAG, "Shutdown complete");
 }

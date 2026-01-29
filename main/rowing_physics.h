@@ -112,8 +112,11 @@ typedef struct {
     uint32_t idle_timeout_ms;           // Inactivity timeout
     
     // ============ Network Settings ============
-    char wifi_ssid[32];                 // WiFi SSID (AP mode or STA)
-    char wifi_password[64];             // WiFi password
+    char wifi_ssid[32];                 // WiFi AP SSID (for ESP32's own AP)
+    char wifi_password[64];             // WiFi AP password
+    char sta_ssid[32];                  // WiFi STA SSID (router to connect to)
+    char sta_password[64];              // WiFi STA password
+    bool sta_configured;                // Whether STA credentials are configured
     char device_name[32];               // BLE device name
     bool wifi_enabled;                  // Enable WiFi subsystem
     bool ble_enabled;                   // Enable BLE subsystem

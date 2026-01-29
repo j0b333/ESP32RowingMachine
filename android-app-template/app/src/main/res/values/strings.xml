@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">RowingSync</string>
+    <string name="no_sessions">No sessions found</string>
+    <string name="connect_failed">Failed to connect to ESP32</string>
+    <string name="sync_success">Session synced successfully</string>
+    <string name="sync_failed">Failed to sync session</string>
+    <string name="health_connect_not_available">Health Connect is not available</string>
+    <string name="permissions_required">Health Connect permissions required</string>
+</resources>

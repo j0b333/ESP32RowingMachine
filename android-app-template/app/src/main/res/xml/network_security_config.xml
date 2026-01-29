@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Allow cleartext HTTP for local network ESP32 access -->
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- Common local IP ranges -->
+        <domain includeSubdomains="true">192.168.0.0</domain>
+        <domain includeSubdomains="true">192.168.1.0</domain>
+        <domain includeSubdomains="true">192.168.4.1</domain>
+        <domain includeSubdomains="true">10.0.0.0</domain>
+        <domain includeSubdomains="true">172.16.0.0</domain>
+        <!-- mDNS hostname -->
+        <domain includeSubdomains="true">rowing.local</domain>
+    </domain-config>
+</network-security-config>

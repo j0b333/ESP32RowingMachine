@@ -13,6 +13,7 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "mdns.h"
 #include "lwip/inet.h"
 
 #include "freertos/FreeRTOS.h"
@@ -23,6 +24,9 @@
 #include <inttypes.h>
 
 static const char *TAG = "WIFI";
+
+// mDNS hostname (rower.local)
+#define MDNS_HOSTNAME "rower"
 
 // Event bits for WiFi events
 #define WIFI_CONNECTED_BIT      BIT0
@@ -42,6 +46,7 @@ static esp_netif_t *s_netif_sta = NULL;
 // Current mode and state
 static wifi_operating_mode_t s_current_mode = WIFI_OPERATING_MODE_AP;
 static bool s_wifi_initialized = false;
+static bool s_mdns_initialized = false;
 static int s_retry_count = 0;
 static const int MAX_RETRY = 5;
 
@@ -239,6 +244,48 @@ esp_err_t wifi_manager_init(void) {
 }
 
 /**
+ * Initialize mDNS service
+ */
+static esp_err_t init_mdns(void) {
+    // Prevent double initialization
+    if (s_mdns_initialized) {
+        ESP_LOGD(TAG, "mDNS already initialized");
+        return ESP_OK;
+    }
+    
+    esp_err_t ret = mdns_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "mDNS init failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    
+    // Set hostname: rower.local
+    ret = mdns_hostname_set(MDNS_HOSTNAME);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "mDNS hostname set failed: %s", esp_err_to_name(ret));
+        mdns_free();
+        return ret;
+    }
+    
+    // Set instance name (log but don't fail on error)
+    ret = mdns_instance_name_set("Crivit Rowing Monitor");
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "mDNS instance name set failed: %s", esp_err_to_name(ret));
+    }
+    
+    // Add HTTP service (log but don't fail on error)
+    ret = mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "mDNS service add failed: %s", esp_err_to_name(ret));
+    }
+    
+    s_mdns_initialized = true;
+    ESP_LOGI(TAG, "mDNS started: %s.local", MDNS_HOSTNAME);
+    
+    return ESP_OK;
+}
+
+/**
  * Deinitialize WiFi subsystem
  */
 void wifi_manager_deinit(void) {
@@ -247,6 +294,12 @@ void wifi_manager_deinit(void) {
     if (!s_wifi_initialized) {
         WIFI_MUTEX_GIVE();
         return;
+    }
+    
+    // Stop mDNS first
+    if (s_mdns_initialized) {
+        mdns_free();
+        s_mdns_initialized = false;
     }
     
     wifi_manager_stop();
@@ -344,6 +397,9 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
     // Get AP IP address
     esp_netif_get_ip_info(s_netif_ap, &s_ip_info);
     
+    // Initialize mDNS for rower.local
+    init_mdns();
+    
     s_current_mode = WIFI_OPERATING_MODE_AP;
     ESP_LOGI(TAG, "WiFi AP started: SSID=%s, IP=" IPSTR, ssid, IP2STR(&s_ip_info.ip));
     
@@ -415,6 +471,9 @@ esp_err_t wifi_manager_start_sta(const char *ssid, const char *password) {
                                             pdMS_TO_TICKS(30000));
     
     if (bits & WIFI_CONNECTED_BIT) {
+        // Initialize mDNS for rower.local
+        init_mdns();
+        
         s_current_mode = WIFI_OPERATING_MODE_STA;
         ESP_LOGI(TAG, "Connected to WiFi: %s", ssid);
         return ESP_OK;
@@ -425,6 +484,124 @@ esp_err_t wifi_manager_start_sta(const char *ssid, const char *password) {
     
     ESP_LOGE(TAG, "WiFi connection timeout");
     return ESP_ERR_TIMEOUT;
+}
+
+/**
+ * Start WiFi in Station mode with custom timeout
+ * Attempts to connect for up to timeout_sec seconds, then returns failure.
+ */
+bool wifi_manager_connect_sta_with_timeout(const char *ssid, const char *password, uint32_t timeout_sec) {
+    WIFI_MUTEX_TAKE();
+    
+    if (!s_wifi_initialized) {
+        ESP_LOGE(TAG, "WiFi not initialized");
+        WIFI_MUTEX_GIVE();
+        return false;
+    }
+    
+    if (ssid == NULL || strlen(ssid) == 0) {
+        ESP_LOGE(TAG, "Invalid SSID");
+        WIFI_MUTEX_GIVE();
+        return false;
+    }
+    
+    esp_err_t ret;
+    
+    // Reset retry counter and clear event bits
+    s_retry_count = 0;
+    xEventGroupClearBits(s_wifi_event_group, WIFI_STARTED_BIT | WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+    
+    // Set mode to STA
+    ret = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set STA mode: %s", esp_err_to_name(ret));
+        WIFI_MUTEX_GIVE();
+        return false;
+    }
+    
+    // Configure STA
+    wifi_config_t wifi_config = {
+        .sta = {
+            .threshold.authmode = WIFI_AUTH_WPA_PSK,  // Allow WPA and WPA2
+            .pmf_cfg = {
+                .capable = true,
+                .required = false,
+            },
+        },
+    };
+    
+    strncpy((char *)wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid) - 1);
+    wifi_config.sta.ssid[sizeof(wifi_config.sta.ssid) - 1] = '\0';
+    
+    if (password != NULL) {
+        strncpy((char *)wifi_config.sta.password, password, sizeof(wifi_config.sta.password) - 1);
+        wifi_config.sta.password[sizeof(wifi_config.sta.password) - 1] = '\0';
+    }
+    
+    ret = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set STA config: %s", esp_err_to_name(ret));
+        WIFI_MUTEX_GIVE();
+        return false;
+    }
+    
+    // Start WiFi
+    ret = esp_wifi_start();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start WiFi: %s", esp_err_to_name(ret));
+        WIFI_MUTEX_GIVE();
+        return false;
+    }
+    
+    // Release mutex before waiting (to prevent deadlock)
+    WIFI_MUTEX_GIVE();
+    
+    ESP_LOGI(TAG, "Waiting for WiFi connection (up to %lu seconds)...", (unsigned long)timeout_sec);
+    
+    // Wait in 10-second intervals for better progress feedback
+    uint32_t elapsed = 0;
+    const uint32_t check_interval = 10; // seconds
+    
+    while (elapsed < timeout_sec) {
+        uint32_t remaining = timeout_sec - elapsed;
+        uint32_t wait_time = (remaining < check_interval) ? remaining : check_interval;
+        
+        EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
+                                                WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+                                                pdFALSE, pdFALSE,
+                                                pdMS_TO_TICKS(wait_time * 1000));
+        
+        if (bits & WIFI_CONNECTED_BIT) {
+            // Initialize mDNS for rower.local
+            init_mdns();
+            
+            s_current_mode = WIFI_OPERATING_MODE_STA;
+            ESP_LOGI(TAG, "Successfully connected to WiFi: %s", ssid);
+            return true;
+        }
+        
+        if (bits & WIFI_FAIL_BIT) {
+            ESP_LOGW(TAG, "Connection failed after retries");
+            // Stop WiFi to clean up
+            esp_wifi_stop();
+            return false;
+        }
+        
+        elapsed += wait_time;
+        
+        if (elapsed < timeout_sec) {
+            ESP_LOGI(TAG, "Still trying to connect... (%lu seconds remaining)", 
+                     (unsigned long)(timeout_sec - elapsed));
+        }
+    }
+    
+    // Timeout reached
+    ESP_LOGW(TAG, "Failed to connect to %s within %lu seconds", ssid, (unsigned long)timeout_sec);
+    
+    // Stop WiFi to clean up before fallback
+    esp_wifi_stop();
+    
+    return false;
 }
 
 /**
@@ -471,4 +648,112 @@ int wifi_manager_get_station_count(void) {
         return 0;
     }
     return sta_list.num;
+}
+
+/**
+ * Scan for available WiFi networks
+ * @param ap_records Array to store scan results (must be pre-allocated)
+ * @param max_records Maximum number of records to return
+ * @return Number of networks found
+ */
+int wifi_manager_scan(wifi_ap_record_t *ap_records, uint16_t max_records) {
+    if (ap_records == NULL || max_records == 0) {
+        return 0;
+    }
+    
+    esp_err_t ret;
+    wifi_mode_t original_mode;
+    
+    // Get current WiFi mode
+    ret = esp_wifi_get_mode(&original_mode);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get WiFi mode: %s", esp_err_to_name(ret));
+        return 0;
+    }
+    
+    // If in pure AP mode, we need to switch to APSTA mode to scan
+    // Scanning requires the STA interface to be active
+    bool switched_mode = false;
+    if (original_mode == WIFI_MODE_AP) {
+        ESP_LOGI(TAG, "Switching to APSTA mode for scanning...");
+        
+        // Create STA netif if not exists
+        if (s_netif_sta == NULL) {
+            s_netif_sta = esp_netif_create_default_wifi_sta();
+        }
+        
+        ret = esp_wifi_set_mode(WIFI_MODE_APSTA);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to set APSTA mode: %s", esp_err_to_name(ret));
+            return 0;
+        }
+        switched_mode = true;
+        
+        // Small delay to let mode switch take effect
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    
+    // Configure scan - use passive scan which is more reliable
+    wifi_scan_config_t scan_config = {
+        .ssid = NULL,
+        .bssid = NULL,
+        .channel = 0,
+        .show_hidden = false,
+        .scan_type = WIFI_SCAN_TYPE_PASSIVE,
+        .scan_time.passive = 0,  // Use ESP-IDF default (required when BT is enabled)
+    };
+    
+    ESP_LOGI(TAG, "Starting WiFi scan...");
+    
+    // Start blocking scan
+    ret = esp_wifi_scan_start(&scan_config, true);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "WiFi scan failed: %s", esp_err_to_name(ret));
+        // Restore original mode if we switched
+        if (switched_mode) {
+            esp_wifi_set_mode(original_mode);
+        }
+        return 0;
+    }
+    
+    // Get number of APs found
+    uint16_t ap_count = 0;
+    ret = esp_wifi_scan_get_ap_num(&ap_count);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get AP count: %s", esp_err_to_name(ret));
+        if (switched_mode) {
+            esp_wifi_set_mode(original_mode);
+        }
+        return 0;
+    }
+    
+    ESP_LOGI(TAG, "Found %d access points", ap_count);
+    
+    // Limit to max records
+    uint16_t records_to_get = (ap_count < max_records) ? ap_count : max_records;
+    
+    // Get AP records
+    ret = esp_wifi_scan_get_ap_records(&records_to_get, ap_records);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get AP records: %s", esp_err_to_name(ret));
+        if (switched_mode) {
+            esp_wifi_set_mode(original_mode);
+        }
+        return 0;
+    }
+    
+    // Restore original mode if we switched (keep AP running for provisioning)
+    if (switched_mode) {
+        ESP_LOGI(TAG, "Restoring AP mode after scan");
+        esp_wifi_set_mode(original_mode);
+    }
+    
+    return records_to_get;
+}
+
+/**
+ * Get current operating mode
+ */
+wifi_operating_mode_t wifi_manager_get_mode(void) {
+    return s_current_mode;
 }

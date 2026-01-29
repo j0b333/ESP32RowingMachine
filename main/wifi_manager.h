@@ -9,6 +9,7 @@
 #define WIFI_MANAGER_H
 
 #include "esp_err.h"
+#include "esp_wifi_types.h"
 #include "rowing_physics.h"
 
 /**
@@ -49,6 +50,17 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password);
 esp_err_t wifi_manager_start_sta(const char *ssid, const char *password);
 
 /**
+ * Start WiFi in Station mode with custom timeout
+ * Attempts to connect for up to timeout_sec seconds, then returns failure.
+ * 
+ * @param ssid Network SSID to connect to
+ * @param password Network password
+ * @param timeout_sec Maximum time to wait for connection (seconds)
+ * @return true if connected, false if timeout or failure
+ */
+bool wifi_manager_connect_sta_with_timeout(const char *ssid, const char *password, uint32_t timeout_sec);
+
+/**
  * Stop WiFi
  */
 void wifi_manager_stop(void);
@@ -72,5 +84,19 @@ bool wifi_manager_is_connected(void);
  * @return Number of connected clients
  */
 int wifi_manager_get_station_count(void);
+
+/**
+ * Scan for available WiFi networks
+ * @param ap_records Array to store scan results (must be pre-allocated)
+ * @param max_records Maximum number of records to return
+ * @return Number of networks found
+ */
+int wifi_manager_scan(wifi_ap_record_t *ap_records, uint16_t max_records);
+
+/**
+ * Get current operating mode
+ * @return Current WiFi mode
+ */
+wifi_operating_mode_t wifi_manager_get_mode(void);
 
 #endif // WIFI_MANAGER_H
