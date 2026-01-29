@@ -79,6 +79,10 @@
 // FTMS Update rate
 #define BLE_NOTIFY_INTERVAL_MS          500     // Send BLE notifications every 500ms
 
+// BLE HR Client configuration
+#define BLE_HR_CLIENT_ENABLED           1       // Enable BLE HR client by default
+#define BLE_HR_SCAN_TIMEOUT_SEC         120     // Scan timeout (matches Heart for Bluetooth pairing window)
+
 // ============================================================================
 // WIFI CONFIGURATION
 // ============================================================================
