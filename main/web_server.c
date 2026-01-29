@@ -120,9 +120,9 @@ static esp_err_t setup_handler(httpd_req_t *req) {
 static esp_err_t captive_portal_handler(httpd_req_t *req) {
     ESP_LOGI(TAG, "Captive portal redirect for: %s", req->uri);
     
-    // Return 302 redirect to setup page
+    // Return 302 redirect to setup page (use relative URL for flexibility)
     httpd_resp_set_status(req, "302 Found");
-    httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/setup");
+    httpd_resp_set_hdr(req, "Location", "/setup");
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
     httpd_resp_send(req, NULL, 0);
     

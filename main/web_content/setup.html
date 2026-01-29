@@ -211,7 +211,7 @@
         <div class="card">
             <h2>Connect to WiFi Network</h2>
             
-            <button id="btn-scan" class="btn btn-scan" onclick="scanNetworks()">
+            <button id="btn-scan" class="btn btn-scan">
                 🔍 Scan for Networks
             </button>
 
@@ -222,7 +222,7 @@
 
         <div class="card">
             <h2>Network Credentials</h2>
-            <form id="wifi-form" onsubmit="connectWifi(event)">
+            <form id="wifi-form">
                 <div class="form-group">
                     <label for="ssid">Network Name (SSID)</label>
                     <input type="text" id="ssid" name="ssid" placeholder="Select or enter network name" required>
@@ -242,7 +242,7 @@
             <p style="color: #94a3b8; margin-bottom: 15px; font-size: 0.9em;">
                 Clear saved WiFi credentials and stay in AP mode.
             </p>
-            <button class="btn btn-secondary" onclick="forgetWifi()">
+            <button id="btn-forget" class="btn btn-secondary">
                 Forget Network
             </button>
         </div>
@@ -252,9 +252,29 @@
 
     <script>
         let selectedNetwork = null;
+        let networksData = [];
 
-        // Check current status on load
-        document.addEventListener('DOMContentLoaded', checkStatus);
+        // Set up event listeners on DOM load
+        document.addEventListener('DOMContentLoaded', function() {
+            checkStatus();
+            
+            // Scan button
+            document.getElementById('btn-scan').addEventListener('click', scanNetworks);
+            
+            // Form submit
+            document.getElementById('wifi-form').addEventListener('submit', connectWifi);
+            
+            // Forget button
+            document.getElementById('btn-forget').addEventListener('click', forgetWifi);
+            
+            // Network list - event delegation for dynamically added items
+            document.getElementById('network-list').addEventListener('click', function(e) {
+                const item = e.target.closest('.network-item');
+                if (item && item.dataset.ssid) {
+                    selectNetwork(item.dataset.ssid, item);
+                }
+            });
+        });
 
         async function checkStatus() {
             try {
@@ -294,17 +314,28 @@
             try {
                 const response = await fetch('/api/wifi/scan');
                 const data = await response.json();
+                networksData = data.networks || [];
                 
-                if (data.networks && data.networks.length > 0) {
-                    listEl.innerHTML = data.networks.map(net => `
-                        <div class="network-item" onclick="selectNetwork('${escapeHtml(net.ssid)}', this)">
-                            <span class="network-name">${escapeHtml(net.ssid)}</span>
-                            <span class="network-info">
-                                ${net.secure ? '<span class="lock-icon">🔒</span>' : ''}
-                                ${getSignalBars(net.rssi)}
-                            </span>
-                        </div>
-                    `).join('');
+                if (networksData.length > 0) {
+                    listEl.innerHTML = '';
+                    networksData.forEach((net, index) => {
+                        const item = document.createElement('div');
+                        item.className = 'network-item';
+                        item.dataset.ssid = net.ssid;
+                        item.dataset.index = index;
+                        
+                        const nameSpan = document.createElement('span');
+                        nameSpan.className = 'network-name';
+                        nameSpan.textContent = net.ssid;
+                        
+                        const infoSpan = document.createElement('span');
+                        infoSpan.className = 'network-info';
+                        infoSpan.innerHTML = (net.secure ? '<span class="lock-icon">🔒</span>' : '') + getSignalBars(net.rssi);
+                        
+                        item.appendChild(nameSpan);
+                        item.appendChild(infoSpan);
+                        listEl.appendChild(item);
+                    });
                 } else {
                     listEl.innerHTML = '<p style="color: #94a3b8; text-align: center;">No networks found</p>';
                 }
@@ -332,11 +363,6 @@
             </span>`;
         }
 
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
 
         async function connectWifi(event) {
             event.preventDefault();

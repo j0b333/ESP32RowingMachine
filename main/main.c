@@ -216,7 +216,10 @@ static esp_err_t init_subsystems(void) {
             
             // Start DNS server for captive portal (only in AP mode)
             ESP_LOGI(TAG, "Starting DNS server for captive portal...");
-            dns_server_start("192.168.4.1");
+            esp_err_t dns_ret = dns_server_start("192.168.4.1");
+            if (dns_ret != ESP_OK) {
+                ESP_LOGW(TAG, "DNS server failed to start - captive portal may not work automatically");
+            }
         }
         
         // Start web server
@@ -238,7 +241,7 @@ static esp_err_t init_subsystems(void) {
         } else {
             ESP_LOGI(TAG, "  Mode: Access Point (Captive Portal)");
             ESP_LOGI(TAG, "  WiFi SSID: %s", g_config.wifi_ssid);
-            ESP_LOGI(TAG, "  Setup page: http://192.168.4.1/setup");
+            ESP_LOGI(TAG, "  Setup page: http://%s/setup", ip_str);
         }
         ESP_LOGI(TAG, "====================================");
     }

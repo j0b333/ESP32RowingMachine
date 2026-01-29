@@ -35,22 +35,31 @@ static TaskHandle_t s_dns_task_handle = NULL;
 static bool s_running = false;
 static uint32_t s_redirect_ip = 0;
 
+// Answer section size: 2 (name ptr) + 2 (type) + 2 (class) + 4 (ttl) + 2 (rdlen) + 4 (IP) = 16 bytes
+#define DNS_ANSWER_SIZE 16
+
 /**
  * Parse DNS question name and return pointer to next section
+ * Returns NULL if parsing fails or bounds are exceeded
  */
-static const uint8_t* parse_dns_name(const uint8_t *query, const uint8_t *packet_start, 
+static const uint8_t* parse_dns_name(const uint8_t *query, const uint8_t *packet_end,
                                       char *name_out, size_t name_max) {
     const uint8_t *p = query;
     size_t name_len = 0;
     
-    while (*p != 0) {
+    // Safety limit to prevent infinite loops
+    int max_iterations = 128;
+    
+    while (p < packet_end && *p != 0 && max_iterations-- > 0) {
         if ((*p & 0xC0) == 0xC0) {
             // Compression pointer - skip 2 bytes
+            if (p + 2 > packet_end) return NULL;
             p += 2;
             break;
         }
         
         uint8_t label_len = *p++;
+        if (p + label_len > packet_end) return NULL;
         if (name_len + label_len + 1 >= name_max) break;
         
         if (name_len > 0) {
@@ -62,7 +71,7 @@ static const uint8_t* parse_dns_name(const uint8_t *query, const uint8_t *packet
         p += label_len;
     }
     
-    if (*p == 0) p++;  // Skip null terminator
+    if (p < packet_end && *p == 0) p++;  // Skip null terminator
     
     name_out[name_len] = '\0';
     return p;
@@ -73,7 +82,13 @@ static const uint8_t* parse_dns_name(const uint8_t *query, const uint8_t *packet
  */
 static int build_dns_response(const uint8_t *query, int query_len, 
                                uint8_t *response, size_t response_max) {
+    // Validate input
     if (query_len < (int)sizeof(dns_header_t) + 5) {
+        return -1;
+    }
+    
+    // Check if response will fit (query + answer section)
+    if ((size_t)(query_len + DNS_ANSWER_SIZE) > response_max) {
         return -1;
     }
     
@@ -86,10 +101,15 @@ static int build_dns_response(const uint8_t *query, int query_len,
     header->flags = htons(0x8180);  // Standard response, no error
     header->ancount = htons(1);     // One answer
     
-    // Find end of question section
+    // Find end of question section with bounds checking
+    const uint8_t *packet_end = query + query_len;
     const uint8_t *q_ptr = query + sizeof(dns_header_t);
     char qname[128];
-    q_ptr = parse_dns_name(q_ptr, query, qname, sizeof(qname));
+    q_ptr = parse_dns_name(q_ptr, packet_end, qname, sizeof(qname));
+    
+    if (q_ptr == NULL || q_ptr + 4 > packet_end) {
+        return -1;  // Malformed packet
+    }
     q_ptr += 4;  // Skip QTYPE and QCLASS
     
     ESP_LOGD(TAG, "DNS query for: %s", qname);
@@ -237,15 +257,19 @@ void dns_server_stop(void) {
         return;
     }
     
-    s_running = false;
-    
+    // Close socket first to unblock recvfrom
     if (s_dns_socket >= 0) {
+        shutdown(s_dns_socket, SHUT_RDWR);
         close(s_dns_socket);
         s_dns_socket = -1;
     }
     
+    // Now signal task to stop
+    s_running = false;
+    
     // Wait for task to finish
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(200));
+    s_dns_task_handle = NULL;
     
     ESP_LOGI(TAG, "DNS server stopped");
 }
