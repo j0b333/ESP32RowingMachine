@@ -230,7 +230,7 @@ static esp_err_t init_subsystems(void) {
             }
         }
         
-        // Start DNS server for captive portal (AP is always running in APSTA mode)
+        // Start DNS server for captive portal (AP is running in both AP-only and APSTA modes)
         ESP_LOGI(TAG, "Starting DNS server for captive portal...");
         esp_err_t dns_ret = dns_server_start("192.168.4.1");
         if (dns_ret != ESP_OK) {

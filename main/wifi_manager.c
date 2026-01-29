@@ -656,8 +656,10 @@ esp_err_t wifi_manager_start_apsta(const char *ap_ssid, const char *ap_password,
     };
     
     strncpy((char *)ap_config.ap.ssid, ap_ssid, sizeof(ap_config.ap.ssid) - 1);
+    ap_config.ap.ssid[sizeof(ap_config.ap.ssid) - 1] = '\0';
     if (ap_password != NULL && strlen(ap_password) >= 8) {
         strncpy((char *)ap_config.ap.password, ap_password, sizeof(ap_config.ap.password) - 1);
+        ap_config.ap.password[sizeof(ap_config.ap.password) - 1] = '\0';
     }
     
     ret = esp_wifi_set_config(WIFI_IF_AP, &ap_config);
@@ -749,12 +751,21 @@ esp_err_t wifi_manager_start_apsta(const char *ap_ssid, const char *ap_password,
         }
         
         // STA connection failed or timed out, but AP is still running
-        ESP_LOGW(TAG, "STA connection failed, falling back to AP-only mode");
-        s_current_mode = WIFI_OPERATING_MODE_AP;
+        // Get AP IP address so clients can still connect via AP
+        esp_netif_get_ip_info(s_netif_ap, &s_ip_info);
+        init_mdns();
+        
+        ESP_LOGW(TAG, "STA connection failed/timed out, AP is still running at " IPSTR, 
+                 IP2STR(&s_ip_info.ip));
+        // Note: Hardware is in APSTA mode, but we track as AP since STA is not connected
+        s_current_mode = WIFI_OPERATING_MODE_APSTA;
         return ESP_ERR_TIMEOUT;
     }
     
-    // No timeout specified, just start APSTA mode
+    // No timeout specified, just start APSTA mode without waiting
+    // Caller should poll wifi_manager_is_connected() to check STA status
+    esp_netif_get_ip_info(s_netif_ap, &s_ip_info);
+    init_mdns();
     s_current_mode = WIFI_OPERATING_MODE_APSTA;
     return ESP_OK;
 }
