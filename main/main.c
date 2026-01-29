@@ -132,6 +132,9 @@ static void broadcast_task(void *arg) {
 static esp_err_t init_subsystems(void) {
     esp_err_t ret;
     
+    // Enable debug logging for DNS server to help diagnose captive portal issues
+    esp_log_level_set("DNS_SERVER", ESP_LOG_DEBUG);
+    
     // Initialize NVS and load configuration
     ESP_LOGI(TAG, "Initializing configuration manager...");
     ret = config_manager_init();
