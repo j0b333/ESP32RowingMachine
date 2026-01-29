@@ -32,6 +32,14 @@ body {
 .container {
     max-width: 1200px;
     margin: 0 auto;
+    height: calc(100vh - var(--nav-height) - 10px);
+    display: flex;
+    flex-direction: column;
+}
+
+main {
+    flex: 1;
+    overflow-y: auto;
 }
 
 /* Hidden utility class */
@@ -450,7 +458,7 @@ footer {
 
 .nav-tabs {
     display: flex;
-    gap: 0;
+    gap: 4px;
     align-items: stretch;
 }
 
