@@ -322,8 +322,12 @@ static void ws_remove_client(int fd) {
  */
 static esp_err_t ws_handler(httpd_req_t *req) {
     if (req->method == HTTP_GET) {
-        // WebSocket handshake
-        ESP_LOGI(TAG, "WebSocket handshake initiated");
+        // WebSocket handshake - add client to tracking list
+        int sock = httpd_req_to_sockfd(req);
+        if (sock >= 0) {
+            ws_add_client(sock);
+        }
+        ESP_LOGI(TAG, "WebSocket handshake completed for fd=%d", sock);
         return ESP_OK;
     }
     
@@ -455,18 +459,25 @@ static const httpd_uri_t uri_ws = {
 };
 
 // ============================================================================
-// Open/Close Callbacks for WebSocket tracking
+// Open/Close Callbacks for connection tracking
 // ============================================================================
 
+/**
+ * Called for ALL new HTTP connections (not just WebSocket)
+ * Do NOT add to WebSocket client list here - that's done in ws_handler
+ */
 static esp_err_t ws_open_callback(httpd_handle_t hd, int sockfd) {
-    ESP_LOGI(TAG, "New connection on fd %d", sockfd);
-    ws_add_client(sockfd);
+    ESP_LOGD(TAG, "New HTTP connection on fd %d", sockfd);
     return ESP_OK;
 }
 
+/**
+ * Called when any connection closes
+ * Clean up WebSocket client if it was one
+ */
 static void ws_close_callback(httpd_handle_t hd, int sockfd) {
-    ESP_LOGI(TAG, "Connection closed on fd %d", sockfd);
-    ws_remove_client(sockfd);
+    ESP_LOGD(TAG, "Connection closed on fd %d", sockfd);
+    ws_remove_client(sockfd);  // Safe to call even if not a WS client
 }
 
 // ============================================================================
