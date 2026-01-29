@@ -88,9 +88,35 @@ extern const char favicon_ico_end[]   asm("_binary_favicon_ico_end");
 // ============================================================================
 
 /**
- * Serve main HTML page (rowing monitor)
+ * Serve main HTML page (rowing monitor) or redirect to setup in AP mode
  */
 static esp_err_t index_handler(httpd_req_t *req) {
+    // In AP mode, redirect to setup page for captive portal
+    if (wifi_manager_get_mode() == WIFI_OPERATING_MODE_AP) {
+        ESP_LOGI(TAG, "AP mode: redirecting / to /setup");
+        
+        // Return a simple HTML page that auto-redirects to setup
+        // This triggers captive portal detection on phones
+        static const char captive_response[] = 
+            "<!DOCTYPE html>"
+            "<html><head>"
+            "<meta http-equiv=\"refresh\" content=\"0; url=/setup\">"
+            "<title>WiFi Setup</title>"
+            "</head><body>"
+            "<h1>Redirecting to WiFi Setup...</h1>"
+            "<p><a href=\"/setup\">Click here if not redirected</a></p>"
+            "</body></html>";
+        
+        httpd_resp_set_type(req, "text/html");
+        httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+        httpd_resp_set_hdr(req, "Pragma", "no-cache");
+        httpd_resp_set_hdr(req, "Expires", "0");
+        httpd_resp_send(req, captive_response, sizeof(captive_response) - 1);
+        
+        return ESP_OK;
+    }
+    
+    // In STA mode, serve the rowing monitor
     const size_t index_html_size = (index_html_end - index_html_start);
     
     httpd_resp_set_type(req, "text/html");
