@@ -1310,6 +1310,7 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     httpd_config_t http_config = HTTPD_DEFAULT_CONFIG();
     http_config.server_port = WEB_SERVER_PORT;
     http_config.max_open_sockets = 7;
+    http_config.max_uri_handlers = 40;  // We have 30+ handlers, ensure enough slots
     http_config.lru_purge_enable = true;
     http_config.uri_match_fn = httpd_uri_match_wildcard;
     http_config.open_fn = ws_open_callback;
@@ -1317,7 +1318,8 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     http_config.recv_wait_timeout = 10;  // 10 second timeout for receive
     http_config.send_wait_timeout = 10;  // 10 second timeout for send
     
-    ESP_LOGI(TAG, "Starting web server on port %d", http_config.server_port);
+    ESP_LOGI(TAG, "Starting web server on port %d (max %d URI handlers)", 
+             http_config.server_port, http_config.max_uri_handlers);
     
     esp_err_t ret = httpd_start(&g_server, &http_config);
     if (ret != ESP_OK) {
@@ -1325,49 +1327,61 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
         return ret;
     }
     
+    // Helper macro to register and check handler
+    int registered = 0;
+    #define REGISTER_URI(handler) do { \
+        if (httpd_register_uri_handler(g_server, &handler) == ESP_OK) { \
+            registered++; \
+        } else { \
+            ESP_LOGW(TAG, "Failed to register: %s", handler.uri); \
+        } \
+    } while(0)
+    
     // Register URI handlers
-    httpd_register_uri_handler(g_server, &uri_index);
-    httpd_register_uri_handler(g_server, &uri_setup);
-    httpd_register_uri_handler(g_server, &uri_style);
-    httpd_register_uri_handler(g_server, &uri_app_js);
-    httpd_register_uri_handler(g_server, &uri_favicon);
-    httpd_register_uri_handler(g_server, &uri_api_metrics);
-    httpd_register_uri_handler(g_server, &uri_api_status);
-    httpd_register_uri_handler(g_server, &uri_api_reset);
-    httpd_register_uri_handler(g_server, &uri_api_config_get);
-    httpd_register_uri_handler(g_server, &uri_api_config_post);
-    httpd_register_uri_handler(g_server, &uri_ws);
+    REGISTER_URI(uri_index);
+    REGISTER_URI(uri_setup);
+    REGISTER_URI(uri_style);
+    REGISTER_URI(uri_app_js);
+    REGISTER_URI(uri_favicon);
+    REGISTER_URI(uri_api_metrics);
+    REGISTER_URI(uri_api_status);
+    REGISTER_URI(uri_api_reset);
+    REGISTER_URI(uri_api_config_get);
+    REGISTER_URI(uri_api_config_post);
+    REGISTER_URI(uri_ws);
     
     // Heart rate endpoints (HeartRateToWeb compatible)
-    httpd_register_uri_handler(g_server, &uri_hr_post);
-    httpd_register_uri_handler(g_server, &uri_hr_get);
+    REGISTER_URI(uri_hr_post);
+    REGISTER_URI(uri_hr_get);
     
     // Session management endpoints
-    httpd_register_uri_handler(g_server, &uri_api_sessions);
-    httpd_register_uri_handler(g_server, &uri_api_session_detail);
+    REGISTER_URI(uri_api_sessions);
+    REGISTER_URI(uri_api_session_detail);
     
     // Workout control endpoints
-    httpd_register_uri_handler(g_server, &uri_workout_start);
-    httpd_register_uri_handler(g_server, &uri_workout_stop);
-    httpd_register_uri_handler(g_server, &uri_live_data);
+    REGISTER_URI(uri_workout_start);
+    REGISTER_URI(uri_workout_stop);
+    REGISTER_URI(uri_live_data);
     
     // WiFi captive portal endpoints
-    httpd_register_uri_handler(g_server, &uri_api_wifi_scan);
-    httpd_register_uri_handler(g_server, &uri_api_wifi_connect);
-    httpd_register_uri_handler(g_server, &uri_api_wifi_status);
-    httpd_register_uri_handler(g_server, &uri_api_wifi_disconnect);
+    REGISTER_URI(uri_api_wifi_scan);
+    REGISTER_URI(uri_api_wifi_connect);
+    REGISTER_URI(uri_api_wifi_status);
+    REGISTER_URI(uri_api_wifi_disconnect);
     
     // Captive portal detection handlers (redirect to setup page)
-    httpd_register_uri_handler(g_server, &uri_generate_204);
-    httpd_register_uri_handler(g_server, &uri_gen_204);
-    httpd_register_uri_handler(g_server, &uri_hotspot_detect);
-    httpd_register_uri_handler(g_server, &uri_canonical);
-    httpd_register_uri_handler(g_server, &uri_success);
-    httpd_register_uri_handler(g_server, &uri_ncsi);
-    httpd_register_uri_handler(g_server, &uri_connecttest);
-    httpd_register_uri_handler(g_server, &uri_redirect);
+    REGISTER_URI(uri_generate_204);
+    REGISTER_URI(uri_gen_204);
+    REGISTER_URI(uri_hotspot_detect);
+    REGISTER_URI(uri_canonical);
+    REGISTER_URI(uri_success);
+    REGISTER_URI(uri_ncsi);
+    REGISTER_URI(uri_connecttest);
+    REGISTER_URI(uri_redirect);
     
-    ESP_LOGI(TAG, "Web server started successfully with captive portal support");
+    #undef REGISTER_URI
+    
+    ESP_LOGI(TAG, "Web server started successfully (%d handlers registered)", registered);
     return ESP_OK;
 }
 
