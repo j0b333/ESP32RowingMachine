@@ -66,8 +66,15 @@ void rowing_physics_reset(rowing_metrics_t *metrics) {
  * Update elapsed time
  */
 void rowing_physics_update_elapsed_time(rowing_metrics_t *metrics) {
+    // Don't update elapsed time if paused
+    if (metrics->is_paused) {
+        return;
+    }
+    
     int64_t now = esp_timer_get_time();
-    metrics->elapsed_time_ms = (uint32_t)((now - metrics->session_start_time_us) / 1000);
+    // Subtract total paused time from elapsed
+    uint32_t raw_elapsed_ms = (uint32_t)((now - metrics->session_start_time_us) / 1000);
+    metrics->elapsed_time_ms = raw_elapsed_ms - metrics->total_paused_time_ms;
 }
 
 /**

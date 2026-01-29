@@ -120,6 +120,7 @@ int metrics_calculator_to_json(const rowing_metrics_t *metrics, char *buffer, si
         "\"elapsedTime\":%lu,"
         "\"dragFactor\":%.1f,"
         "\"isActive\":%s,"
+        "\"isPaused\":%s,"
         "\"phase\":\"%s\","
         "\"heartRate\":%u,"
         "\"avgHeartRate\":%u,"
@@ -142,6 +143,7 @@ int metrics_calculator_to_json(const rowing_metrics_t *metrics, char *buffer, si
         (unsigned long)(metrics->elapsed_time_ms / 1000),
         metrics->drag_factor,
         metrics->is_active ? "true" : "false",
+        metrics->is_paused ? "true" : "false",
         metrics->current_phase == STROKE_PHASE_IDLE ? "idle" : 
             (metrics->current_phase == STROKE_PHASE_DRIVE ? "drive" : "recovery"),
         (unsigned int)heart_rate,

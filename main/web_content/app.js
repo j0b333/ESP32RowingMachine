@@ -299,21 +299,31 @@ async function toggleStartPause() {
                 elements.btnStartPause.classList.add('running');
             }
         } else if (!workoutPaused) {
-            // Pause workout (UI state only - metrics continue accumulating)
-            workoutPaused = true;
-            elements.btnStartPause.textContent = '▶ Resume';
-            elements.btnStartPause.classList.remove('running');
-            elements.btnStartPause.classList.add('paused');
+            // Pause workout - call server to stop recording metrics
+            const response = await fetch('/workout/pause', { method: 'POST' });
+            if (!response.ok) throw new Error('Server error');
+            const data = await response.json();
+            if (data.success) {
+                workoutPaused = true;
+                elements.btnStartPause.textContent = '▶ Resume';
+                elements.btnStartPause.classList.remove('running');
+                elements.btnStartPause.classList.add('paused');
+            }
         } else {
-            // Resume workout
-            workoutPaused = false;
-            elements.btnStartPause.textContent = '⏸ Pause';
-            elements.btnStartPause.classList.remove('paused');
-            elements.btnStartPause.classList.add('running');
+            // Resume workout - call server to resume recording metrics
+            const response = await fetch('/workout/resume', { method: 'POST' });
+            if (!response.ok) throw new Error('Server error');
+            const data = await response.json();
+            if (data.success) {
+                workoutPaused = false;
+                elements.btnStartPause.textContent = '⏸ Pause';
+                elements.btnStartPause.classList.remove('paused');
+                elements.btnStartPause.classList.add('running');
+            }
         }
     } catch (e) {
-        console.error('Failed to start workout:', e);
-        alert('Failed to start workout. Please check connection.');
+        console.error('Failed to control workout:', e);
+        alert('Failed to control workout. Please check connection.');
     } finally {
         elements.btnStartPause.disabled = false;
     }
