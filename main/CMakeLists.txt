@@ -29,5 +29,4 @@ idf_component_register(
         bt
         esp_netif
         cJSON
-        mdns
 )
