@@ -18,14 +18,33 @@ For syncing workouts to Samsung Health/Google Fit via Health Connect, see the co
 
 ## Heart Rate Monitor Setup (Optional)
 
-The BLE Heart Rate Client feature is **disabled by default** due to requiring additional NimBLE configuration.
+The BLE Heart Rate Client feature is **disabled by default** because it requires additional NimBLE configuration that isn't enabled by default in ESP-IDF.
 
 ### Enabling BLE Heart Rate Client
 
-1. Edit `main/app_config.h` and set `BLE_HR_CLIENT_ENABLED` to `1`
-2. Run `idf.py menuconfig` and enable:
-   - `Component config → Bluetooth → NimBLE → Enable BLE GATT Client support`
-3. Do a clean rebuild: `idf.py fullclean && idf.py build`
+1. **Edit `main/app_config.h`** and set:
+   ```c
+   #define BLE_HR_CLIENT_ENABLED           1
+   ```
+
+2. **Run `idf.py menuconfig`** and enable these options:
+   - `Component config → Bluetooth → NimBLE Options → Roles and Profiles`:
+     - ✅ Enable BLE Central role (`CONFIG_BT_NIMBLE_ROLE_CENTRAL`)
+     - ✅ Enable BLE Observer role (`CONFIG_BT_NIMBLE_ROLE_OBSERVER`)
+     - ✅ Enable BLE GATT Client support (`CONFIG_BT_NIMBLE_GATT_CLIENT`)
+
+   Your sdkconfig should have:
+   ```
+   CONFIG_BT_NIMBLE_ROLE_CENTRAL=y
+   CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
+   CONFIG_BT_NIMBLE_GATT_CLIENT=y
+   ```
+
+3. **Clean rebuild**:
+   ```bash
+   idf.py fullclean
+   idf.py build
+   ```
 
 ### Using Heart for Bluetooth
 
