@@ -46,6 +46,7 @@ static esp_netif_t *s_netif_sta = NULL;
 // Current mode and state
 static wifi_operating_mode_t s_current_mode = WIFI_OPERATING_MODE_AP;
 static bool s_wifi_initialized = false;
+static bool s_mdns_initialized = false;
 static int s_retry_count = 0;
 static const int MAX_RETRY = 5;
 
@@ -246,6 +247,12 @@ esp_err_t wifi_manager_init(void) {
  * Initialize mDNS service
  */
 static esp_err_t init_mdns(void) {
+    // Prevent double initialization
+    if (s_mdns_initialized) {
+        ESP_LOGD(TAG, "mDNS already initialized");
+        return ESP_OK;
+    }
+    
     esp_err_t ret = mdns_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "mDNS init failed: %s", esp_err_to_name(ret));
@@ -256,15 +263,23 @@ static esp_err_t init_mdns(void) {
     ret = mdns_hostname_set(MDNS_HOSTNAME);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "mDNS hostname set failed: %s", esp_err_to_name(ret));
+        mdns_free();
         return ret;
     }
     
-    // Set instance name
-    mdns_instance_name_set("Crivit Rowing Monitor");
+    // Set instance name (log but don't fail on error)
+    ret = mdns_instance_name_set("Crivit Rowing Monitor");
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "mDNS instance name set failed: %s", esp_err_to_name(ret));
+    }
     
-    // Add HTTP service
-    mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
+    // Add HTTP service (log but don't fail on error)
+    ret = mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "mDNS service add failed: %s", esp_err_to_name(ret));
+    }
     
+    s_mdns_initialized = true;
     ESP_LOGI(TAG, "mDNS started: %s.local", MDNS_HOSTNAME);
     
     return ESP_OK;
@@ -279,6 +294,12 @@ void wifi_manager_deinit(void) {
     if (!s_wifi_initialized) {
         WIFI_MUTEX_GIVE();
         return;
+    }
+    
+    // Stop mDNS first
+    if (s_mdns_initialized) {
+        mdns_free();
+        s_mdns_initialized = false;
     }
     
     wifi_manager_stop();

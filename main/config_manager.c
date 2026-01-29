@@ -116,17 +116,24 @@ esp_err_t config_manager_load(config_t *config) {
     nvs_get_str(handle, "wifi_pass", config->wifi_password, &len);
     
     // Network settings - STA mode
-    len = sizeof(config->sta_ssid);
-    if (nvs_get_str(handle, "sta_ssid", config->sta_ssid, &len) == ESP_OK && len > 1) {
-        config->sta_configured = true;
-    }
-    
-    len = sizeof(config->sta_password);
-    nvs_get_str(handle, "sta_pass", config->sta_password, &len);
-    
-    uint8_t sta_cfg = config->sta_configured ? 1 : 0;
+    // First read the sta_cfg flag to determine if STA was configured
+    uint8_t sta_cfg = 0;
     nvs_get_u8(handle, "sta_cfg", &sta_cfg);
-    config->sta_configured = sta_cfg != 0;
+    config->sta_configured = (sta_cfg != 0);
+    
+    // Then load the credentials if configured
+    if (config->sta_configured) {
+        len = sizeof(config->sta_ssid);
+        nvs_get_str(handle, "sta_ssid", config->sta_ssid, &len);
+        
+        len = sizeof(config->sta_password);
+        nvs_get_str(handle, "sta_pass", config->sta_password, &len);
+        
+        // Double-check: if SSID is empty, it's not really configured
+        if (strlen(config->sta_ssid) == 0) {
+            config->sta_configured = false;
+        }
+    }
     
     len = sizeof(config->device_name);
     nvs_get_str(handle, "dev_name", config->device_name, &len);

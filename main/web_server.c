@@ -614,23 +614,34 @@ static esp_err_t live_data_handler(httpd_req_t *req) {
 /**
  * GET /api/wifi/scan - Scan for available WiFi networks
  */
+#define MAX_WIFI_SCAN_RESULTS 20
+
 static esp_err_t api_wifi_scan_handler(httpd_req_t *req) {
     ESP_LOGI(TAG, "WiFi scan requested");
     
     // Allocate buffer for scan results
-    wifi_ap_record_t *ap_records = malloc(sizeof(wifi_ap_record_t) * 20);
+    wifi_ap_record_t *ap_records = malloc(sizeof(wifi_ap_record_t) * MAX_WIFI_SCAN_RESULTS);
     if (ap_records == NULL) {
         httpd_resp_send_500(req);
         return ESP_FAIL;
     }
     
-    int count = wifi_manager_scan(ap_records, 20);
+    int count = wifi_manager_scan(ap_records, MAX_WIFI_SCAN_RESULTS);
     
     cJSON *root = cJSON_CreateObject();
     cJSON *networks = cJSON_CreateArray();
     
+    if (root == NULL || networks == NULL) {
+        free(ap_records);
+        if (root) cJSON_Delete(root);
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
     for (int i = 0; i < count; i++) {
         cJSON *net = cJSON_CreateObject();
+        if (net == NULL) continue;  // Skip on allocation failure
+        
         cJSON_AddStringToObject(net, "ssid", (char *)ap_records[i].ssid);
         cJSON_AddNumberToObject(net, "rssi", ap_records[i].rssi);
         cJSON_AddNumberToObject(net, "channel", ap_records[i].primary);
@@ -676,7 +687,7 @@ static esp_err_t api_wifi_scan_handler(httpd_req_t *req) {
  * POST /api/wifi/connect - Save WiFi credentials and connect
  */
 static esp_err_t api_wifi_connect_handler(httpd_req_t *req) {
-    char content[256];
+    char content[512];  // Increased buffer for longer credentials
     int ret = httpd_req_recv(req, content, sizeof(content) - 1);
     if (ret <= 0) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid request");
@@ -708,12 +719,26 @@ static esp_err_t api_wifi_connect_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
     
+    // Validate lengths
+    if (strlen(ssid_str) > 31) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "SSID too long (max 31 chars)");
+        return ESP_FAIL;
+    }
+    if (pass_str && strlen(pass_str) > 63) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Password too long (max 63 chars)");
+        return ESP_FAIL;
+    }
+    
     ESP_LOGI(TAG, "WiFi connect request: SSID=%s", ssid_str);
     
-    // Save to config
+    // Save to config with explicit null termination
     if (g_config != NULL) {
         strncpy(g_config->sta_ssid, ssid_str, sizeof(g_config->sta_ssid) - 1);
+        g_config->sta_ssid[sizeof(g_config->sta_ssid) - 1] = '\0';
         strncpy(g_config->sta_password, pass_str ? pass_str : "", sizeof(g_config->sta_password) - 1);
+        g_config->sta_password[sizeof(g_config->sta_password) - 1] = '\0';
         g_config->sta_configured = true;
         config_manager_save(g_config);
     }
@@ -722,12 +747,21 @@ static esp_err_t api_wifi_connect_handler(httpd_req_t *req) {
     
     // Send success response
     cJSON *response = cJSON_CreateObject();
+    if (response == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
     cJSON_AddBoolToObject(response, "success", true);
     cJSON_AddStringToObject(response, "message", "WiFi credentials saved. Reboot to connect.");
     cJSON_AddStringToObject(response, "ssid", ssid_str);
     
     char *json_string = cJSON_PrintUnformatted(response);
     cJSON_Delete(response);
+    
+    if (json_string == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
     
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
@@ -742,6 +776,10 @@ static esp_err_t api_wifi_connect_handler(httpd_req_t *req) {
  */
 static esp_err_t api_wifi_status_handler(httpd_req_t *req) {
     cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
     
     wifi_operating_mode_t mode = wifi_manager_get_mode();
     cJSON_AddStringToObject(root, "mode", mode == WIFI_OPERATING_MODE_STA ? "sta" : "ap");
@@ -795,11 +833,20 @@ static esp_err_t api_wifi_disconnect_handler(httpd_req_t *req) {
     }
     
     cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
     cJSON_AddBoolToObject(root, "success", true);
     cJSON_AddStringToObject(root, "message", "WiFi credentials cleared. Reboot to use AP mode.");
     
     char *json_string = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
+    
+    if (json_string == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
     
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");

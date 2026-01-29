@@ -233,7 +233,7 @@ static esp_err_t init_subsystems(void) {
         } else {
             ESP_LOGI(TAG, "  Mode: Access Point");
             ESP_LOGI(TAG, "  WiFi SSID: %s", g_config.wifi_ssid);
-            ESP_LOGI(TAG, "  WiFi Password: %s", g_config.wifi_password);
+            ESP_LOGI(TAG, "  WiFi Password: ****");  // Don't log password for security
         }
         ESP_LOGI(TAG, "====================================");
     }
