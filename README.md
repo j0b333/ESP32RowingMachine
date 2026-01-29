@@ -92,6 +92,20 @@ idf.py build
 idf.py -p /dev/ttyUSB0 flash monitor
 ```
 
+### Clean Build
+
+If you encounter build errors after updating the code (especially BLE-related errors), perform a clean build:
+
+```bash
+# Remove build directory and sdkconfig
+idf.py fullclean
+rm sdkconfig
+
+# Rebuild from scratch
+idf.py set-target esp32s3
+idf.py build
+```
+
 ## Usage
 
 ### First Boot
