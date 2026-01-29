@@ -1,0 +1,46 @@
+# ESP-IDF build artifacts
+build/
+managed_components/
+dependencies.lock
+
+# Generated configuration
+sdkconfig
+sdkconfig.old
+
+# IDE settings
+.vscode/
+.idea/
+*.code-workspace
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.egg-info/
+.eggs/
+*.egg
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor backup files
+*~
+*.swp
+*.swo
+*.bak
+
+# Debug files
+*.log
+*.dmp
+
+# Compiled files
+*.o
+*.obj
+*.elf
+*.bin
+*.map
+*.hex
+
+.clangd
