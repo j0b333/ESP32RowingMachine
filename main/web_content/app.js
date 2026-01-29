@@ -15,6 +15,7 @@ const elements = {
     elapsedTime: document.getElementById('elapsed-time'),
     pace: document.getElementById('pace'),
     power: document.getElementById('power'),
+    peakPower: document.getElementById('peak-power'),
     strokeRate: document.getElementById('stroke-rate'),
     strokeCount: document.getElementById('stroke-count'),
     calories: document.getElementById('calories'),
@@ -45,6 +46,7 @@ const elements = {
 
 // Workout state
 let workoutRunning = false;
+let workoutPaused = false;
 let confirmCallback = null;
 
 /**
@@ -100,6 +102,9 @@ function updateMetrics(data) {
     // Update power
     elements.power.textContent = Math.round(data.power);
     elements.avgPower.textContent = Math.round(data.avgPower);
+    if (elements.peakPower) {
+        elements.peakPower.textContent = Math.round(data.peakPower || 0);
+    }
     
     // Update stroke data
     elements.strokeRate.textContent = data.strokeRate.toFixed(1);
@@ -282,30 +287,33 @@ async function toggleStartPause() {
     elements.btnStartPause.disabled = true;
     
     try {
-        if (workoutRunning) {
-            // Stop workout
-            const response = await fetch('/workout/stop', { method: 'POST' });
-            if (!response.ok) throw new Error('Server error');
-            const data = await response.json();
-            if (data.status === 'stopped') {
-                workoutRunning = false;
-                elements.btnStartPause.textContent = '▶ Start';
-                elements.btnStartPause.classList.remove('running');
-            }
-        } else {
+        if (!workoutRunning) {
             // Start workout
             const response = await fetch('/workout/start', { method: 'POST' });
             if (!response.ok) throw new Error('Server error');
             const data = await response.json();
             if (data.status === 'started') {
                 workoutRunning = true;
-                elements.btnStartPause.textContent = '⏹ Stop';
+                workoutPaused = false;
+                elements.btnStartPause.textContent = '⏸ Pause';
                 elements.btnStartPause.classList.add('running');
             }
+        } else if (!workoutPaused) {
+            // Pause workout (just update UI state, session continues but we track it's paused)
+            workoutPaused = true;
+            elements.btnStartPause.textContent = '▶ Resume';
+            elements.btnStartPause.classList.remove('running');
+            elements.btnStartPause.classList.add('paused');
+        } else {
+            // Resume workout
+            workoutPaused = false;
+            elements.btnStartPause.textContent = '⏸ Pause';
+            elements.btnStartPause.classList.remove('paused');
+            elements.btnStartPause.classList.add('running');
         }
     } catch (e) {
         console.error('Failed to toggle workout:', e);
-        alert('Failed to ' + (workoutRunning ? 'stop' : 'start') + ' workout');
+        alert('Failed to start workout');
     } finally {
         elements.btnStartPause.disabled = false;
     }
@@ -324,8 +332,9 @@ function resetWorkout() {
             if (data.success) {
                 console.log('Workout reset');
                 workoutRunning = false;
+                workoutPaused = false;
                 elements.btnStartPause.textContent = '▶ Start';
-                elements.btnStartPause.classList.remove('running');
+                elements.btnStartPause.classList.remove('running', 'paused');
                 
                 // Clear local display immediately
                 updateMetrics({
@@ -334,6 +343,7 @@ function resetWorkout() {
                     avgPace: 0,
                     power: 0,
                     avgPower: 0,
+                    peakPower: 0,
                     strokeRate: 0,
                     avgStrokeRate: 0,
                     strokeCount: 0,
@@ -372,8 +382,9 @@ function finishWorkout() {
             if (stopData.status === 'stopped') {
                 console.log('Workout finished and saved, session #' + stopData.sessionId);
                 workoutRunning = false;
+                workoutPaused = false;
                 elements.btnStartPause.textContent = '▶ Start';
-                elements.btnStartPause.classList.remove('running');
+                elements.btnStartPause.classList.remove('running', 'paused');
                 
                 alert('Workout saved! Session #' + stopData.sessionId + '\nDistance: ' + Math.round(stopData.distance) + 'm');
             }

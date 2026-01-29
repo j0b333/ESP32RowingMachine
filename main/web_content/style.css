@@ -86,43 +86,39 @@ h1 {
     margin-bottom: 15px;
 }
 
-.metrics-grid.primary {
+.metrics-grid.row-2 {
+    grid-template-columns: repeat(2, 1fr);
+}
+
+.metrics-grid.row-3 {
     grid-template-columns: repeat(3, 1fr);
 }
 
-.metrics-grid.secondary {
-    grid-template-columns: repeat(4, 1fr);
-}
-
-.metrics-grid.averages {
+.metrics-grid.row-4 {
     grid-template-columns: repeat(4, 1fr);
 }
 
 @media (max-width: 768px) {
-    .metrics-grid.primary {
-        grid-template-columns: repeat(2, 1fr);
+    .metrics-grid.row-3 {
+        grid-template-columns: repeat(3, 1fr);
     }
     
-    .metrics-grid.primary .metric-card:first-child {
-        grid-column: span 2;
-    }
-    
-    .metrics-grid.secondary {
-        grid-template-columns: repeat(2, 1fr);
-    }
-    
-    .metrics-grid.averages {
+    .metrics-grid.row-4 {
         grid-template-columns: repeat(2, 1fr);
     }
 }
 
 @media (max-width: 480px) {
-    .metrics-grid.primary {
+    .metrics-grid.row-2 {
         grid-template-columns: 1fr;
     }
     
-    .metrics-grid.primary .metric-card:first-child {
-        grid-column: span 1;
+    .metrics-grid.row-3 {
+        grid-template-columns: 1fr;
+    }
+    
+    .metrics-grid.row-4 {
+        grid-template-columns: repeat(2, 1fr);
     }
 }
 
@@ -408,8 +404,13 @@ footer {
 }
 
 .btn-start.running {
-    background: var(--danger);
-    color: #fff;
+    background: var(--warning);
+    color: #000;
+}
+
+.btn-start.paused {
+    background: var(--success);
+    color: #000;
 }
 
 .btn-reset-workout {

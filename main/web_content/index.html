@@ -18,14 +18,29 @@
         </header>
 
         <main>
-            <!-- Primary Metrics -->
-            <section class="metrics-grid primary">
+            <!-- Row 1: Power | Distance | HR -->
+            <section class="metrics-grid row-3">
+                <div class="metric-card large">
+                    <div class="metric-label">Power</div>
+                    <div class="metric-value" id="power">0</div>
+                    <div class="metric-unit">watts</div>
+                </div>
+                
                 <div class="metric-card large">
                     <div class="metric-label">Distance</div>
                     <div class="metric-value" id="distance">0</div>
                     <div class="metric-unit">meters</div>
                 </div>
-                
+
+                <div class="metric-card large heart-rate" id="hr-card">
+                    <div class="metric-label">❤️ Heart Rate</div>
+                    <div class="metric-value" id="heart-rate">--</div>
+                    <div class="metric-unit" id="hr-status">bpm</div>
+                </div>
+            </section>
+
+            <!-- Row 2: Time | Pace /500m -->
+            <section class="metrics-grid row-2">
                 <div class="metric-card large">
                     <div class="metric-label">Time</div>
                     <div class="metric-value" id="elapsed-time">0:00</div>
@@ -39,11 +54,11 @@
                 </div>
             </section>
 
-            <!-- Secondary Metrics -->
-            <section class="metrics-grid secondary">
+            <!-- Row 3: Power | Stroke Rate | Strokes | Calories -->
+            <section class="metrics-grid row-4">
                 <div class="metric-card">
-                    <div class="metric-label">Power</div>
-                    <div class="metric-value" id="power">0</div>
+                    <div class="metric-label">Peak Power</div>
+                    <div class="metric-value" id="peak-power">0</div>
                     <div class="metric-unit">watts</div>
                 </div>
 
@@ -64,21 +79,10 @@
                     <div class="metric-value" id="calories">0</div>
                     <div class="metric-unit">kcal</div>
                 </div>
-
-                <div class="metric-card heart-rate" id="hr-card">
-                    <div class="metric-label">❤️ Heart Rate</div>
-                    <div class="metric-value" id="heart-rate">--</div>
-                    <div class="metric-unit" id="hr-status">No HR monitor</div>
-                </div>
             </section>
 
-            <!-- Average Metrics -->
-            <section class="metrics-grid averages">
-                <div class="metric-card small">
-                    <div class="metric-label">Avg Pace</div>
-                    <div class="metric-value" id="avg-pace">--:--</div>
-                </div>
-
+            <!-- Row 4: Avg Power | Avg SPM | Avg HR | Avg Pace -->
+            <section class="metrics-grid row-4 averages">
                 <div class="metric-card small">
                     <div class="metric-label">Avg Power</div>
                     <div class="metric-value" id="avg-power">0</div>
@@ -92,6 +96,11 @@
                 <div class="metric-card small">
                     <div class="metric-label">Avg HR</div>
                     <div class="metric-value" id="avg-heart-rate">--</div>
+                </div>
+
+                <div class="metric-card small">
+                    <div class="metric-label">Avg Pace</div>
+                    <div class="metric-value" id="avg-pace">--:--</div>
                 </div>
             </section>
 
