@@ -71,6 +71,9 @@ static config_t *g_config = NULL;
 extern const char index_html_start[] asm("_binary_index_html_start");
 extern const char index_html_end[]   asm("_binary_index_html_end");
 
+extern const char setup_html_start[] asm("_binary_setup_html_start");
+extern const char setup_html_end[]   asm("_binary_setup_html_end");
+
 extern const char style_css_start[] asm("_binary_style_css_start");
 extern const char style_css_end[]   asm("_binary_style_css_end");
 
@@ -85,7 +88,7 @@ extern const char favicon_ico_end[]   asm("_binary_favicon_ico_end");
 // ============================================================================
 
 /**
- * Serve main HTML page
+ * Serve main HTML page (rowing monitor)
  */
 static esp_err_t index_handler(httpd_req_t *req) {
     const size_t index_html_size = (index_html_end - index_html_start);
@@ -93,6 +96,35 @@ static esp_err_t index_handler(httpd_req_t *req) {
     httpd_resp_set_type(req, "text/html");
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
     httpd_resp_send(req, index_html_start, index_html_size);
+    
+    return ESP_OK;
+}
+
+/**
+ * Serve setup/provisioning page
+ */
+static esp_err_t setup_handler(httpd_req_t *req) {
+    const size_t setup_html_size = (setup_html_end - setup_html_start);
+    
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    httpd_resp_send(req, setup_html_start, setup_html_size);
+    
+    return ESP_OK;
+}
+
+/**
+ * Captive portal redirect handler
+ * Handles common captive portal detection URLs from various OS/browsers
+ */
+static esp_err_t captive_portal_handler(httpd_req_t *req) {
+    ESP_LOGI(TAG, "Captive portal redirect for: %s", req->uri);
+    
+    // Return 302 redirect to setup page
+    httpd_resp_set_status(req, "302 Found");
+    httpd_resp_set_hdr(req, "Location", "http://192.168.4.1/setup");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    httpd_resp_send(req, NULL, 0);
     
     return ESP_OK;
 }
@@ -969,6 +1001,70 @@ static const httpd_uri_t uri_index = {
     .user_ctx = NULL
 };
 
+static const httpd_uri_t uri_setup = {
+    .uri = "/setup",
+    .method = HTTP_GET,
+    .handler = setup_handler,
+    .user_ctx = NULL
+};
+
+// Captive portal detection URLs for various OS/browsers
+static const httpd_uri_t uri_generate_204 = {
+    .uri = "/generate_204",
+    .method = HTTP_GET,
+    .handler = captive_portal_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_gen_204 = {
+    .uri = "/gen_204",
+    .method = HTTP_GET,
+    .handler = captive_portal_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_hotspot_detect = {
+    .uri = "/hotspot-detect.html",
+    .method = HTTP_GET,
+    .handler = captive_portal_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_canonical = {
+    .uri = "/canonical.html",
+    .method = HTTP_GET,
+    .handler = captive_portal_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_success = {
+    .uri = "/success.txt",
+    .method = HTTP_GET,
+    .handler = captive_portal_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_ncsi = {
+    .uri = "/ncsi.txt",
+    .method = HTTP_GET,
+    .handler = captive_portal_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_connecttest = {
+    .uri = "/connecttest.txt",
+    .method = HTTP_GET,
+    .handler = captive_portal_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_redirect = {
+    .uri = "/redirect",
+    .method = HTTP_GET,
+    .handler = captive_portal_handler,
+    .user_ctx = NULL
+};
+
 static const httpd_uri_t uri_style = {
     .uri = "/style.css",
     .method = HTTP_GET,
@@ -1187,6 +1283,7 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     
     // Register URI handlers
     httpd_register_uri_handler(g_server, &uri_index);
+    httpd_register_uri_handler(g_server, &uri_setup);
     httpd_register_uri_handler(g_server, &uri_style);
     httpd_register_uri_handler(g_server, &uri_app_js);
     httpd_register_uri_handler(g_server, &uri_favicon);
@@ -1216,7 +1313,17 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     httpd_register_uri_handler(g_server, &uri_api_wifi_status);
     httpd_register_uri_handler(g_server, &uri_api_wifi_disconnect);
     
-    ESP_LOGI(TAG, "Web server started successfully");
+    // Captive portal detection handlers (redirect to setup page)
+    httpd_register_uri_handler(g_server, &uri_generate_204);
+    httpd_register_uri_handler(g_server, &uri_gen_204);
+    httpd_register_uri_handler(g_server, &uri_hotspot_detect);
+    httpd_register_uri_handler(g_server, &uri_canonical);
+    httpd_register_uri_handler(g_server, &uri_success);
+    httpd_register_uri_handler(g_server, &uri_ncsi);
+    httpd_register_uri_handler(g_server, &uri_connecttest);
+    httpd_register_uri_handler(g_server, &uri_redirect);
+    
+    ESP_LOGI(TAG, "Web server started successfully with captive portal support");
     return ESP_OK;
 }
 

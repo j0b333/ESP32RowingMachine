@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Crivit Rower - WiFi Setup</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #fff;
+            padding: 20px;
+        }
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        header h1 {
+            font-size: 1.5em;
+            margin-bottom: 10px;
+        }
+        header p {
+            color: #94a3b8;
+            font-size: 0.9em;
+        }
+        .card {
+            background: rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(10px);
+        }
+        .card h2 {
+            font-size: 1.1em;
+            margin-bottom: 15px;
+            color: #60a5fa;
+        }
+        .network-list {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .network-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+            margin-bottom: 8px;
+            background: rgba(255,255,255,0.05);
+        }
+        .network-item:hover {
+            background: rgba(255,255,255,0.15);
+        }
+        .network-item.selected {
+            background: rgba(96, 165, 250, 0.3);
+            border: 1px solid #60a5fa;
+        }
+        .network-name {
+            font-weight: 500;
+        }
+        .network-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #94a3b8;
+            font-size: 0.85em;
+        }
+        .signal-strength {
+            display: flex;
+            gap: 2px;
+        }
+        .signal-bar {
+            width: 4px;
+            background: #4ade80;
+            border-radius: 1px;
+        }
+        .signal-bar.weak { height: 6px; }
+        .signal-bar.medium { height: 10px; }
+        .signal-bar.strong { height: 14px; }
+        .signal-bar.inactive { background: #475569; }
+        .lock-icon { font-size: 0.9em; }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #94a3b8;
+            font-size: 0.9em;
+        }
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 8px;
+            background: rgba(0,0,0,0.3);
+            color: #fff;
+            font-size: 1em;
+        }
+        input:focus {
+            outline: none;
+            border-color: #60a5fa;
+        }
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.1s, opacity 0.2s;
+        }
+        .btn:active { transform: scale(0.98); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-primary {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: #fff;
+        }
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+            margin-top: 10px;
+        }
+        .btn-scan {
+            background: rgba(255,255,255,0.1);
+            color: #60a5fa;
+            margin-bottom: 15px;
+        }
+        .status-message {
+            text-align: center;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: none;
+        }
+        .status-message.success {
+            background: rgba(74, 222, 128, 0.2);
+            color: #4ade80;
+            display: block;
+        }
+        .status-message.error {
+            background: rgba(248, 113, 113, 0.2);
+            color: #f87171;
+            display: block;
+        }
+        .status-message.info {
+            background: rgba(96, 165, 250, 0.2);
+            color: #60a5fa;
+            display: block;
+        }
+        .current-status {
+            text-align: center;
+            padding: 10px;
+            background: rgba(74, 222, 128, 0.1);
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        .current-status.ap-mode {
+            background: rgba(251, 191, 36, 0.1);
+            color: #fbbf24;
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .skip-link {
+            display: block;
+            text-align: center;
+            color: #94a3b8;
+            text-decoration: none;
+            margin-top: 20px;
+            font-size: 0.9em;
+        }
+        .skip-link:hover {
+            color: #60a5fa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚣 Crivit Rowing Monitor</h1>
+            <p>WiFi Setup</p>
+        </header>
+
+        <div id="status-message" class="status-message"></div>
+
+        <div id="current-status" class="card current-status ap-mode">
+            <span id="mode-text">Access Point Mode</span>
+        </div>
+
+        <div class="card">
+            <h2>Connect to WiFi Network</h2>
+            
+            <button id="btn-scan" class="btn btn-scan" onclick="scanNetworks()">
+                🔍 Scan for Networks
+            </button>
+
+            <div id="network-list" class="network-list">
+                <p style="color: #94a3b8; text-align: center;">Click "Scan" to find networks</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Network Credentials</h2>
+            <form id="wifi-form" onsubmit="connectWifi(event)">
+                <div class="form-group">
+                    <label for="ssid">Network Name (SSID)</label>
+                    <input type="text" id="ssid" name="ssid" placeholder="Select or enter network name" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" placeholder="Enter password">
+                </div>
+                <button type="submit" id="btn-connect" class="btn btn-primary">
+                    Connect
+                </button>
+            </form>
+        </div>
+
+        <div class="card" id="forget-card" style="display: none;">
+            <h2>Forget Saved Network</h2>
+            <p style="color: #94a3b8; margin-bottom: 15px; font-size: 0.9em;">
+                Clear saved WiFi credentials and stay in AP mode.
+            </p>
+            <button class="btn btn-secondary" onclick="forgetWifi()">
+                Forget Network
+            </button>
+        </div>
+
+        <a href="/" class="skip-link">Skip setup and go to Rowing Monitor →</a>
+    </div>
+
+    <script>
+        let selectedNetwork = null;
+
+        // Check current status on load
+        document.addEventListener('DOMContentLoaded', checkStatus);
+
+        async function checkStatus() {
+            try {
+                const response = await fetch('/api/wifi/status');
+                const data = await response.json();
+                
+                const statusEl = document.getElementById('current-status');
+                const modeText = document.getElementById('mode-text');
+                const forgetCard = document.getElementById('forget-card');
+                
+                if (data.mode === 'sta' && data.connected) {
+                    statusEl.classList.remove('ap-mode');
+                    modeText.innerHTML = '✅ Connected to <strong>' + data.staSSID + '</strong>';
+                    forgetCard.style.display = 'block';
+                } else if (data.staConfigured) {
+                    statusEl.classList.add('ap-mode');
+                    modeText.innerHTML = '⚠️ Configured for <strong>' + data.staSSID + '</strong> but not connected';
+                    forgetCard.style.display = 'block';
+                } else {
+                    statusEl.classList.add('ap-mode');
+                    modeText.textContent = '📡 Access Point Mode - ' + data.apSSID;
+                    forgetCard.style.display = 'none';
+                }
+            } catch (e) {
+                console.error('Status check failed:', e);
+            }
+        }
+
+        async function scanNetworks() {
+            const btn = document.getElementById('btn-scan');
+            const listEl = document.getElementById('network-list');
+            
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span>Scanning...';
+            listEl.innerHTML = '<p style="color: #94a3b8; text-align: center;">Scanning...</p>';
+            
+            try {
+                const response = await fetch('/api/wifi/scan');
+                const data = await response.json();
+                
+                if (data.networks && data.networks.length > 0) {
+                    listEl.innerHTML = data.networks.map(net => `
+                        <div class="network-item" onclick="selectNetwork('${escapeHtml(net.ssid)}', this)">
+                            <span class="network-name">${escapeHtml(net.ssid)}</span>
+                            <span class="network-info">
+                                ${net.secure ? '<span class="lock-icon">🔒</span>' : ''}
+                                ${getSignalBars(net.rssi)}
+                            </span>
+                        </div>
+                    `).join('');
+                } else {
+                    listEl.innerHTML = '<p style="color: #94a3b8; text-align: center;">No networks found</p>';
+                }
+            } catch (e) {
+                listEl.innerHTML = '<p style="color: #f87171; text-align: center;">Scan failed: ' + e.message + '</p>';
+            }
+            
+            btn.disabled = false;
+            btn.innerHTML = '🔍 Scan for Networks';
+        }
+
+        function selectNetwork(ssid, el) {
+            document.querySelectorAll('.network-item').forEach(item => item.classList.remove('selected'));
+            el.classList.add('selected');
+            document.getElementById('ssid').value = ssid;
+            selectedNetwork = ssid;
+        }
+
+        function getSignalBars(rssi) {
+            const strength = rssi > -50 ? 3 : rssi > -70 ? 2 : 1;
+            return `<span class="signal-strength">
+                <span class="signal-bar weak ${strength >= 1 ? '' : 'inactive'}"></span>
+                <span class="signal-bar medium ${strength >= 2 ? '' : 'inactive'}"></span>
+                <span class="signal-bar strong ${strength >= 3 ? '' : 'inactive'}"></span>
+            </span>`;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        async function connectWifi(event) {
+            event.preventDefault();
+            
+            const ssid = document.getElementById('ssid').value;
+            const password = document.getElementById('password').value;
+            const btn = document.getElementById('btn-connect');
+            const statusEl = document.getElementById('status-message');
+            
+            if (!ssid) {
+                showStatus('Please enter a network name', 'error');
+                return;
+            }
+            
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span>Saving...';
+            
+            try {
+                const response = await fetch('/api/wifi/connect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ssid, password })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showStatus('✅ WiFi credentials saved! The device will connect on next reboot. You can reboot the device now or continue using AP mode.', 'success');
+                    checkStatus();
+                } else {
+                    showStatus('❌ Failed: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (e) {
+                showStatus('❌ Connection failed: ' + e.message, 'error');
+            }
+            
+            btn.disabled = false;
+            btn.innerHTML = 'Connect';
+        }
+
+        async function forgetWifi() {
+            try {
+                const response = await fetch('/api/wifi/disconnect', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    showStatus('✅ WiFi credentials cleared. Device will use AP mode on next reboot.', 'success');
+                    checkStatus();
+                } else {
+                    showStatus('❌ Failed to clear credentials', 'error');
+                }
+            } catch (e) {
+                showStatus('❌ Error: ' + e.message, 'error');
+            }
+        }
+
+        function showStatus(message, type) {
+            const el = document.getElementById('status-message');
+            el.className = 'status-message ' + type;
+            el.textContent = message;
+            el.style.display = 'block';
+            
+            if (type !== 'error') {
+                setTimeout(() => {
+                    el.style.display = 'none';
+                }, 10000);
+            }
+        }
+    </script>
+</body>
+</html>

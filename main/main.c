@@ -37,6 +37,7 @@
 #include "config_manager.h"
 #include "session_manager.h"
 #include "hr_receiver.h"
+#include "dns_server.h"
 #include "utils.h"
 
 static const char *TAG = "MAIN";
@@ -212,6 +213,10 @@ static esp_err_t init_subsystems(void) {
                 ESP_LOGE(TAG, "Failed to start WiFi AP");
                 return ret;
             }
+            
+            // Start DNS server for captive portal (only in AP mode)
+            ESP_LOGI(TAG, "Starting DNS server for captive portal...");
+            dns_server_start("192.168.4.1");
         }
         
         // Start web server
@@ -231,9 +236,9 @@ static esp_err_t init_subsystems(void) {
         if (sta_connected) {
             ESP_LOGI(TAG, "  Mode: Station (connected to %s)", g_config.sta_ssid);
         } else {
-            ESP_LOGI(TAG, "  Mode: Access Point");
+            ESP_LOGI(TAG, "  Mode: Access Point (Captive Portal)");
             ESP_LOGI(TAG, "  WiFi SSID: %s", g_config.wifi_ssid);
-            ESP_LOGI(TAG, "  WiFi Password: ****");  // Don't log password for security
+            ESP_LOGI(TAG, "  Setup page: http://192.168.4.1/setup");
         }
         ESP_LOGI(TAG, "====================================");
     }

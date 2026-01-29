@@ -11,11 +11,13 @@ idf_component_register(
         "config_manager.c"
         "session_manager.c"
         "hr_receiver.c"
+        "dns_server.c"
         "utils.c"
     INCLUDE_DIRS
         "."
     EMBED_FILES
         "web_content/index.html"
+        "web_content/setup.html"
         "web_content/style.css"
         "web_content/app.js"
         "web_content/favicon.ico"
@@ -30,4 +32,5 @@ idf_component_register(
         esp_netif
         cJSON
         mdns
+        lwip
 )
