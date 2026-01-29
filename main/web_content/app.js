@@ -275,31 +275,39 @@ function hideConfirmDialog() {
 }
 
 /**
- * Toggle Start/Pause workout
+ * Toggle Start/Stop workout
  */
 async function toggleStartPause() {
+    // Disable button to prevent double-clicks
+    elements.btnStartPause.disabled = true;
+    
     try {
         if (workoutRunning) {
-            // Stop workout (pause not supported, so we just stop the session recording)
+            // Stop workout
             const response = await fetch('/workout/stop', { method: 'POST' });
+            if (!response.ok) throw new Error('Server error');
             const data = await response.json();
             if (data.status === 'stopped') {
                 workoutRunning = false;
                 elements.btnStartPause.textContent = '▶ Start';
-                elements.btnStartPause.classList.remove('paused');
+                elements.btnStartPause.classList.remove('running');
             }
         } else {
             // Start workout
             const response = await fetch('/workout/start', { method: 'POST' });
+            if (!response.ok) throw new Error('Server error');
             const data = await response.json();
             if (data.status === 'started') {
                 workoutRunning = true;
-                elements.btnStartPause.textContent = '⏸ Stop';
-                elements.btnStartPause.classList.add('paused');
+                elements.btnStartPause.textContent = '⏹ Stop';
+                elements.btnStartPause.classList.add('running');
             }
         }
     } catch (e) {
         console.error('Failed to toggle workout:', e);
+        alert('Failed to ' + (workoutRunning ? 'stop' : 'start') + ' workout');
+    } finally {
+        elements.btnStartPause.disabled = false;
     }
 }
 
@@ -310,13 +318,14 @@ function resetWorkout() {
     showConfirmDialog('Reset Workout', 'Are you sure you want to reset the workout? All data will be lost.', async () => {
         try {
             const response = await fetch('/api/reset', { method: 'POST' });
+            if (!response.ok) throw new Error('Server error');
             const data = await response.json();
             
             if (data.success) {
                 console.log('Workout reset');
                 workoutRunning = false;
                 elements.btnStartPause.textContent = '▶ Start';
-                elements.btnStartPause.classList.remove('paused');
+                elements.btnStartPause.classList.remove('running');
                 
                 // Clear local display immediately
                 updateMetrics({
@@ -332,6 +341,7 @@ function resetWorkout() {
                     elapsedTime: 0,
                     isActive: false,
                     heartRate: 0,
+                    avgHeartRate: 0,
                     hrValid: false,
                     hrStatus: 'idle'
                 });
@@ -347,17 +357,23 @@ function resetWorkout() {
  * Finish workout with confirmation (saves for export)
  */
 function finishWorkout() {
+    if (!workoutRunning) {
+        alert('No active workout to finish.');
+        return;
+    }
+    
     showConfirmDialog('Finish Workout', 'Are you sure you want to finish and save this workout?', async () => {
         try {
             // Stop the workout and save
             const stopResponse = await fetch('/workout/stop', { method: 'POST' });
+            if (!stopResponse.ok) throw new Error('Server error');
             const stopData = await stopResponse.json();
             
             if (stopData.status === 'stopped') {
                 console.log('Workout finished and saved, session #' + stopData.sessionId);
                 workoutRunning = false;
                 elements.btnStartPause.textContent = '▶ Start';
-                elements.btnStartPause.classList.remove('paused');
+                elements.btnStartPause.classList.remove('running');
                 
                 alert('Workout saved! Session #' + stopData.sessionId + '\nDistance: ' + Math.round(stopData.distance) + 'm');
             }
@@ -481,6 +497,18 @@ function init() {
     elements.confirmModal.addEventListener('click', (e) => {
         if (e.target === elements.confirmModal) {
             hideConfirmDialog();
+        }
+    });
+    
+    // Close modals on Escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            if (!elements.settingsModal.classList.contains('hidden')) {
+                closeSettings();
+            }
+            if (!elements.confirmModal.classList.contains('hidden')) {
+                hideConfirmDialog();
+            }
         }
     });
     

@@ -407,9 +407,9 @@ footer {
     color: #000;
 }
 
-.btn-start.paused {
-    background: var(--warning);
-    color: #000;
+.btn-start.running {
+    background: var(--danger);
+    color: #fff;
 }
 
 .btn-reset-workout {
