@@ -29,10 +29,8 @@ const elements = {
     btnStartPause: document.getElementById('btn-start-pause'),
     btnResetWorkout: document.getElementById('btn-reset-workout'),
     btnFinish: document.getElementById('btn-finish'),
-    btnSettings: document.getElementById('btn-settings'),
-    settingsModal: document.getElementById('settings-modal'),
     settingsForm: document.getElementById('settings-form'),
-    btnCloseSettings: document.getElementById('btn-close-settings'),
+    settingsFeedback: document.getElementById('settings-feedback'),
     userWeight: document.getElementById('user-weight'),
     units: document.getElementById('units'),
     showPower: document.getElementById('show-power'),
@@ -41,13 +39,19 @@ const elements = {
     confirmTitle: document.getElementById('confirm-title'),
     confirmMessage: document.getElementById('confirm-message'),
     btnConfirmYes: document.getElementById('btn-confirm-yes'),
-    btnConfirmNo: document.getElementById('btn-confirm-no')
+    btnConfirmNo: document.getElementById('btn-confirm-no'),
+    // Tab elements
+    tabRow: document.getElementById('tab-row'),
+    tabChart: document.getElementById('tab-chart'),
+    tabHistory: document.getElementById('tab-history'),
+    tabSettings: document.getElementById('tab-settings')
 };
 
 // Workout state
 let workoutRunning = false;
 let workoutPaused = false;
 let confirmCallback = null;
+let currentTab = 'row';
 
 /**
  * Format time in seconds to MM:SS or HH:MM:SS
@@ -126,10 +130,9 @@ function updateMetrics(data) {
         }
     }
     
-    // Update activity status
+    // Update activity status (hidden but tracked for internal state)
     if (data.isActive) {
         elements.activityStatus.textContent = 'Active';
-        elements.activityStatus.className = 'status active';
         
         // Add pulse animation to pace card
         const paceCard = elements.pace.closest('.metric-card');
@@ -138,7 +141,6 @@ function updateMetrics(data) {
         }
     } else {
         elements.activityStatus.textContent = 'Idle';
-        elements.activityStatus.className = 'status idle';
         
         // Remove pulse animation
         const paceCard = elements.pace.closest('.metric-card');
@@ -211,7 +213,6 @@ function connectWebSocket() {
             console.log('WebSocket connected');
             isConnected = true;
             elements.connectionStatus.textContent = 'Connected';
-            elements.connectionStatus.className = 'status connected';
             
             if (reconnectTimeout) {
                 clearTimeout(reconnectTimeout);
@@ -232,7 +233,6 @@ function connectWebSocket() {
             console.log('WebSocket closed');
             isConnected = false;
             elements.connectionStatus.textContent = 'Disconnected';
-            elements.connectionStatus.className = 'status disconnected';
             
             // Attempt to reconnect after delay
             if (!reconnectTimeout) {
@@ -295,7 +295,8 @@ async function toggleStartPause() {
             if (data.status === 'started') {
                 workoutRunning = true;
                 workoutPaused = false;
-                elements.btnStartPause.textContent = '⏸ Pause';
+                elements.btnStartPause.textContent = '⏸';
+                elements.btnStartPause.setAttribute('aria-label', 'Pause workout');
                 elements.btnStartPause.classList.add('running');
             }
         } else if (!workoutPaused) {
@@ -306,7 +307,8 @@ async function toggleStartPause() {
             // Accept paused or already_paused status
             if (data.status === 'paused' || data.status === 'already_paused') {
                 workoutPaused = true;
-                elements.btnStartPause.textContent = '▶ Resume';
+                elements.btnStartPause.textContent = '▶';
+                elements.btnStartPause.setAttribute('aria-label', 'Resume workout');
                 elements.btnStartPause.classList.remove('running');
                 elements.btnStartPause.classList.add('paused');
             }
@@ -318,7 +320,8 @@ async function toggleStartPause() {
             // Accept resumed or not_paused status
             if (data.status === 'resumed' || data.status === 'not_paused') {
                 workoutPaused = false;
-                elements.btnStartPause.textContent = '⏸ Pause';
+                elements.btnStartPause.textContent = '⏸';
+                elements.btnStartPause.setAttribute('aria-label', 'Pause workout');
                 elements.btnStartPause.classList.remove('paused');
                 elements.btnStartPause.classList.add('running');
             }
@@ -345,7 +348,8 @@ function resetWorkout() {
                 console.log('Workout reset');
                 workoutRunning = false;
                 workoutPaused = false;
-                elements.btnStartPause.textContent = '▶ Start';
+                elements.btnStartPause.textContent = '▶';
+                elements.btnStartPause.setAttribute('aria-label', 'Start workout');
                 elements.btnStartPause.classList.remove('running', 'paused');
                 
                 // Clear local display immediately
@@ -395,7 +399,8 @@ function finishWorkout() {
                 console.log('Workout finished and saved, session #' + stopData.sessionId);
                 workoutRunning = false;
                 workoutPaused = false;
-                elements.btnStartPause.textContent = '▶ Start';
+                elements.btnStartPause.textContent = '▶';
+                elements.btnStartPause.setAttribute('aria-label', 'Start workout');
                 elements.btnStartPause.classList.remove('running', 'paused');
                 
                 alert('Workout saved! Session #' + stopData.sessionId + '\nDistance: ' + Math.round(stopData.distance) + 'm');
@@ -425,6 +430,22 @@ async function loadSettings() {
 }
 
 /**
+ * Show settings feedback message
+ */
+function showSettingsFeedback(message, isSuccess) {
+    if (!elements.settingsFeedback) return;
+    
+    elements.settingsFeedback.textContent = message;
+    elements.settingsFeedback.className = 'settings-feedback ' + (isSuccess ? 'success' : 'error');
+    
+    // Auto-hide after 3 seconds
+    setTimeout(() => {
+        elements.settingsFeedback.textContent = '';
+        elements.settingsFeedback.className = 'settings-feedback';
+    }, 3000);
+}
+
+/**
  * Save settings to server
  */
 async function saveSettings(event) {
@@ -448,27 +469,51 @@ async function saveSettings(event) {
         
         if (data.success) {
             console.log('Settings saved');
-            closeSettings();
+            showSettingsFeedback('Settings saved successfully!', true);
         }
     } catch (e) {
         console.error('Failed to save settings:', e);
-        alert('Failed to save settings');
+        showSettingsFeedback('Failed to save settings', false);
     }
 }
 
 /**
- * Show settings modal
+ * Switch to a tab (non-destructive - does not affect workout state)
  */
-function showSettings() {
-    loadSettings();
-    elements.settingsModal.classList.remove('hidden');
-}
-
-/**
- * Close settings modal
- */
-function closeSettings() {
-    elements.settingsModal.classList.add('hidden');
+function switchTab(tabName) {
+    // Don't switch to disabled tabs
+    if (tabName === 'chart' || tabName === 'history') {
+        return;
+    }
+    
+    // Hide all tab content
+    document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    
+    // Remove active class from all tab buttons
+    document.querySelectorAll('.btn-tab').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    // Show selected tab content
+    const tabContent = document.getElementById('tab-' + tabName);
+    if (tabContent) {
+        tabContent.classList.add('active');
+    }
+    
+    // Mark the button as active
+    const tabButton = document.querySelector(`.btn-tab[data-tab="${tabName}"]`);
+    if (tabButton) {
+        tabButton.classList.add('active');
+    }
+    
+    currentTab = tabName;
+    
+    // Load settings when switching to settings tab
+    if (tabName === 'settings') {
+        loadSettings();
+    }
 }
 
 /**
@@ -497,10 +542,18 @@ function init() {
     elements.btnResetWorkout.addEventListener('click', resetWorkout);
     elements.btnFinish.addEventListener('click', finishWorkout);
     
-    // Settings event listeners
-    elements.btnSettings.addEventListener('click', showSettings);
-    elements.btnCloseSettings.addEventListener('click', closeSettings);
+    // Settings form event listener
     elements.settingsForm.addEventListener('submit', saveSettings);
+    
+    // Tab navigation event listeners
+    document.querySelectorAll('.btn-tab').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const tabName = e.target.dataset.tab;
+            if (tabName && !e.target.classList.contains('disabled')) {
+                switchTab(tabName);
+            }
+        });
+    });
     
     // Confirmation modal event listeners
     elements.btnConfirmYes.addEventListener('click', () => {
@@ -511,24 +564,16 @@ function init() {
     });
     elements.btnConfirmNo.addEventListener('click', hideConfirmDialog);
     
-    // Close modals on background click
-    elements.settingsModal.addEventListener('click', (e) => {
-        if (e.target === elements.settingsModal) {
-            closeSettings();
-        }
-    });
+    // Close modal on background click
     elements.confirmModal.addEventListener('click', (e) => {
         if (e.target === elements.confirmModal) {
             hideConfirmDialog();
         }
     });
     
-    // Close modals on Escape key
+    // Close modal on Escape key
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
-            if (!elements.settingsModal.classList.contains('hidden')) {
-                closeSettings();
-            }
             if (!elements.confirmModal.classList.contains('hidden')) {
                 hideConfirmDialog();
             }

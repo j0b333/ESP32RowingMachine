@@ -17,6 +17,7 @@
     --danger: #e94560;
     --success: #4ade80;
     --warning: #fbbf24;
+    --nav-height: 60px;
 }
 
 body {
@@ -24,7 +25,8 @@ body {
     background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
     color: var(--text-primary);
     min-height: 100vh;
-    padding: 10px;
+    padding: 5px;
+    padding-bottom: calc(var(--nav-height) + 10px);
 }
 
 .container {
@@ -32,51 +34,18 @@ body {
     margin: 0 auto;
 }
 
-/* Header */
-header {
-    text-align: center;
-    margin-bottom: 20px;
+/* Hidden utility class */
+.hidden {
+    display: none !important;
 }
 
-h1 {
-    font-size: 1.8em;
-    color: var(--accent-primary);
-    text-shadow: 0 0 10px rgba(22, 217, 227, 0.5);
-    margin-bottom: 10px;
+/* Tab Content */
+.tab-content {
+    display: none;
 }
 
-.status-bar {
-    display: flex;
-    justify-content: center;
-    gap: 15px;
-}
-
-.status {
-    padding: 4px 12px;
-    border-radius: 20px;
-    font-size: 0.8em;
-    font-weight: bold;
-    text-transform: uppercase;
-}
-
-.status.connected {
-    background: var(--success);
-    color: #000;
-}
-
-.status.disconnected {
-    background: var(--danger);
-    color: #fff;
-}
-
-.status.active {
-    background: var(--success);
-    color: #000;
-}
-
-.status.idle {
-    background: var(--warning);
-    color: #000;
+.tab-content.active {
+    display: block;
 }
 
 /* Metrics Grid */
@@ -308,6 +277,26 @@ footer {
     margin-top: 20px;
 }
 
+/* Settings feedback */
+.settings-feedback {
+    display: block;
+    margin-top: 10px;
+    text-align: center;
+    font-size: 0.9em;
+    padding: 8px;
+    border-radius: 6px;
+}
+
+.settings-feedback.success {
+    background: rgba(74, 222, 128, 0.2);
+    color: var(--success);
+}
+
+.settings-feedback.error {
+    background: rgba(233, 69, 96, 0.2);
+    color: var(--danger);
+}
+
 /* Responsive */
 @media (max-width: 480px) {
     h1 {
@@ -433,4 +422,117 @@ footer {
     margin-bottom: 20px;
     color: var(--text-secondary);
     font-size: 1.1em;
+}
+
+/* Bottom Navigation Bar */
+.bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--bg-card);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    gap: 10px;
+    z-index: 100;
+}
+
+.nav-controls {
+    display: flex;
+    gap: 5px;
+}
+
+.nav-tabs {
+    display: flex;
+    gap: 5px;
+}
+
+.btn-nav {
+    padding: 10px 15px;
+    font-size: 1.2em;
+    min-width: 44px;
+    border-radius: 8px;
+}
+
+.btn-tab {
+    padding: 8px 12px;
+    font-size: 0.85em;
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    border: none;
+    border-radius: 6px;
+}
+
+.btn-tab.active {
+    background: var(--accent-primary);
+    color: #000;
+}
+
+.btn-tab.disabled {
+    background: #333;
+    color: #666;
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.btn-tab.disabled:hover {
+    transform: none;
+}
+
+/* Placeholder content for upcoming tabs */
+.placeholder-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 300px;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.placeholder-content h2 {
+    color: var(--accent-primary);
+    margin-bottom: 15px;
+    font-size: 2em;
+}
+
+.placeholder-content p {
+    font-size: 1.1em;
+}
+
+/* Settings content styling */
+.settings-content {
+    padding: 15px;
+}
+
+.settings-content h2 {
+    color: var(--accent-primary);
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.form-actions {
+    margin-top: 20px;
+    text-align: center;
+}
+
+/* Responsive for bottom nav */
+@media (max-width: 480px) {
+    .bottom-nav {
+        padding: 6px 5px;
+    }
+    
+    .btn-nav {
+        padding: 8px 12px;
+        font-size: 1.1em;
+        min-width: 40px;
+    }
+    
+    .btn-tab {
+        padding: 6px 8px;
+        font-size: 0.75em;
+    }
 }
