@@ -8,6 +8,7 @@
 
 #include "dns_server.h"
 #include "esp_log.h"
+#include "esp_netif.h"
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
 #include "freertos/FreeRTOS.h"
@@ -156,9 +157,10 @@ static void dns_server_task(void *pvParameters) {
     struct sockaddr_in client_addr;
     socklen_t client_addr_len = sizeof(client_addr);
     
-    ESP_LOGI(TAG, "DNS server task started");
+    ESP_LOGI(TAG, "DNS server task started, listening on port %d", DNS_PORT);
     
     while (s_running) {
+        client_addr_len = sizeof(client_addr);  // Reset each iteration
         int len = recvfrom(s_dns_socket, rx_buffer, sizeof(rx_buffer), 0,
                            (struct sockaddr *)&client_addr, &client_addr_len);
         
@@ -167,7 +169,9 @@ static void dns_server_task(void *pvParameters) {
                 vTaskDelay(pdMS_TO_TICKS(10));
                 continue;
             }
-            ESP_LOGE(TAG, "recvfrom failed: %d", errno);
+            if (s_running) {
+                ESP_LOGE(TAG, "recvfrom failed: %d", errno);
+            }
             break;
         }
         
@@ -175,15 +179,24 @@ static void dns_server_task(void *pvParameters) {
             continue;
         }
         
+        // Log that we received a DNS query
+        ESP_LOGI(TAG, "DNS query received from " IPSTR, IP2STR((esp_ip4_addr_t*)&client_addr.sin_addr.s_addr));
+        
         // Build response
         int resp_len = build_dns_response(rx_buffer, len, tx_buffer, sizeof(tx_buffer));
         if (resp_len > 0) {
-            sendto(s_dns_socket, tx_buffer, resp_len, 0,
+            int sent = sendto(s_dns_socket, tx_buffer, resp_len, 0,
                    (struct sockaddr *)&client_addr, client_addr_len);
+            if (sent < 0) {
+                ESP_LOGE(TAG, "Failed to send DNS response: %d", errno);
+            } else {
+                ESP_LOGD(TAG, "DNS response sent (%d bytes)", sent);
+            }
         }
     }
     
     ESP_LOGI(TAG, "DNS server task stopped");
+    s_dns_task_handle = NULL;
     vTaskDelete(NULL);
 }
 

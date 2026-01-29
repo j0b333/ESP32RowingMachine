@@ -116,15 +116,32 @@ static esp_err_t setup_handler(httpd_req_t *req) {
 /**
  * Captive portal redirect handler
  * Handles common captive portal detection URLs from various OS/browsers
+ * 
+ * Note: Some devices expect specific responses to trigger captive portal:
+ * - Android: Expects 204 for "online", anything else triggers portal
+ * - iOS: Expects specific "Success" text for "online", anything else triggers portal
+ * 
+ * We return a simple HTML page that redirects to /setup
  */
 static esp_err_t captive_portal_handler(httpd_req_t *req) {
-    ESP_LOGI(TAG, "Captive portal redirect for: %s", req->uri);
+    ESP_LOGI(TAG, "Captive portal detection: %s", req->uri);
     
-    // Return 302 redirect to setup page (use relative URL for flexibility)
-    httpd_resp_set_status(req, "302 Found");
-    httpd_resp_set_hdr(req, "Location", "/setup");
-    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
-    httpd_resp_send(req, NULL, 0);
+    // Return a simple HTML page that auto-redirects to setup
+    // This works better than 302 for captive portal detection on some devices
+    static const char captive_response[] = 
+        "<!DOCTYPE html>"
+        "<html><head>"
+        "<meta http-equiv=\"refresh\" content=\"0; url=/setup\">"
+        "<title>WiFi Setup</title>"
+        "</head><body>"
+        "<h1>Redirecting to WiFi Setup...</h1>"
+        "<p><a href=\"/setup\">Click here if not redirected</a></p>"
+        "</body></html>";
+    
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+    httpd_resp_set_hdr(req, "Pragma", "no-cache");
+    httpd_resp_send(req, captive_response, strlen(captive_response));
     
     return ESP_OK;
 }
