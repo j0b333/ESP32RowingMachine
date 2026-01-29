@@ -36,6 +36,7 @@
 #include "web_server.h"
 #include "config_manager.h"
 #include "session_manager.h"
+#include "hr_receiver.h"
 #include "utils.h"
 
 static const char *TAG = "MAIN";
@@ -149,6 +150,13 @@ static esp_err_t init_subsystems(void) {
     ret = session_manager_init();
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Failed to initialize session manager");
+    }
+    
+    // Initialize heart rate receiver
+    ESP_LOGI(TAG, "Initializing heart rate receiver...");
+    ret = hr_receiver_init();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to initialize heart rate receiver");
     }
     
     // Initialize metrics calculator
@@ -318,6 +326,7 @@ void app_main(void) {
     wifi_manager_deinit();
     ble_ftms_deinit();
     sensor_manager_deinit();
+    hr_receiver_deinit();
     
     ESP_LOGI(TAG, "Shutdown complete");
 }

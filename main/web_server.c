@@ -16,6 +16,8 @@
 #include "app_config.h"
 #include "metrics_calculator.h"
 #include "config_manager.h"
+#include "hr_receiver.h"
+#include "session_manager.h"
 
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -281,6 +283,313 @@ static esp_err_t api_config_handler(httpd_req_t *req) {
 }
 
 // ============================================================================
+// Heart Rate Endpoints (HeartRateToWeb Compatible)
+// ============================================================================
+
+/**
+ * POST /hr - Receive heart rate from Galaxy Watch
+ * Supports multiple formats:
+ * - Raw body: "75"
+ * - Query parameter: ?bpm=75 or ?hr=75
+ */
+static esp_err_t hr_post_handler(httpd_req_t *req) {
+    char content[32];
+    int hr = 0;
+    
+    // Check query parameters first
+    size_t query_len = httpd_req_get_url_query_len(req);
+    if (query_len > 0 && query_len < sizeof(content)) {
+        char query[64];
+        httpd_req_get_url_query_str(req, query, sizeof(query));
+        
+        char param_value[16];
+        if (httpd_query_key_value(query, "bpm", param_value, sizeof(param_value)) == ESP_OK) {
+            hr = atoi(param_value);
+        } else if (httpd_query_key_value(query, "hr", param_value, sizeof(param_value)) == ESP_OK) {
+            hr = atoi(param_value);
+        }
+    }
+    
+    // If no query param, try reading body
+    if (hr == 0) {
+        int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+        if (ret > 0) {
+            content[ret] = '\0';
+            // Trim whitespace
+            char *p = content;
+            while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+            hr = atoi(p);
+        }
+    }
+    
+    // Validate and store
+    if (hr > 0 && hr <= 220) {
+        esp_err_t err = hr_receiver_update((uint8_t)hr);
+        if (err == ESP_OK) {
+            httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+            httpd_resp_sendstr(req, "OK");
+            return ESP_OK;
+        }
+    }
+    
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid HR value");
+    return ESP_FAIL;
+}
+
+/**
+ * GET /hr - Get current heart rate
+ * Returns "0" if data is stale
+ */
+static esp_err_t hr_get_handler(httpd_req_t *req) {
+    char response[8];
+    uint8_t hr = hr_receiver_get_current();
+    snprintf(response, sizeof(response), "%d", hr);
+    
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, response);
+    
+    return ESP_OK;
+}
+
+// ============================================================================
+// Session Management Endpoints
+// ============================================================================
+
+/**
+ * GET /api/sessions - List all stored sessions
+ */
+static esp_err_t api_sessions_list_handler(httpd_req_t *req) {
+    cJSON *root = cJSON_CreateObject();
+    cJSON *sessions = cJSON_CreateArray();
+    
+    uint32_t count = session_manager_get_session_count();
+    
+    // Get sessions in reverse order (newest first)
+    for (int i = (int)count; i > 0 && i > (int)count - 20; i--) {
+        session_record_t record;
+        if (session_manager_get_session((uint32_t)i, &record) == ESP_OK) {
+            cJSON *session = cJSON_CreateObject();
+            cJSON_AddNumberToObject(session, "id", record.session_id);
+            cJSON_AddNumberToObject(session, "startTime", (double)record.start_timestamp);
+            cJSON_AddNumberToObject(session, "duration", record.duration_seconds);
+            cJSON_AddNumberToObject(session, "distance", record.total_distance_meters);
+            cJSON_AddNumberToObject(session, "strokes", record.stroke_count);
+            cJSON_AddNumberToObject(session, "calories", record.total_calories);
+            cJSON_AddNumberToObject(session, "avgPower", record.average_power_watts);
+            cJSON_AddNumberToObject(session, "avgPace", record.average_pace_sec_500m);
+            cJSON_AddNumberToObject(session, "dragFactor", record.drag_factor);
+            cJSON_AddItemToArray(sessions, session);
+        }
+    }
+    
+    cJSON_AddItemToObject(root, "sessions", sessions);
+    
+    char *json_string = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    
+    if (json_string == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, json_string);
+    
+    free(json_string);
+    return ESP_OK;
+}
+
+/**
+ * GET /api/sessions/{id} - Get session details
+ * Note: Currently HR samples are stored in RAM during session and not persisted
+ */
+static esp_err_t api_session_detail_handler(httpd_req_t *req) {
+    // Parse session ID from URI: /api/sessions/123
+    const char *uri = req->uri;
+    const char *id_start = strrchr(uri, '/');
+    if (id_start == NULL) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid session ID");
+        return ESP_FAIL;
+    }
+    
+    uint32_t session_id = (uint32_t)atoi(id_start + 1);
+    if (session_id == 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid session ID");
+        return ESP_FAIL;
+    }
+    
+    session_record_t record;
+    if (session_manager_get_session(session_id, &record) != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Session not found");
+        return ESP_FAIL;
+    }
+    
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddNumberToObject(root, "id", record.session_id);
+    cJSON_AddNumberToObject(root, "startTime", (double)record.start_timestamp);
+    cJSON_AddNumberToObject(root, "duration", record.duration_seconds);
+    cJSON_AddNumberToObject(root, "distance", record.total_distance_meters);
+    cJSON_AddNumberToObject(root, "strokes", record.stroke_count);
+    cJSON_AddNumberToObject(root, "calories", record.total_calories);
+    cJSON_AddNumberToObject(root, "avgPower", record.average_power_watts);
+    cJSON_AddNumberToObject(root, "avgPace", record.average_pace_sec_500m);
+    cJSON_AddNumberToObject(root, "dragFactor", record.drag_factor);
+    
+    // Note: HR samples are currently only available during active session
+    cJSON *hrSamples = cJSON_CreateArray();
+    cJSON_AddItemToObject(root, "heartRateSamples", hrSamples);
+    
+    char *json_string = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    
+    if (json_string == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, json_string);
+    
+    free(json_string);
+    return ESP_OK;
+}
+
+// ============================================================================
+// Workout Control Endpoints
+// ============================================================================
+
+/**
+ * POST /workout/start - Start a new workout
+ */
+static esp_err_t workout_start_handler(httpd_req_t *req) {
+    if (g_metrics == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    // Start HR recording
+    hr_receiver_start_recording();
+    
+    // Reset metrics for new workout
+    metrics_calculator_reset(g_metrics);
+    
+    // Start a new session
+    session_manager_start_session(g_metrics);
+    
+    uint32_t session_id = session_manager_get_current_session_id();
+    
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "status", "started");
+    cJSON_AddNumberToObject(root, "sessionId", session_id);
+    
+    char *json_string = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, json_string);
+    
+    free(json_string);
+    
+    ESP_LOGI(TAG, "Workout started via API, session #%lu", (unsigned long)session_id);
+    return ESP_OK;
+}
+
+/**
+ * POST /workout/stop - Stop current workout
+ */
+static esp_err_t workout_stop_handler(httpd_req_t *req) {
+    if (g_metrics == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    // Stop HR recording
+    hr_receiver_stop_recording();
+    
+    uint32_t session_id = session_manager_get_current_session_id();
+    
+    // End the session and save
+    session_manager_end_session(g_metrics);
+    
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "status", "stopped");
+    cJSON_AddNumberToObject(root, "sessionId", session_id);
+    cJSON_AddNumberToObject(root, "distance", g_metrics->total_distance_meters);
+    cJSON_AddNumberToObject(root, "strokes", g_metrics->stroke_count);
+    cJSON_AddNumberToObject(root, "calories", g_metrics->total_calories);
+    
+    uint8_t avg_hr, max_hr;
+    uint16_t hr_count;
+    hr_receiver_get_stats(&avg_hr, &max_hr, &hr_count);
+    cJSON_AddNumberToObject(root, "hrSamples", hr_count);
+    cJSON_AddNumberToObject(root, "avgHeartRate", avg_hr);
+    cJSON_AddNumberToObject(root, "maxHeartRate", max_hr);
+    
+    char *json_string = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, json_string);
+    
+    free(json_string);
+    
+    ESP_LOGI(TAG, "Workout stopped via API, session #%lu", (unsigned long)session_id);
+    return ESP_OK;
+}
+
+/**
+ * GET /live - Get live workout data
+ */
+static esp_err_t live_data_handler(httpd_req_t *req) {
+    if (g_metrics == NULL || !g_metrics->is_active) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "No workout in progress");
+        return ESP_FAIL;
+    }
+    
+    cJSON *root = cJSON_CreateObject();
+    
+    cJSON_AddNumberToObject(root, "sessionId", session_manager_get_current_session_id());
+    cJSON_AddNumberToObject(root, "distance", g_metrics->total_distance_meters);
+    cJSON_AddNumberToObject(root, "strokes", g_metrics->stroke_count);
+    cJSON_AddNumberToObject(root, "duration", g_metrics->elapsed_time_ms / 1000);
+    cJSON_AddNumberToObject(root, "power", g_metrics->instantaneous_power_watts);
+    cJSON_AddNumberToObject(root, "pace", g_metrics->instantaneous_pace_sec_500m);
+    cJSON_AddNumberToObject(root, "strokeRate", g_metrics->stroke_rate_spm);
+    cJSON_AddNumberToObject(root, "heartRate", hr_receiver_get_current());
+    
+    const char *phase = "idle";
+    if (g_metrics->current_phase == STROKE_PHASE_DRIVE) {
+        phase = "drive";
+    } else if (g_metrics->current_phase == STROKE_PHASE_RECOVERY) {
+        phase = "recovery";
+    }
+    cJSON_AddStringToObject(root, "phase", phase);
+    
+    cJSON_AddNumberToObject(root, "avgPower", g_metrics->average_power_watts);
+    cJSON_AddNumberToObject(root, "avgPace", g_metrics->average_pace_sec_500m);
+    
+    char *json_string = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    
+    if (json_string == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, json_string);
+    
+    free(json_string);
+    return ESP_OK;
+}
+
+// ============================================================================
 // WebSocket Handler
 // ============================================================================
 
@@ -458,6 +767,58 @@ static const httpd_uri_t uri_ws = {
     .handle_ws_control_frames = true
 };
 
+// Heart Rate endpoints
+static const httpd_uri_t uri_hr_post = {
+    .uri = "/hr",
+    .method = HTTP_POST,
+    .handler = hr_post_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_hr_get = {
+    .uri = "/hr",
+    .method = HTTP_GET,
+    .handler = hr_get_handler,
+    .user_ctx = NULL
+};
+
+// Session endpoints
+static const httpd_uri_t uri_api_sessions = {
+    .uri = "/api/sessions",
+    .method = HTTP_GET,
+    .handler = api_sessions_list_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_api_session_detail = {
+    .uri = "/api/sessions/*",
+    .method = HTTP_GET,
+    .handler = api_session_detail_handler,
+    .user_ctx = NULL
+};
+
+// Workout control endpoints
+static const httpd_uri_t uri_workout_start = {
+    .uri = "/workout/start",
+    .method = HTTP_POST,
+    .handler = workout_start_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_workout_stop = {
+    .uri = "/workout/stop",
+    .method = HTTP_POST,
+    .handler = workout_stop_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_live_data = {
+    .uri = "/live",
+    .method = HTTP_GET,
+    .handler = live_data_handler,
+    .user_ctx = NULL
+};
+
 // ============================================================================
 // Open/Close Callbacks for connection tracking
 // ============================================================================
@@ -539,6 +900,19 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     httpd_register_uri_handler(g_server, &uri_api_config_get);
     httpd_register_uri_handler(g_server, &uri_api_config_post);
     httpd_register_uri_handler(g_server, &uri_ws);
+    
+    // Heart rate endpoints (HeartRateToWeb compatible)
+    httpd_register_uri_handler(g_server, &uri_hr_post);
+    httpd_register_uri_handler(g_server, &uri_hr_get);
+    
+    // Session management endpoints
+    httpd_register_uri_handler(g_server, &uri_api_sessions);
+    httpd_register_uri_handler(g_server, &uri_api_session_detail);
+    
+    // Workout control endpoints
+    httpd_register_uri_handler(g_server, &uri_workout_start);
+    httpd_register_uri_handler(g_server, &uri_workout_stop);
+    httpd_register_uri_handler(g_server, &uri_live_data);
     
     ESP_LOGI(TAG, "Web server started successfully");
     return ESP_OK;

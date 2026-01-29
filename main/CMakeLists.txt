@@ -10,6 +10,7 @@ idf_component_register(
         "web_server.c"
         "config_manager.c"
         "session_manager.c"
+        "hr_receiver.c"
         "utils.c"
     INCLUDE_DIRS
         "."
