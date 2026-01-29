@@ -22,6 +22,9 @@ const elements = {
     avgPower: document.getElementById('avg-power'),
     avgStrokeRate: document.getElementById('avg-stroke-rate'),
     dragFactor: document.getElementById('drag-factor'),
+    heartRate: document.getElementById('heart-rate'),
+    hrStatus: document.getElementById('hr-status'),
+    hrCard: document.getElementById('hr-card'),
     btnReset: document.getElementById('btn-reset'),
     btnSettings: document.getElementById('btn-settings'),
     settingsModal: document.getElementById('settings-modal'),
@@ -102,6 +105,9 @@ function updateMetrics(data) {
         elements.dragFactor.textContent = '--';
     }
     
+    // Update heart rate display
+    updateHeartRate(data);
+    
     // Update activity status
     if (data.isActive) {
         elements.activityStatus.textContent = 'Active';
@@ -121,6 +127,49 @@ function updateMetrics(data) {
         if (paceCard) {
             paceCard.classList.remove('active-pulse');
         }
+    }
+}
+
+/**
+ * Update heart rate display
+ */
+function updateHeartRate(data) {
+    if (!elements.hrCard) return;
+    
+    const hrStatus = data.hrStatus || 'idle';
+    const heartRate = data.heartRate || 0;
+    const hrValid = data.hrValid || false;
+    
+    // Remove all status classes first
+    elements.hrCard.classList.remove('hr-connected', 'hr-scanning', 'hr-disconnected', 'hr-pulse');
+    
+    if (hrStatus === 'connected' && hrValid && heartRate > 0) {
+        // Connected and receiving data
+        elements.heartRate.textContent = heartRate;
+        elements.hrStatus.textContent = 'Connected';
+        elements.hrCard.classList.add('hr-connected', 'hr-pulse');
+    } else if (hrStatus === 'connected' && !hrValid) {
+        // Connected but data is stale
+        elements.heartRate.textContent = heartRate > 0 ? heartRate : '--';
+        elements.hrStatus.textContent = 'Signal lost';
+        elements.hrCard.classList.add('hr-disconnected');
+    } else if (hrStatus === 'scanning') {
+        elements.heartRate.textContent = '--';
+        elements.hrStatus.textContent = 'Scanning...';
+        elements.hrCard.classList.add('hr-scanning');
+    } else if (hrStatus === 'connecting') {
+        elements.heartRate.textContent = '--';
+        elements.hrStatus.textContent = 'Connecting...';
+        elements.hrCard.classList.add('hr-scanning');
+    } else if (hrStatus === 'error') {
+        elements.heartRate.textContent = '--';
+        elements.hrStatus.textContent = 'Error';
+        elements.hrCard.classList.add('hr-disconnected');
+    } else {
+        // Idle - no HR monitor
+        elements.heartRate.textContent = '--';
+        elements.hrStatus.textContent = 'No HR monitor';
+        elements.hrCard.classList.add('hr-disconnected');
     }
 }
 

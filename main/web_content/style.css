@@ -353,3 +353,49 @@ footer {
 ::-webkit-scrollbar-thumb:hover {
     background: var(--accent-primary);
 }
+
+/* Heart Rate Card */
+.metric-card.heart-rate {
+    background: linear-gradient(135deg, var(--bg-card) 0%, #2d1f3d 100%);
+    border-left: 3px solid #e94560;
+}
+
+.metric-card.hr-connected {
+    border-left-color: var(--success);
+    background: linear-gradient(135deg, var(--bg-card) 0%, #1f3d2d 100%);
+}
+
+.metric-card.hr-scanning {
+    border-left-color: var(--warning);
+    background: linear-gradient(135deg, var(--bg-card) 0%, #3d3a1f 100%);
+}
+
+.metric-card.hr-disconnected {
+    border-left-color: #666;
+}
+
+/* Heart rate pulse animation when receiving data */
+.metric-card.hr-pulse {
+    animation: hrPulse 1s ease-in-out infinite;
+}
+
+@keyframes hrPulse {
+    0%, 100% {
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    }
+    50% {
+        box-shadow: 0 4px 20px rgba(74, 222, 128, 0.4);
+    }
+}
+
+.metric-card.heart-rate .metric-label {
+    color: #e94560;
+}
+
+.metric-card.hr-connected .metric-label {
+    color: var(--success);
+}
+
+.metric-card.hr-scanning .metric-label {
+    color: var(--warning);
+}
