@@ -111,11 +111,61 @@
                 </div>
             </div>
 
-            <!-- Tab Content: History (placeholder) -->
+            <!-- Tab Content: History -->
             <div id="tab-history" class="tab-content">
-                <div class="placeholder-content">
-                    <h2>📜 History</h2>
-                    <p>Workout history coming soon...</p>
+                <div class="history-content">
+                    <h2>📜 Workout History</h2>
+                    <div id="history-loading" class="history-loading">Loading workouts...</div>
+                    <div id="history-empty" class="history-empty hidden">
+                        <p>No saved workouts yet.</p>
+                        <p>Complete a workout to see it here!</p>
+                    </div>
+                    <div id="history-list" class="history-list hidden"></div>
+                </div>
+            </div>
+
+            <!-- Workout Detail Modal -->
+            <div id="workout-detail-modal" class="modal hidden">
+                <div class="modal-content workout-detail">
+                    <h2 id="detail-title">Workout Details</h2>
+                    <div class="workout-detail-grid">
+                        <div class="detail-item">
+                            <span class="detail-label">Date</span>
+                            <span class="detail-value" id="detail-date">--</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Duration</span>
+                            <span class="detail-value" id="detail-duration">--</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Distance</span>
+                            <span class="detail-value" id="detail-distance">--</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Avg Pace /500m</span>
+                            <span class="detail-value" id="detail-pace">--</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Avg Power</span>
+                            <span class="detail-value" id="detail-power">--</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Strokes</span>
+                            <span class="detail-value" id="detail-strokes">--</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Calories</span>
+                            <span class="detail-value" id="detail-calories">--</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Drag Factor</span>
+                            <span class="detail-value" id="detail-drag">--</span>
+                        </div>
+                    </div>
+                    <div class="modal-actions">
+                        <button id="btn-delete-workout" class="btn btn-danger">Delete</button>
+                        <button id="btn-close-detail" class="btn btn-secondary">Close</button>
+                    </div>
                 </div>
             </div>
 
@@ -164,7 +214,7 @@
             <div class="nav-tabs">
                 <button class="btn btn-tab active" data-tab="row">Row</button>
                 <button class="btn btn-tab disabled" data-tab="chart">Chart</button>
-                <button class="btn btn-tab disabled" data-tab="history">History</button>
+                <button class="btn btn-tab" data-tab="history">History</button>
                 <button class="btn btn-tab" data-tab="settings">Settings</button>
             </div>
         </nav>

@@ -55,4 +55,11 @@ esp_err_t session_manager_clear_history(void);
  */
 uint32_t session_manager_get_current_session_id(void);
 
+/**
+ * Delete a specific session from history
+ * @param session_id Session ID to delete
+ * @return ESP_OK if deleted, ESP_ERR_NOT_FOUND if session doesn't exist
+ */
+esp_err_t session_manager_delete_session(uint32_t session_id);
+
 #endif // SESSION_MANAGER_H

@@ -481,8 +481,8 @@ async function saveSettings(event) {
  * Switch to a tab (non-destructive - does not affect workout state)
  */
 function switchTab(tabName) {
-    // Don't switch to disabled tabs
-    if (tabName === 'chart' || tabName === 'history') {
+    // Don't switch to disabled tabs (only chart is disabled now)
+    if (tabName === 'chart') {
         return;
     }
     
@@ -514,6 +514,176 @@ function switchTab(tabName) {
     if (tabName === 'settings') {
         loadSettings();
     }
+    
+    // Load history when switching to history tab
+    if (tabName === 'history') {
+        loadWorkoutHistory();
+    }
+}
+
+// ============================================================================
+// History Tab Functions
+// ============================================================================
+
+let selectedWorkoutId = null;
+
+/**
+ * Format duration in seconds to HH:MM:SS or MM:SS
+ */
+function formatDuration(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    if (hours > 0) {
+        return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+/**
+ * Format date from timestamp
+ */
+function formatDate(timestamp) {
+    // If timestamp is in microseconds (ESP32 format), convert to milliseconds
+    const ms = timestamp > 1e12 ? timestamp / 1000 : timestamp;
+    const date = new Date(ms);
+    
+    // If the date is invalid or before 2020, it's likely an ESP32 uptime timestamp
+    if (isNaN(date.getTime()) || date.getFullYear() < 2020) {
+        return 'Session';
+    }
+    
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+}
+
+/**
+ * Load workout history from server
+ */
+async function loadWorkoutHistory() {
+    const loadingEl = document.getElementById('history-loading');
+    const emptyEl = document.getElementById('history-empty');
+    const listEl = document.getElementById('history-list');
+    
+    if (!loadingEl || !emptyEl || !listEl) return;
+    
+    // Show loading
+    loadingEl.classList.remove('hidden');
+    emptyEl.classList.add('hidden');
+    listEl.classList.add('hidden');
+    
+    try {
+        const response = await fetch('/api/sessions');
+        const data = await response.json();
+        
+        loadingEl.classList.add('hidden');
+        
+        if (!data.sessions || data.sessions.length === 0) {
+            emptyEl.classList.remove('hidden');
+            return;
+        }
+        
+        // Render workout list
+        listEl.innerHTML = '';
+        data.sessions.forEach(session => {
+            const item = document.createElement('div');
+            item.className = 'history-item';
+            item.dataset.id = session.id;
+            
+            const distanceStr = session.distance >= 1000 
+                ? (session.distance / 1000).toFixed(2) + ' km'
+                : Math.round(session.distance) + ' m';
+            
+            item.innerHTML = `
+                <div class="history-item-main">
+                    <div class="history-item-title">Workout #${session.id}</div>
+                    <div class="history-item-date">${formatDate(session.startTime)}</div>
+                </div>
+                <div class="history-item-stats">
+                    <span class="stat">${distanceStr}</span>
+                    <span class="stat">${formatDuration(session.duration)}</span>
+                    <span class="stat">${Math.round(session.avgPower)} W</span>
+                </div>
+            `;
+            
+            item.addEventListener('click', () => showWorkoutDetail(session));
+            listEl.appendChild(item);
+        });
+        
+        listEl.classList.remove('hidden');
+        
+    } catch (e) {
+        console.error('Failed to load workout history:', e);
+        loadingEl.classList.add('hidden');
+        emptyEl.innerHTML = '<p>Failed to load history</p><p>Check your connection</p>';
+        emptyEl.classList.remove('hidden');
+    }
+}
+
+/**
+ * Show workout detail modal
+ */
+function showWorkoutDetail(session) {
+    selectedWorkoutId = session.id;
+    
+    const modal = document.getElementById('workout-detail-modal');
+    if (!modal) return;
+    
+    // Populate detail fields
+    document.getElementById('detail-title').textContent = `Workout #${session.id}`;
+    document.getElementById('detail-date').textContent = formatDate(session.startTime);
+    document.getElementById('detail-duration').textContent = formatDuration(session.duration);
+    
+    const distanceStr = session.distance >= 1000 
+        ? (session.distance / 1000).toFixed(2) + ' km'
+        : Math.round(session.distance) + ' m';
+    document.getElementById('detail-distance').textContent = distanceStr;
+    
+    document.getElementById('detail-pace').textContent = formatPace(session.avgPace);
+    document.getElementById('detail-power').textContent = Math.round(session.avgPower) + ' W';
+    document.getElementById('detail-strokes').textContent = session.strokes;
+    document.getElementById('detail-calories').textContent = session.calories + ' kcal';
+    document.getElementById('detail-drag').textContent = session.dragFactor ? session.dragFactor.toFixed(1) : '--';
+    
+    modal.classList.remove('hidden');
+}
+
+/**
+ * Close workout detail modal
+ */
+function closeWorkoutDetail() {
+    const modal = document.getElementById('workout-detail-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+    selectedWorkoutId = null;
+}
+
+/**
+ * Delete selected workout
+ */
+function deleteSelectedWorkout() {
+    if (!selectedWorkoutId) return;
+    
+    const workoutId = selectedWorkoutId;
+    closeWorkoutDetail();
+    
+    showConfirmDialog('Delete Workout', `Are you sure you want to delete Workout #${workoutId}? This cannot be undone.`, async () => {
+        try {
+            const response = await fetch(`/api/sessions/${workoutId}`, { method: 'DELETE' });
+            const data = await response.json();
+            
+            if (data.success) {
+                console.log('Workout deleted:', workoutId);
+                loadWorkoutHistory(); // Refresh the list
+            } else {
+                alert('Failed to delete workout');
+            }
+        } catch (e) {
+            console.error('Failed to delete workout:', e);
+            alert('Failed to delete workout. Please check connection.');
+        }
+    });
 }
 
 /**
@@ -588,6 +758,35 @@ function init() {
     
     // Initial poll
     setTimeout(pollMetrics, 500);
+    
+    // Workout detail modal event listeners
+    const btnDeleteWorkout = document.getElementById('btn-delete-workout');
+    const btnCloseDetail = document.getElementById('btn-close-detail');
+    const workoutDetailModal = document.getElementById('workout-detail-modal');
+    
+    if (btnDeleteWorkout) {
+        btnDeleteWorkout.addEventListener('click', deleteSelectedWorkout);
+    }
+    if (btnCloseDetail) {
+        btnCloseDetail.addEventListener('click', closeWorkoutDetail);
+    }
+    if (workoutDetailModal) {
+        workoutDetailModal.addEventListener('click', (e) => {
+            if (e.target === workoutDetailModal) {
+                closeWorkoutDetail();
+            }
+        });
+    }
+    
+    // Also close workout detail modal on Escape
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const detailModal = document.getElementById('workout-detail-modal');
+            if (detailModal && !detailModal.classList.contains('hidden')) {
+                closeWorkoutDetail();
+            }
+        }
+    });
     
     console.log('Rowing Monitor client initialized');
 }

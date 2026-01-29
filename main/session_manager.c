@@ -196,3 +196,45 @@ esp_err_t session_manager_clear_history(void) {
 uint32_t session_manager_get_current_session_id(void) {
     return s_current_session_id;
 }
+
+/**
+ * Delete a specific session from history
+ */
+esp_err_t session_manager_delete_session(uint32_t session_id) {
+    if (session_id == 0 || session_id > s_session_count) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    
+    // First verify the session exists
+    session_record_t record;
+    esp_err_t ret = session_manager_get_session(session_id, &record);
+    if (ret != ESP_OK) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    
+    nvs_handle_t handle;
+    ret = nvs_open(SESSION_NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open NVS for delete: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    
+    // Create key for this session
+    char key[16];
+    snprintf(key, sizeof(key), "s%lu", (unsigned long)(session_id % MAX_STORED_SESSIONS));
+    
+    // Erase the session entry
+    ret = nvs_erase_key(handle, key);
+    if (ret != ESP_OK && ret != ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGE(TAG, "Failed to erase session: %s", esp_err_to_name(ret));
+        nvs_close(handle);
+        return ret;
+    }
+    
+    nvs_commit(handle);
+    nvs_close(handle);
+    
+    ESP_LOGI(TAG, "Session #%lu deleted", (unsigned long)session_id);
+    
+    return ESP_OK;
+}

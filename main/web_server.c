@@ -551,6 +551,63 @@ static esp_err_t api_session_detail_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+/**
+ * DELETE /api/sessions/{id} - Delete a specific session
+ */
+static esp_err_t api_session_delete_handler(httpd_req_t *req) {
+    // Parse session ID from URI: /api/sessions/123
+    const char *uri = req->uri;
+    const char *id_start = strrchr(uri, '/');
+    if (id_start == NULL || *(id_start + 1) == '\0') {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid session ID");
+        return ESP_FAIL;
+    }
+    
+    // Check if the string after '/' contains only digits
+    const char *id_str = id_start + 1;
+    for (const char *p = id_str; *p != '\0'; p++) {
+        if (*p < '0' || *p > '9') {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid session ID format");
+            return ESP_FAIL;
+        }
+    }
+    
+    // Session IDs start from 1, not 0
+    long session_id_long = strtol(id_str, NULL, 10);
+    if (session_id_long <= 0 || session_id_long > UINT32_MAX) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid session ID");
+        return ESP_FAIL;
+    }
+    uint32_t session_id = (uint32_t)session_id_long;
+    
+    esp_err_t result = session_manager_delete_session(session_id);
+    if (result != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Session not found");
+        return ESP_FAIL;
+    }
+    
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "success", true);
+    cJSON_AddNumberToObject(root, "deletedId", session_id);
+    
+    char *json_string = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    
+    if (json_string == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, json_string);
+    
+    free(json_string);
+    
+    ESP_LOGI(TAG, "Session #%lu deleted via API", (unsigned long)session_id);
+    return ESP_OK;
+}
+
 // ============================================================================
 // Workout Control Endpoints
 // ============================================================================
@@ -1323,6 +1380,13 @@ static const httpd_uri_t uri_api_session_detail = {
     .user_ctx = NULL
 };
 
+static const httpd_uri_t uri_api_session_delete = {
+    .uri = "/api/sessions/*",
+    .method = HTTP_DELETE,
+    .handler = api_session_delete_handler,
+    .user_ctx = NULL
+};
+
 // Workout control endpoints
 static const httpd_uri_t uri_workout_start = {
     .uri = "/workout/start",
@@ -1497,6 +1561,7 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     // Session management endpoints
     REGISTER_URI(uri_api_sessions);
     REGISTER_URI(uri_api_session_detail);
+    REGISTER_URI(uri_api_session_delete);
     
     // Workout control endpoints
     REGISTER_URI(uri_workout_start);
