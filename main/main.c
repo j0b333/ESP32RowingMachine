@@ -191,12 +191,27 @@ static esp_err_t init_subsystems(void) {
             return ret;
         }
         
-        // Start WiFi in AP mode
-        ESP_LOGI(TAG, "Starting WiFi AP: %s", g_config.wifi_ssid);
-        ret = wifi_manager_start_ap(g_config.wifi_ssid, g_config.wifi_password);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to start WiFi AP");
-            return ret;
+        // Check if STA credentials are configured
+        bool sta_connected = false;
+        if (g_config.sta_configured && strlen(g_config.sta_ssid) > 0) {
+            ESP_LOGI(TAG, "Attempting to connect to WiFi: %s", g_config.sta_ssid);
+            ret = wifi_manager_start_sta(g_config.sta_ssid, g_config.sta_password);
+            if (ret == ESP_OK) {
+                sta_connected = true;
+                ESP_LOGI(TAG, "Connected to WiFi router!");
+            } else {
+                ESP_LOGW(TAG, "Failed to connect to %s, falling back to AP mode", g_config.sta_ssid);
+            }
+        }
+        
+        // Start WiFi in AP mode if STA not configured or connection failed
+        if (!sta_connected) {
+            ESP_LOGI(TAG, "Starting WiFi AP: %s", g_config.wifi_ssid);
+            ret = wifi_manager_start_ap(g_config.wifi_ssid, g_config.wifi_password);
+            if (ret != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to start WiFi AP");
+                return ret;
+            }
         }
         
         // Start web server
@@ -212,8 +227,14 @@ static esp_err_t init_subsystems(void) {
         wifi_manager_get_ip_string(ip_str, sizeof(ip_str));
         ESP_LOGI(TAG, "====================================");
         ESP_LOGI(TAG, "  Web interface: http://%s", ip_str);
-        ESP_LOGI(TAG, "  WiFi SSID: %s", g_config.wifi_ssid);
-        ESP_LOGI(TAG, "  WiFi Password: %s", g_config.wifi_password);
+        ESP_LOGI(TAG, "  Also available at: http://rower.local");
+        if (sta_connected) {
+            ESP_LOGI(TAG, "  Mode: Station (connected to %s)", g_config.sta_ssid);
+        } else {
+            ESP_LOGI(TAG, "  Mode: Access Point");
+            ESP_LOGI(TAG, "  WiFi SSID: %s", g_config.wifi_ssid);
+            ESP_LOGI(TAG, "  WiFi Password: %s", g_config.wifi_password);
+        }
         ESP_LOGI(TAG, "====================================");
     }
     

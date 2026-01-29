@@ -13,6 +13,7 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "mdns.h"
 #include "lwip/inet.h"
 
 #include "freertos/FreeRTOS.h"
@@ -23,6 +24,9 @@
 #include <inttypes.h>
 
 static const char *TAG = "WIFI";
+
+// mDNS hostname (rower.local)
+#define MDNS_HOSTNAME "rower"
 
 // Event bits for WiFi events
 #define WIFI_CONNECTED_BIT      BIT0
@@ -239,6 +243,34 @@ esp_err_t wifi_manager_init(void) {
 }
 
 /**
+ * Initialize mDNS service
+ */
+static esp_err_t init_mdns(void) {
+    esp_err_t ret = mdns_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "mDNS init failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    
+    // Set hostname: rower.local
+    ret = mdns_hostname_set(MDNS_HOSTNAME);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "mDNS hostname set failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    
+    // Set instance name
+    mdns_instance_name_set("Crivit Rowing Monitor");
+    
+    // Add HTTP service
+    mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
+    
+    ESP_LOGI(TAG, "mDNS started: %s.local", MDNS_HOSTNAME);
+    
+    return ESP_OK;
+}
+
+/**
  * Deinitialize WiFi subsystem
  */
 void wifi_manager_deinit(void) {
@@ -344,6 +376,9 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
     // Get AP IP address
     esp_netif_get_ip_info(s_netif_ap, &s_ip_info);
     
+    // Initialize mDNS for rower.local
+    init_mdns();
+    
     s_current_mode = WIFI_OPERATING_MODE_AP;
     ESP_LOGI(TAG, "WiFi AP started: SSID=%s, IP=" IPSTR, ssid, IP2STR(&s_ip_info.ip));
     
@@ -415,6 +450,9 @@ esp_err_t wifi_manager_start_sta(const char *ssid, const char *password) {
                                             pdMS_TO_TICKS(30000));
     
     if (bits & WIFI_CONNECTED_BIT) {
+        // Initialize mDNS for rower.local
+        init_mdns();
+        
         s_current_mode = WIFI_OPERATING_MODE_STA;
         ESP_LOGI(TAG, "Connected to WiFi: %s", ssid);
         return ESP_OK;
@@ -471,4 +509,65 @@ int wifi_manager_get_station_count(void) {
         return 0;
     }
     return sta_list.num;
+}
+
+/**
+ * Scan for available WiFi networks
+ * @param ap_records Array to store scan results (must be pre-allocated)
+ * @param max_records Maximum number of records to return
+ * @return Number of networks found
+ */
+int wifi_manager_scan(wifi_ap_record_t *ap_records, uint16_t max_records) {
+    if (ap_records == NULL || max_records == 0) {
+        return 0;
+    }
+    
+    // Configure scan
+    wifi_scan_config_t scan_config = {
+        .ssid = NULL,
+        .bssid = NULL,
+        .channel = 0,
+        .show_hidden = false,
+        .scan_type = WIFI_SCAN_TYPE_ACTIVE,
+        .scan_time.active.min = 100,
+        .scan_time.active.max = 300,
+    };
+    
+    ESP_LOGI(TAG, "Starting WiFi scan...");
+    
+    // Start blocking scan
+    esp_err_t ret = esp_wifi_scan_start(&scan_config, true);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "WiFi scan failed: %s", esp_err_to_name(ret));
+        return 0;
+    }
+    
+    // Get number of APs found
+    uint16_t ap_count = 0;
+    ret = esp_wifi_scan_get_ap_num(&ap_count);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get AP count: %s", esp_err_to_name(ret));
+        return 0;
+    }
+    
+    ESP_LOGI(TAG, "Found %d access points", ap_count);
+    
+    // Limit to max records
+    uint16_t records_to_get = (ap_count < max_records) ? ap_count : max_records;
+    
+    // Get AP records
+    ret = esp_wifi_scan_get_ap_records(&records_to_get, ap_records);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get AP records: %s", esp_err_to_name(ret));
+        return 0;
+    }
+    
+    return records_to_get;
+}
+
+/**
+ * Get current operating mode
+ */
+wifi_operating_mode_t wifi_manager_get_mode(void) {
+    return s_current_mode;
 }

@@ -59,9 +59,13 @@ void config_manager_get_defaults(config_t *config) {
     config->recovery_threshold_rad_s = RECOVERY_VELOCITY_THRESHOLD;
     config->idle_timeout_ms = IDLE_TIMEOUT_MS;
     
-    // Network settings
+    // Network settings - AP mode
     strncpy(config->wifi_ssid, WIFI_AP_SSID_DEFAULT, sizeof(config->wifi_ssid) - 1);
     strncpy(config->wifi_password, WIFI_AP_PASS_DEFAULT, sizeof(config->wifi_password) - 1);
+    // STA mode - not configured by default
+    config->sta_ssid[0] = '\0';
+    config->sta_password[0] = '\0';
+    config->sta_configured = false;
     strncpy(config->device_name, BLE_DEVICE_NAME_DEFAULT, sizeof(config->device_name) - 1);
     config->wifi_enabled = true;
     config->ble_enabled = true;
@@ -104,12 +108,25 @@ esp_err_t config_manager_load(config_t *config) {
     nvs_get_u32(handle, "weight_u32", (uint32_t*)&config->user_weight_kg);
     nvs_get_u8(handle, "user_age", &config->user_age);
     
-    // Network settings
+    // Network settings - AP mode
     len = sizeof(config->wifi_ssid);
     nvs_get_str(handle, "wifi_ssid", config->wifi_ssid, &len);
     
     len = sizeof(config->wifi_password);
     nvs_get_str(handle, "wifi_pass", config->wifi_password, &len);
+    
+    // Network settings - STA mode
+    len = sizeof(config->sta_ssid);
+    if (nvs_get_str(handle, "sta_ssid", config->sta_ssid, &len) == ESP_OK && len > 1) {
+        config->sta_configured = true;
+    }
+    
+    len = sizeof(config->sta_password);
+    nvs_get_str(handle, "sta_pass", config->sta_password, &len);
+    
+    uint8_t sta_cfg = config->sta_configured ? 1 : 0;
+    nvs_get_u8(handle, "sta_cfg", &sta_cfg);
+    config->sta_configured = sta_cfg != 0;
     
     len = sizeof(config->device_name);
     nvs_get_str(handle, "dev_name", config->device_name, &len);
@@ -136,7 +153,8 @@ esp_err_t config_manager_load(config_t *config) {
     
     nvs_close(handle);
     
-    ESP_LOGI(TAG, "Configuration loaded from NVS");
+    ESP_LOGI(TAG, "Configuration loaded from NVS (STA configured: %s)", 
+             config->sta_configured ? "yes" : "no");
     return ESP_OK;
 }
 
@@ -170,9 +188,15 @@ esp_err_t config_manager_save(const config_t *config) {
     nvs_set_u32(handle, "weight_u32", conv.u);
     nvs_set_u8(handle, "user_age", config->user_age);
     
-    // Save network settings
+    // Save network settings - AP mode
     nvs_set_str(handle, "wifi_ssid", config->wifi_ssid);
     nvs_set_str(handle, "wifi_pass", config->wifi_password);
+    
+    // Save network settings - STA mode
+    nvs_set_str(handle, "sta_ssid", config->sta_ssid);
+    nvs_set_str(handle, "sta_pass", config->sta_password);
+    nvs_set_u8(handle, "sta_cfg", config->sta_configured ? 1 : 0);
+    
     nvs_set_str(handle, "dev_name", config->device_name);
     nvs_set_u8(handle, "wifi_en", config->wifi_enabled ? 1 : 0);
     nvs_set_u8(handle, "ble_en", config->ble_enabled ? 1 : 0);

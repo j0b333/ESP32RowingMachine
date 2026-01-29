@@ -9,6 +9,7 @@
 #define WIFI_MANAGER_H
 
 #include "esp_err.h"
+#include "esp_wifi_types.h"
 #include "rowing_physics.h"
 
 /**
@@ -72,5 +73,19 @@ bool wifi_manager_is_connected(void);
  * @return Number of connected clients
  */
 int wifi_manager_get_station_count(void);
+
+/**
+ * Scan for available WiFi networks
+ * @param ap_records Array to store scan results (must be pre-allocated)
+ * @param max_records Maximum number of records to return
+ * @return Number of networks found
+ */
+int wifi_manager_scan(wifi_ap_record_t *ap_records, uint16_t max_records);
+
+/**
+ * Get current operating mode
+ * @return Current WiFi mode
+ */
+wifi_operating_mode_t wifi_manager_get_mode(void);
 
 #endif // WIFI_MANAGER_H

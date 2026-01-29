@@ -18,6 +18,7 @@
 #include "config_manager.h"
 #include "hr_receiver.h"
 #include "session_manager.h"
+#include "wifi_manager.h"
 
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -607,6 +608,208 @@ static esp_err_t live_data_handler(httpd_req_t *req) {
 }
 
 // ============================================================================
+// WiFi Captive Portal Endpoints
+// ============================================================================
+
+/**
+ * GET /api/wifi/scan - Scan for available WiFi networks
+ */
+static esp_err_t api_wifi_scan_handler(httpd_req_t *req) {
+    ESP_LOGI(TAG, "WiFi scan requested");
+    
+    // Allocate buffer for scan results
+    wifi_ap_record_t *ap_records = malloc(sizeof(wifi_ap_record_t) * 20);
+    if (ap_records == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    int count = wifi_manager_scan(ap_records, 20);
+    
+    cJSON *root = cJSON_CreateObject();
+    cJSON *networks = cJSON_CreateArray();
+    
+    for (int i = 0; i < count; i++) {
+        cJSON *net = cJSON_CreateObject();
+        cJSON_AddStringToObject(net, "ssid", (char *)ap_records[i].ssid);
+        cJSON_AddNumberToObject(net, "rssi", ap_records[i].rssi);
+        cJSON_AddNumberToObject(net, "channel", ap_records[i].primary);
+        
+        const char *auth;
+        switch (ap_records[i].authmode) {
+            case WIFI_AUTH_OPEN: auth = "open"; break;
+            case WIFI_AUTH_WEP: auth = "wep"; break;
+            case WIFI_AUTH_WPA_PSK: auth = "wpa"; break;
+            case WIFI_AUTH_WPA2_PSK: auth = "wpa2"; break;
+            case WIFI_AUTH_WPA_WPA2_PSK: auth = "wpa/wpa2"; break;
+            case WIFI_AUTH_WPA3_PSK: auth = "wpa3"; break;
+            default: auth = "unknown"; break;
+        }
+        cJSON_AddStringToObject(net, "auth", auth);
+        cJSON_AddBoolToObject(net, "secure", ap_records[i].authmode != WIFI_AUTH_OPEN);
+        
+        cJSON_AddItemToArray(networks, net);
+    }
+    
+    free(ap_records);
+    
+    cJSON_AddItemToObject(root, "networks", networks);
+    cJSON_AddNumberToObject(root, "count", count);
+    
+    char *json_string = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    
+    if (json_string == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, json_string);
+    
+    free(json_string);
+    return ESP_OK;
+}
+
+/**
+ * POST /api/wifi/connect - Save WiFi credentials and connect
+ */
+static esp_err_t api_wifi_connect_handler(httpd_req_t *req) {
+    char content[256];
+    int ret = httpd_req_recv(req, content, sizeof(content) - 1);
+    if (ret <= 0) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid request");
+        return ESP_FAIL;
+    }
+    content[ret] = '\0';
+    
+    cJSON *root = cJSON_Parse(content);
+    if (root == NULL) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+    
+    cJSON *ssid = cJSON_GetObjectItem(root, "ssid");
+    cJSON *password = cJSON_GetObjectItem(root, "password");
+    
+    if (ssid == NULL || !cJSON_IsString(ssid)) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "SSID required");
+        return ESP_FAIL;
+    }
+    
+    const char *ssid_str = cJSON_GetStringValue(ssid);
+    const char *pass_str = password ? cJSON_GetStringValue(password) : "";
+    
+    if (ssid_str == NULL || strlen(ssid_str) == 0) {
+        cJSON_Delete(root);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "SSID cannot be empty");
+        return ESP_FAIL;
+    }
+    
+    ESP_LOGI(TAG, "WiFi connect request: SSID=%s", ssid_str);
+    
+    // Save to config
+    if (g_config != NULL) {
+        strncpy(g_config->sta_ssid, ssid_str, sizeof(g_config->sta_ssid) - 1);
+        strncpy(g_config->sta_password, pass_str ? pass_str : "", sizeof(g_config->sta_password) - 1);
+        g_config->sta_configured = true;
+        config_manager_save(g_config);
+    }
+    
+    cJSON_Delete(root);
+    
+    // Send success response
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddBoolToObject(response, "success", true);
+    cJSON_AddStringToObject(response, "message", "WiFi credentials saved. Reboot to connect.");
+    cJSON_AddStringToObject(response, "ssid", ssid_str);
+    
+    char *json_string = cJSON_PrintUnformatted(response);
+    cJSON_Delete(response);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, json_string);
+    
+    free(json_string);
+    return ESP_OK;
+}
+
+/**
+ * GET /api/wifi/status - Get current WiFi status
+ */
+static esp_err_t api_wifi_status_handler(httpd_req_t *req) {
+    cJSON *root = cJSON_CreateObject();
+    
+    wifi_operating_mode_t mode = wifi_manager_get_mode();
+    cJSON_AddStringToObject(root, "mode", mode == WIFI_OPERATING_MODE_STA ? "sta" : "ap");
+    cJSON_AddBoolToObject(root, "connected", wifi_manager_is_connected());
+    
+    if (g_config != NULL) {
+        cJSON_AddBoolToObject(root, "staConfigured", g_config->sta_configured);
+        if (g_config->sta_configured) {
+            cJSON_AddStringToObject(root, "staSSID", g_config->sta_ssid);
+        }
+        cJSON_AddStringToObject(root, "apSSID", g_config->wifi_ssid);
+    }
+    
+    // Get current IP
+    char ip_str[16];
+    wifi_manager_get_ip_string(ip_str, sizeof(ip_str));
+    cJSON_AddStringToObject(root, "ip", ip_str);
+    
+    // Station count if in AP mode
+    if (mode == WIFI_OPERATING_MODE_AP) {
+        cJSON_AddNumberToObject(root, "stationCount", wifi_manager_get_station_count());
+    }
+    
+    char *json_string = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    
+    if (json_string == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, json_string);
+    
+    free(json_string);
+    return ESP_OK;
+}
+
+/**
+ * POST /api/wifi/disconnect - Clear STA credentials and revert to AP mode
+ */
+static esp_err_t api_wifi_disconnect_handler(httpd_req_t *req) {
+    ESP_LOGI(TAG, "WiFi disconnect/forget request");
+    
+    if (g_config != NULL) {
+        g_config->sta_ssid[0] = '\0';
+        g_config->sta_password[0] = '\0';
+        g_config->sta_configured = false;
+        config_manager_save(g_config);
+    }
+    
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "success", true);
+    cJSON_AddStringToObject(root, "message", "WiFi credentials cleared. Reboot to use AP mode.");
+    
+    char *json_string = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, json_string);
+    
+    free(json_string);
+    return ESP_OK;
+}
+
+// ============================================================================
 // WebSocket Handler
 // ============================================================================
 
@@ -836,6 +1039,35 @@ static const httpd_uri_t uri_live_data = {
     .user_ctx = NULL
 };
 
+// WiFi captive portal endpoints
+static const httpd_uri_t uri_api_wifi_scan = {
+    .uri = "/api/wifi/scan",
+    .method = HTTP_GET,
+    .handler = api_wifi_scan_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_api_wifi_connect = {
+    .uri = "/api/wifi/connect",
+    .method = HTTP_POST,
+    .handler = api_wifi_connect_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_api_wifi_status = {
+    .uri = "/api/wifi/status",
+    .method = HTTP_GET,
+    .handler = api_wifi_status_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_api_wifi_disconnect = {
+    .uri = "/api/wifi/disconnect",
+    .method = HTTP_POST,
+    .handler = api_wifi_disconnect_handler,
+    .user_ctx = NULL
+};
+
 // ============================================================================
 // Open/Close Callbacks for connection tracking
 // ============================================================================
@@ -930,6 +1162,12 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     httpd_register_uri_handler(g_server, &uri_workout_start);
     httpd_register_uri_handler(g_server, &uri_workout_stop);
     httpd_register_uri_handler(g_server, &uri_live_data);
+    
+    // WiFi captive portal endpoints
+    httpd_register_uri_handler(g_server, &uri_api_wifi_scan);
+    httpd_register_uri_handler(g_server, &uri_api_wifi_connect);
+    httpd_register_uri_handler(g_server, &uri_api_wifi_status);
+    httpd_register_uri_handler(g_server, &uri_api_wifi_disconnect);
     
     ESP_LOGI(TAG, "Web server started successfully");
     return ESP_OK;
