@@ -5,7 +5,7 @@ A smart rowing machine monitor firmware for ESP32-S3 that transforms a Crivit-br
 ## Features
 
 - **Bluetooth Low Energy FTMS** - Compatible with fitness apps like Kinomap, EXR, MyHomeFit, and more
-- **BLE Heart Rate Client** - Connects to BLE heart rate monitors (e.g., "Heart for Bluetooth" watch app)
+- **BLE Heart Rate Client** - Connects to BLE heart rate monitors (optional, see below)
 - **Real-time Web Interface** - Accessible via smartphone/tablet browser over WiFi
 - **Physics-based Metrics** - Accurate power, pace, and distance calculations
 - **Automatic Drag Calibration** - Self-adjusting drag coefficient for accurate measurements
@@ -16,12 +16,20 @@ A smart rowing machine monitor firmware for ESP32-S3 that transforms a Crivit-br
 For syncing workouts to Samsung Health/Google Fit via Health Connect, see the companion Android app:
 **[ESP32RowingMachineCompanionApp](https://github.com/j0b333/ESP32RowingMachineCompanionApp)**
 
-## Heart Rate Monitor Setup
+## Heart Rate Monitor Setup (Optional)
 
-This firmware supports receiving heart rate data via Bluetooth Low Energy from standard heart rate monitors.
+The BLE Heart Rate Client feature is **disabled by default** due to requiring additional NimBLE configuration.
 
-### Recommended: Heart for Bluetooth
+### Enabling BLE Heart Rate Client
 
+1. Edit `main/app_config.h` and set `BLE_HR_CLIENT_ENABLED` to `1`
+2. Run `idf.py menuconfig` and enable:
+   - `Component config → Bluetooth → NimBLE → Enable BLE GATT Client support`
+3. Do a clean rebuild: `idf.py fullclean && idf.py build`
+
+### Using Heart for Bluetooth
+
+Once enabled:
 1. Install "Heart for Bluetooth" on your Android/Wear OS watch
 2. Start the app and navigate to the Activity screen
 3. The ESP32 will automatically scan, connect, and subscribe to heart rate data

@@ -12,11 +12,17 @@
  * - Any BLE device exposing Heart Rate Service
  * 
  * Compatible with ESP-IDF 6.0+
+ * 
+ * NOTE: This feature requires CONFIG_BT_NIMBLE_GATT_CLIENT=y in sdkconfig.
+ * It is disabled by default (BLE_HR_CLIENT_ENABLED=0 in app_config.h).
  */
 
 #include "ble_hr_client.h"
-#include "hr_receiver.h"
 #include "app_config.h"
+
+#if BLE_HR_CLIENT_ENABLED
+
+#include "hr_receiver.h"
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -418,3 +424,41 @@ void ble_hr_client_disconnect(void) {
     s_hr_measurement_handle = 0;
     s_state = BLE_HR_STATE_IDLE;
 }
+
+#else // BLE_HR_CLIENT_ENABLED == 0
+
+// ============================================================================
+// Stub implementations when BLE HR client is disabled
+// ============================================================================
+
+#include "esp_log.h"
+
+static const char *TAG = "BLE_HR_CLI";
+
+esp_err_t ble_hr_client_init(void) {
+    ESP_LOGI(TAG, "BLE HR client is disabled (BLE_HR_CLIENT_ENABLED=0)");
+    return ESP_OK;
+}
+
+void ble_hr_client_deinit(void) {
+}
+
+esp_err_t ble_hr_client_start_scan(void) {
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+void ble_hr_client_stop_scan(void) {
+}
+
+bool ble_hr_client_is_connected(void) {
+    return false;
+}
+
+ble_hr_state_t ble_hr_client_get_state(void) {
+    return BLE_HR_STATE_IDLE;
+}
+
+void ble_hr_client_disconnect(void) {
+}
+
+#endif // BLE_HR_CLIENT_ENABLED
