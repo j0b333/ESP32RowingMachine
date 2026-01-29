@@ -198,14 +198,22 @@ static esp_err_t init_subsystems(void) {
         // Check if STA credentials are configured
         bool sta_connected = false;
         if (g_config.sta_configured && strlen(g_config.sta_ssid) > 0) {
-            ESP_LOGI(TAG, "Attempting to connect to WiFi: %s", g_config.sta_ssid);
-            ret = wifi_manager_start_sta(g_config.sta_ssid, g_config.sta_password);
-            if (ret == ESP_OK) {
-                sta_connected = true;
-                ESP_LOGI(TAG, "Connected to WiFi router!");
-            } else {
-                ESP_LOGW(TAG, "Failed to connect to %s, falling back to AP mode", g_config.sta_ssid);
+            ESP_LOGI(TAG, "Saved WiFi credentials found: %s", g_config.sta_ssid);
+            ESP_LOGI(TAG, "Attempting to connect (60 second timeout)...");
+            
+            // Try to connect with 60 second timeout
+            sta_connected = wifi_manager_connect_sta_with_timeout(
+                g_config.sta_ssid, 
+                g_config.sta_password, 
+                60  // 60 second timeout
+            );
+            
+            if (!sta_connected) {
+                ESP_LOGW(TAG, "Could not connect to %s within 60 seconds", g_config.sta_ssid);
+                ESP_LOGI(TAG, "Falling back to AP mode for WiFi provisioning");
             }
+        } else {
+            ESP_LOGI(TAG, "No saved WiFi credentials, starting in provisioning mode");
         }
         
         // Start WiFi in AP mode if STA not configured or connection failed

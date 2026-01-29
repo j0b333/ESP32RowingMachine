@@ -50,6 +50,17 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password);
 esp_err_t wifi_manager_start_sta(const char *ssid, const char *password);
 
 /**
+ * Start WiFi in Station mode with custom timeout
+ * Attempts to connect for up to timeout_sec seconds, then returns failure.
+ * 
+ * @param ssid Network SSID to connect to
+ * @param password Network password
+ * @param timeout_sec Maximum time to wait for connection (seconds)
+ * @return true if connected, false if timeout or failure
+ */
+bool wifi_manager_connect_sta_with_timeout(const char *ssid, const char *password, uint32_t timeout_sec);
+
+/**
  * Stop WiFi
  */
 void wifi_manager_stop(void);

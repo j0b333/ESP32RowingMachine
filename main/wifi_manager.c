@@ -487,6 +487,124 @@ esp_err_t wifi_manager_start_sta(const char *ssid, const char *password) {
 }
 
 /**
+ * Start WiFi in Station mode with custom timeout
+ * Attempts to connect for up to timeout_sec seconds, then returns failure.
+ */
+bool wifi_manager_connect_sta_with_timeout(const char *ssid, const char *password, uint32_t timeout_sec) {
+    WIFI_MUTEX_TAKE();
+    
+    if (!s_wifi_initialized) {
+        ESP_LOGE(TAG, "WiFi not initialized");
+        WIFI_MUTEX_GIVE();
+        return false;
+    }
+    
+    if (ssid == NULL || strlen(ssid) == 0) {
+        ESP_LOGE(TAG, "Invalid SSID");
+        WIFI_MUTEX_GIVE();
+        return false;
+    }
+    
+    esp_err_t ret;
+    
+    // Reset retry counter and clear event bits
+    s_retry_count = 0;
+    xEventGroupClearBits(s_wifi_event_group, WIFI_STARTED_BIT | WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+    
+    // Set mode to STA
+    ret = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set STA mode: %s", esp_err_to_name(ret));
+        WIFI_MUTEX_GIVE();
+        return false;
+    }
+    
+    // Configure STA
+    wifi_config_t wifi_config = {
+        .sta = {
+            .threshold.authmode = WIFI_AUTH_WPA_PSK,  // Allow WPA and WPA2
+            .pmf_cfg = {
+                .capable = true,
+                .required = false,
+            },
+        },
+    };
+    
+    strncpy((char *)wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid) - 1);
+    wifi_config.sta.ssid[sizeof(wifi_config.sta.ssid) - 1] = '\0';
+    
+    if (password != NULL) {
+        strncpy((char *)wifi_config.sta.password, password, sizeof(wifi_config.sta.password) - 1);
+        wifi_config.sta.password[sizeof(wifi_config.sta.password) - 1] = '\0';
+    }
+    
+    ret = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set STA config: %s", esp_err_to_name(ret));
+        WIFI_MUTEX_GIVE();
+        return false;
+    }
+    
+    // Start WiFi
+    ret = esp_wifi_start();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start WiFi: %s", esp_err_to_name(ret));
+        WIFI_MUTEX_GIVE();
+        return false;
+    }
+    
+    // Release mutex before waiting (to prevent deadlock)
+    WIFI_MUTEX_GIVE();
+    
+    ESP_LOGI(TAG, "Waiting for WiFi connection (up to %lu seconds)...", (unsigned long)timeout_sec);
+    
+    // Wait in 10-second intervals for better progress feedback
+    uint32_t elapsed = 0;
+    const uint32_t check_interval = 10; // seconds
+    
+    while (elapsed < timeout_sec) {
+        uint32_t remaining = timeout_sec - elapsed;
+        uint32_t wait_time = (remaining < check_interval) ? remaining : check_interval;
+        
+        EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
+                                                WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+                                                pdFALSE, pdFALSE,
+                                                pdMS_TO_TICKS(wait_time * 1000));
+        
+        if (bits & WIFI_CONNECTED_BIT) {
+            // Initialize mDNS for rower.local
+            init_mdns();
+            
+            s_current_mode = WIFI_OPERATING_MODE_STA;
+            ESP_LOGI(TAG, "Successfully connected to WiFi: %s", ssid);
+            return true;
+        }
+        
+        if (bits & WIFI_FAIL_BIT) {
+            ESP_LOGW(TAG, "Connection failed after retries");
+            // Stop WiFi to clean up
+            esp_wifi_stop();
+            return false;
+        }
+        
+        elapsed += wait_time;
+        
+        if (elapsed < timeout_sec) {
+            ESP_LOGI(TAG, "Still trying to connect... (%lu seconds remaining)", 
+                     (unsigned long)(timeout_sec - elapsed));
+        }
+    }
+    
+    // Timeout reached
+    ESP_LOGW(TAG, "Failed to connect to %s within %lu seconds", ssid, (unsigned long)timeout_sec);
+    
+    // Stop WiFi to clean up before fallback
+    esp_wifi_stop();
+    
+    return false;
+}
+
+/**
  * Stop WiFi
  */
 void wifi_manager_stop(void) {
