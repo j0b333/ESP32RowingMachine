@@ -29,64 +29,58 @@ Power Architecture:
 │      ↓                                      │
 │  ESP32 DevKit-C                             │
 │      ├─ VIN (5V input from USB)            │
-│      ├─ GND (USB ground)                    │
-│      └─ 3.3V output pin → Rowing machine   │
-│         (Powers sensor pull-ups, max 200mA) │
+│      └─ GND (USB ground)                    │
+│                                             │
+│  Note: Reed switches connect directly to    │
+│  GPIO pins with internal pull-ups enabled   │
 └─────────────────────────────────────────────┘
 
-Note: ESP32's 3.3V regulator can supply ~600mA total
-Sensor circuit draws ~10-20mA, well within limits
+The ESP32 internal pull-up resistors provide the 
+necessary voltage reference for the reed switches.
+No external power supply to the rowing machine is needed.
 ```
 
 ## **Sensor Connections**
 
-### **Confirmed Sensor Configuration**
-Based on physical testing with multimeter:
+### **Simplified Wiring (Recommended)**
+Direct connection of reed switches to ESP32, bypassing the original rowing machine electronics:
 
 ```
-Rowing Machine 4-Wire Connector:
+Rowing Machine Reed Switches → ESP32:
 ┌──────────────────────────────────────────────────┐
-│  White Wire:  Flywheel reed switch signal        │
-│               - Active LOW (3.2V rest, 0V active)│
-│               - Triggers once per flywheel rev   │
-│               - Connect to: ESP32 GPIO 15        │
+│  Flywheel Reed Switch:                           │
+│    - One terminal → ESP32 GPIO 15                │
+│    - Other terminal → ESP32 GND                  │
 │                                                  │
-│  Red Wire:    Seat position reed switch signal   │
-│               - Active LOW (3.2V rest, 0V active)│
-│               - Triggers at seat mid-rail        │
-│               - Connect to: ESP32 GPIO 16        │
+│  Seat Position Reed Switch:                      │
+│    - One terminal → ESP32 GPIO 16                │
+│    - Other terminal → ESP32 GND                  │
 │                                                  │
-│  Yellow Wire: Ground (shared)                    │
-│               - Connect to: ESP32 GND            │
-│                                                  │
-│  Black Wire:  Ground (shared, redundant)         │
-│               - Connect to: ESP32 GND            │
+│  Ground Connections:                             │
+│    - Combine all ground wires together           │
+│    - Connect combined grounds → ESP32 GND        │
 └──────────────────────────────────────────────────┘
 
-CRITICAL: The rowing machine's sensor circuit requires 
-3.3V power supply. Connect ESP32 3.3V pin to the machine's
-Red wire (which originally received 3.2V from 2xAA batteries).
+NOTE: This setup uses ESP32 internal pull-up resistors.
+The reed switches pull the GPIO LOW when the magnet passes.
+No external power or the original battery terminals are used.
 ```
 
 ## **Complete Wiring Diagram**
 
 ```
-ESP32 DevKitC-V1 Pinout:
+ESP32 DevKitC Pinout:
 ╔════════════════════════════════════════════════╗
 ║  USB Connection:                               ║
-║    Micro-USB cable → ESP32 (provides 5V power) ║
+║    USB cable → ESP32 (provides power)          ║
 ║                                                ║
-║  Power Output to Rowing Machine:               ║
-║    ESP32 3.3V pin → Red wire (sensor VCC)     ║
-║    ESP32 GND pin  → Yellow + Black wires      ║
-║                                                ║
-║  Sensor Input Signals:                         ║
-║    GPIO 15 ← White wire (flywheel sensor)     ║
-║    GPIO 16 ← Red wire (seat sensor)           ║
+║  Reed Switch Connections:                      ║
+║    GPIO 15 ← Flywheel reed switch              ║
+║    GPIO 16 ← Seat position reed switch         ║
+║    GND      ← Combined grounds from sensors    ║
 ║                                                ║
 ║  GPIO Configuration:                           ║
-║    - Mode: INPUT (no internal pull-up/down)    ║
-║    - External pull-up via rowing machine      ║
+║    - Mode: INPUT_PULLUP (internal pull-up)     ║
 ║    - Active LOW detection                      ║
 ║    - Interrupt on FALLING edge                 ║
 ║                                                ║
@@ -101,24 +95,24 @@ ESP32 DevKitC-V1 Pinout:
 
 ```
 Flywheel Reed Switch (GPIO 15):
-  - Voltage HIGH (no magnet): 3.3V (pulled up by machine)
-  - Voltage LOW (magnet near): 0V
+  - Voltage HIGH (no magnet): 3.3V (ESP32 internal pull-up)
+  - Voltage LOW (magnet near): 0V (reed switch closes)
   - Signal duration when active: ~5-50ms (depends on speed)
   - Max trigger frequency: ~200 Hz (very fast rowing)
   - Debounce time required: 10ms minimum
-  - Connection type: Active LOW, external pull-up
+  - Connection type: Active LOW, internal pull-up
 
 Seat Position Reed Switch (GPIO 16):
-  - Voltage HIGH (seat not at midpoint): 3.3V
-  - Voltage LOW (seat at midpoint): 0V
+  - Voltage HIGH (seat not at midpoint): 3.3V (ESP32 internal pull-up)
+  - Voltage LOW (seat at midpoint): 0V (reed switch closes)
   - Signal duration: ~50-200ms (depends on stroke rate)
   - Max trigger frequency: ~3 Hz (60 SPM max)
   - Debounce time required: 50ms minimum
-  - Connection type: Active LOW, external pull-up
+  - Connection type: Active LOW, internal pull-up
 
-IMPORTANT: Both sensors have external pull-up resistors
-in the rowing machine circuit. DO NOT enable ESP32 
-internal pull-ups (leave as INPUT, not INPUT_PULLUP).
+IMPORTANT: ESP32 internal pull-ups are enabled for both GPIO pins.
+The reed switches simply short the GPIO to ground when the magnet passes.
+No external power supply to the rowing machine is required.
 ```
 
 ---

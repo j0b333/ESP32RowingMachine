@@ -3,6 +3,7 @@
  * @brief WiFi AP/STA management for web interface access
  * 
  * Compatible with ESP-IDF 6.0+
+ * Thread-safe: Uses mutex to prevent race conditions
  */
 
 #include "wifi_manager.h"
@@ -16,6 +17,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
+#include "freertos/semphr.h"
 
 #include <string.h>
 #include <inttypes.h>
@@ -30,6 +32,9 @@ static const char *TAG = "WIFI";
 // Event group handle
 static EventGroupHandle_t s_wifi_event_group = NULL;
 
+// Mutex for thread-safe operations
+static SemaphoreHandle_t s_wifi_mutex = NULL;
+
 // Network interfaces
 static esp_netif_t *s_netif_ap = NULL;
 static esp_netif_t *s_netif_sta = NULL;
@@ -42,6 +47,21 @@ static const int MAX_RETRY = 5;
 
 // IP address storage
 static esp_netif_ip_info_t s_ip_info;
+
+// Mutex helper macros
+#define WIFI_MUTEX_TAKE() \
+    do { \
+        if (s_wifi_mutex != NULL) { \
+            xSemaphoreTake(s_wifi_mutex, portMAX_DELAY); \
+        } \
+    } while(0)
+
+#define WIFI_MUTEX_GIVE() \
+    do { \
+        if (s_wifi_mutex != NULL) { \
+            xSemaphoreGive(s_wifi_mutex); \
+        } \
+    } while(0)
 
 /**
  * WiFi event handler
@@ -131,8 +151,20 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
  * Initialize WiFi subsystem
  */
 esp_err_t wifi_manager_init(void) {
+    // Create mutex first (before checking initialized flag)
+    if (s_wifi_mutex == NULL) {
+        s_wifi_mutex = xSemaphoreCreateMutex();
+        if (s_wifi_mutex == NULL) {
+            ESP_LOGE(TAG, "Failed to create WiFi mutex");
+            return ESP_FAIL;
+        }
+    }
+    
+    WIFI_MUTEX_TAKE();
+    
     if (s_wifi_initialized) {
         ESP_LOGW(TAG, "WiFi already initialized");
+        WIFI_MUTEX_GIVE();
         return ESP_OK;
     }
     
@@ -142,6 +174,7 @@ esp_err_t wifi_manager_init(void) {
     s_wifi_event_group = xEventGroupCreate();
     if (s_wifi_event_group == NULL) {
         ESP_LOGE(TAG, "Failed to create WiFi event group");
+        WIFI_MUTEX_GIVE();
         return ESP_FAIL;
     }
     
@@ -149,6 +182,7 @@ esp_err_t wifi_manager_init(void) {
     ret = esp_netif_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to init netif: %s", esp_err_to_name(ret));
+        WIFI_MUTEX_GIVE();
         return ret;
     }
     
@@ -156,6 +190,7 @@ esp_err_t wifi_manager_init(void) {
     ret = esp_event_loop_create_default();
     if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "Failed to create event loop: %s", esp_err_to_name(ret));
+        WIFI_MUTEX_GIVE();
         return ret;
     }
     
@@ -165,6 +200,7 @@ esp_err_t wifi_manager_init(void) {
     
     if (s_netif_ap == NULL || s_netif_sta == NULL) {
         ESP_LOGE(TAG, "Failed to create netif");
+        WIFI_MUTEX_GIVE();
         return ESP_FAIL;
     }
     
@@ -173,6 +209,7 @@ esp_err_t wifi_manager_init(void) {
     ret = esp_wifi_init(&cfg);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to init WiFi: %s", esp_err_to_name(ret));
+        WIFI_MUTEX_GIVE();
         return ret;
     }
     
@@ -181,6 +218,7 @@ esp_err_t wifi_manager_init(void) {
                                                &wifi_event_handler, NULL, NULL);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to register WiFi event handler: %s", esp_err_to_name(ret));
+        WIFI_MUTEX_GIVE();
         return ret;
     }
     
@@ -188,10 +226,13 @@ esp_err_t wifi_manager_init(void) {
                                                &wifi_event_handler, NULL, NULL);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to register IP event handler: %s", esp_err_to_name(ret));
+        WIFI_MUTEX_GIVE();
         return ret;
     }
     
     s_wifi_initialized = true;
+    WIFI_MUTEX_GIVE();
+    
     ESP_LOGI(TAG, "WiFi manager initialized");
     
     return ESP_OK;
@@ -201,7 +242,10 @@ esp_err_t wifi_manager_init(void) {
  * Deinitialize WiFi subsystem
  */
 void wifi_manager_deinit(void) {
+    WIFI_MUTEX_TAKE();
+    
     if (!s_wifi_initialized) {
+        WIFI_MUTEX_GIVE();
         return;
     }
     
@@ -214,6 +258,14 @@ void wifi_manager_deinit(void) {
     }
     
     s_wifi_initialized = false;
+    WIFI_MUTEX_GIVE();
+    
+    // Delete mutex last (after releasing it)
+    if (s_wifi_mutex != NULL) {
+        vSemaphoreDelete(s_wifi_mutex);
+        s_wifi_mutex = NULL;
+    }
+    
     ESP_LOGI(TAG, "WiFi manager deinitialized");
 }
 
@@ -221,17 +273,24 @@ void wifi_manager_deinit(void) {
  * Start WiFi in Access Point mode
  */
 esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
+    WIFI_MUTEX_TAKE();
+    
     if (!s_wifi_initialized) {
         ESP_LOGE(TAG, "WiFi not initialized");
+        WIFI_MUTEX_GIVE();
         return ESP_ERR_INVALID_STATE;
     }
     
     esp_err_t ret;
     
+    // Clear previous event bits
+    xEventGroupClearBits(s_wifi_event_group, WIFI_STARTED_BIT | WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+    
     // Set mode to AP
     ret = esp_wifi_set_mode(WIFI_MODE_AP);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set AP mode: %s", esp_err_to_name(ret));
+        WIFI_MUTEX_GIVE();
         return ret;
     }
     
@@ -257,6 +316,7 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
     ret = esp_wifi_set_config(WIFI_IF_AP, &wifi_config);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set AP config: %s", esp_err_to_name(ret));
+        WIFI_MUTEX_GIVE();
         return ret;
     }
     
@@ -264,8 +324,12 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
     ret = esp_wifi_start();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start WiFi: %s", esp_err_to_name(ret));
+        WIFI_MUTEX_GIVE();
         return ret;
     }
+    
+    // Release mutex before waiting (to prevent deadlock)
+    WIFI_MUTEX_GIVE();
     
     // Wait for AP to start
     EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
@@ -290,20 +354,25 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
  * Start WiFi in Station mode
  */
 esp_err_t wifi_manager_start_sta(const char *ssid, const char *password) {
+    WIFI_MUTEX_TAKE();
+    
     if (!s_wifi_initialized) {
         ESP_LOGE(TAG, "WiFi not initialized");
+        WIFI_MUTEX_GIVE();
         return ESP_ERR_INVALID_STATE;
     }
     
     esp_err_t ret;
     
-    // Reset retry counter
+    // Reset retry counter and clear event bits
     s_retry_count = 0;
+    xEventGroupClearBits(s_wifi_event_group, WIFI_STARTED_BIT | WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
     
     // Set mode to STA
     ret = esp_wifi_set_mode(WIFI_MODE_STA);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set STA mode: %s", esp_err_to_name(ret));
+        WIFI_MUTEX_GIVE();
         return ret;
     }
     
@@ -324,6 +393,7 @@ esp_err_t wifi_manager_start_sta(const char *ssid, const char *password) {
     ret = esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set STA config: %s", esp_err_to_name(ret));
+        WIFI_MUTEX_GIVE();
         return ret;
     }
     
@@ -331,8 +401,12 @@ esp_err_t wifi_manager_start_sta(const char *ssid, const char *password) {
     ret = esp_wifi_start();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start WiFi: %s", esp_err_to_name(ret));
+        WIFI_MUTEX_GIVE();
         return ret;
     }
+    
+    // Release mutex before waiting (to prevent deadlock)
+    WIFI_MUTEX_GIVE();
     
     // Wait for connection
     EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
@@ -357,7 +431,9 @@ esp_err_t wifi_manager_start_sta(const char *ssid, const char *password) {
  * Stop WiFi
  */
 void wifi_manager_stop(void) {
+    WIFI_MUTEX_TAKE();
     esp_wifi_stop();
+    WIFI_MUTEX_GIVE();
     ESP_LOGI(TAG, "WiFi stopped");
 }
 

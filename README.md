@@ -18,28 +18,30 @@ A smart rowing machine monitor firmware for ESP32-S3 that transforms a Crivit-br
 
 ### Sensor Connections
 
+The ESP32 connects directly to the rowing machine's reed switches using internal pull-up resistors. No external power supply is needed.
+
 ```
 ESP32-S3 DevKitC Pinout:
 ╔════════════════════════════════════════════════╗
 ║  Power:                                        ║
-║    USB-C → ESP32 (provides 5V power)          ║
-║    ESP32 3.3V → Rowing machine sensor VCC     ║
-║    ESP32 GND  → Rowing machine GND            ║
+║    USB-C → ESP32 (provides power)              ║
 ║                                                ║
-║  Sensor Inputs:                                ║
-║    GPIO 15 ← Flywheel reed switch (white)     ║
-║    GPIO 16 ← Seat position switch (red)       ║
+║  Sensor Inputs (direct reed switch connection):║
+║    GPIO 15 ← Flywheel reed switch              ║
+║    GPIO 16 ← Seat position reed switch         ║
+║    GND      ← Combined sensor grounds          ║
 ╚════════════════════════════════════════════════╝
 ```
 
 ### Rowing Machine Wiring
 
 ```
-Rowing Machine 4-Wire Connector:
-- White Wire:  Flywheel reed switch → GPIO 15
-- Red Wire:    Seat position switch → GPIO 16  
-- Yellow Wire: Ground → ESP32 GND
-- Black Wire:  Ground (redundant) → ESP32 GND
+Reed Switch Connections:
+- Flywheel reed switch   → GPIO 15 + GND
+- Seat position switch   → GPIO 16 + GND
+- Combine all grounds    → ESP32 GND
+
+Note: Internal pull-ups are used. No external power needed.
 ```
 
 ## Building the Firmware

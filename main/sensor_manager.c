@@ -176,7 +176,7 @@ esp_err_t sensor_manager_init(void) {
     gpio_config_t flywheel_conf = {
         .pin_bit_mask = (1ULL << GPIO_FLYWHEEL_SENSOR),
         .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,  // External pull-up in rowing machine
+        .pull_up_en = GPIO_PULLUP_ENABLE,   // Use internal pull-up (no external power needed)
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_NEGEDGE      // Trigger on falling edge (HIGH→LOW)
     };
@@ -190,7 +190,7 @@ esp_err_t sensor_manager_init(void) {
     gpio_config_t seat_conf = {
         .pin_bit_mask = (1ULL << GPIO_SEAT_SENSOR),
         .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,  // External pull-up in rowing machine
+        .pull_up_en = GPIO_PULLUP_ENABLE,   // Use internal pull-up (no external power needed)
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_NEGEDGE      // Trigger on falling edge
     };
