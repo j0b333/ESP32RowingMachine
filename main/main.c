@@ -200,38 +200,41 @@ static esp_err_t init_subsystems(void) {
         bool sta_connected = false;
         if (g_config.sta_configured && strlen(g_config.sta_ssid) > 0) {
             ESP_LOGI(TAG, "Saved WiFi credentials found: %s", g_config.sta_ssid);
-            ESP_LOGI(TAG, "Attempting to connect (60 second timeout)...");
+            ESP_LOGI(TAG, "Starting in APSTA mode (both AP and STA)...");
             
-            // Try to connect with 60 second timeout
-            sta_connected = wifi_manager_connect_sta_with_timeout(
-                g_config.sta_ssid, 
-                g_config.sta_password, 
-                60  // 60 second timeout
+            // Use APSTA mode so both AP and STA run simultaneously
+            // This allows multiple devices to connect via AP or the home network
+            ret = wifi_manager_start_apsta(
+                g_config.wifi_ssid, g_config.wifi_password,  // AP credentials
+                g_config.sta_ssid, g_config.sta_password,    // STA credentials
+                60  // 60 second timeout for STA connection
             );
             
+            sta_connected = (ret == ESP_OK);
+            
             if (!sta_connected) {
-                ESP_LOGW(TAG, "Could not connect to %s within 60 seconds", g_config.sta_ssid);
-                ESP_LOGI(TAG, "Falling back to AP mode for WiFi provisioning");
+                ESP_LOGW(TAG, "Could not connect to %s", g_config.sta_ssid);
+                ESP_LOGI(TAG, "AP is still running for direct connections");
             }
         } else {
             ESP_LOGI(TAG, "No saved WiFi credentials, starting in provisioning mode");
         }
         
-        // Start WiFi in AP mode if STA not configured or connection failed
-        if (!sta_connected) {
+        // Start WiFi in AP mode if STA not configured
+        if (!g_config.sta_configured || strlen(g_config.sta_ssid) == 0) {
             ESP_LOGI(TAG, "Starting WiFi AP: %s", g_config.wifi_ssid);
             ret = wifi_manager_start_ap(g_config.wifi_ssid, g_config.wifi_password);
             if (ret != ESP_OK) {
                 ESP_LOGE(TAG, "Failed to start WiFi AP");
                 return ret;
             }
-            
-            // Start DNS server for captive portal (only in AP mode)
-            ESP_LOGI(TAG, "Starting DNS server for captive portal...");
-            esp_err_t dns_ret = dns_server_start("192.168.4.1");
-            if (dns_ret != ESP_OK) {
-                ESP_LOGW(TAG, "DNS server failed to start - captive portal may not work automatically");
-            }
+        }
+        
+        // Start DNS server for captive portal (AP is always running in APSTA mode)
+        ESP_LOGI(TAG, "Starting DNS server for captive portal...");
+        esp_err_t dns_ret = dns_server_start("192.168.4.1");
+        if (dns_ret != ESP_OK) {
+            ESP_LOGW(TAG, "DNS server failed to start - captive portal may not work automatically");
         }
         
         // Start web server
@@ -248,10 +251,12 @@ static esp_err_t init_subsystems(void) {
         ESP_LOGI(TAG, "====================================");
         ESP_LOGI(TAG, "  Web interface: http://%s", ip_str);
         ESP_LOGI(TAG, "  Also available at: http://rower.local");
+        ESP_LOGI(TAG, "  Direct AP access: http://192.168.4.1");
         if (sta_connected) {
-            ESP_LOGI(TAG, "  Mode: Station (connected to %s)", g_config.sta_ssid);
+            ESP_LOGI(TAG, "  Mode: AP+STA (connected to %s)", g_config.sta_ssid);
+            ESP_LOGI(TAG, "  Multiple devices can connect via AP or router");
         } else {
-            ESP_LOGI(TAG, "  Mode: Access Point (Captive Portal)");
+            ESP_LOGI(TAG, "  Mode: Access Point");
             ESP_LOGI(TAG, "  WiFi SSID: %s", g_config.wifi_ssid);
             ESP_LOGI(TAG, "  Setup page: http://%s/setup", ip_str);
         }

@@ -605,6 +605,161 @@ bool wifi_manager_connect_sta_with_timeout(const char *ssid, const char *passwor
 }
 
 /**
+ * Start WiFi in AP+STA mode (both simultaneously)
+ * This allows devices to connect directly to the ESP32's AP while also
+ * being connected to a home router. Useful for multi-device access.
+ * 
+ * @param ap_ssid AP SSID
+ * @param ap_password AP password (NULL for open network)
+ * @param sta_ssid Router SSID to connect to
+ * @param sta_password Router password
+ * @param timeout_sec Timeout for STA connection (0 for no timeout)
+ * @return ESP_OK if both AP started and STA connected
+ */
+esp_err_t wifi_manager_start_apsta(const char *ap_ssid, const char *ap_password,
+                                    const char *sta_ssid, const char *sta_password,
+                                    uint32_t timeout_sec) {
+    WIFI_MUTEX_TAKE();
+    
+    if (!s_wifi_initialized) {
+        ESP_LOGE(TAG, "WiFi not initialized");
+        WIFI_MUTEX_GIVE();
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    esp_err_t ret;
+    
+    // Reset retry counter and clear event bits
+    s_retry_count = 0;
+    xEventGroupClearBits(s_wifi_event_group, WIFI_STARTED_BIT | WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+    
+    // Set mode to APSTA (both AP and STA)
+    ret = esp_wifi_set_mode(WIFI_MODE_APSTA);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set APSTA mode: %s", esp_err_to_name(ret));
+        WIFI_MUTEX_GIVE();
+        return ret;
+    }
+    
+    // Configure AP
+    wifi_config_t ap_config = {
+        .ap = {
+            .ssid_len = strlen(ap_ssid),
+            .channel = WIFI_AP_CHANNEL,
+            .max_connection = WIFI_AP_MAX_CONNECTIONS,
+            .authmode = (ap_password != NULL && strlen(ap_password) >= 8) ? 
+                        WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN,
+            .pmf_cfg = {
+                .required = false,
+            },
+        },
+    };
+    
+    strncpy((char *)ap_config.ap.ssid, ap_ssid, sizeof(ap_config.ap.ssid) - 1);
+    if (ap_password != NULL && strlen(ap_password) >= 8) {
+        strncpy((char *)ap_config.ap.password, ap_password, sizeof(ap_config.ap.password) - 1);
+    }
+    
+    ret = esp_wifi_set_config(WIFI_IF_AP, &ap_config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set AP config: %s", esp_err_to_name(ret));
+        WIFI_MUTEX_GIVE();
+        return ret;
+    }
+    
+    // Configure STA
+    wifi_config_t sta_config = {
+        .sta = {
+            .threshold.authmode = WIFI_AUTH_WPA_PSK,  // Allow WPA and WPA2
+            .pmf_cfg = {
+                .capable = true,
+                .required = false,
+            },
+        },
+    };
+    
+    strncpy((char *)sta_config.sta.ssid, sta_ssid, sizeof(sta_config.sta.ssid) - 1);
+    sta_config.sta.ssid[sizeof(sta_config.sta.ssid) - 1] = '\0';
+    
+    if (sta_password != NULL) {
+        strncpy((char *)sta_config.sta.password, sta_password, sizeof(sta_config.sta.password) - 1);
+        sta_config.sta.password[sizeof(sta_config.sta.password) - 1] = '\0';
+    }
+    
+    ret = esp_wifi_set_config(WIFI_IF_STA, &sta_config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set STA config: %s", esp_err_to_name(ret));
+        WIFI_MUTEX_GIVE();
+        return ret;
+    }
+    
+    // Start WiFi
+    ret = esp_wifi_start();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start WiFi: %s", esp_err_to_name(ret));
+        WIFI_MUTEX_GIVE();
+        return ret;
+    }
+    
+    // Release mutex before waiting (to prevent deadlock)
+    WIFI_MUTEX_GIVE();
+    
+    ESP_LOGI(TAG, "APSTA mode started. AP: %s, Connecting to: %s", ap_ssid, sta_ssid);
+    
+    if (timeout_sec > 0) {
+        // Wait for STA connection
+        ESP_LOGI(TAG, "Waiting for STA connection (up to %lu seconds)...", (unsigned long)timeout_sec);
+        
+        uint32_t elapsed = 0;
+        const uint32_t check_interval = 10; // seconds
+        
+        while (elapsed < timeout_sec) {
+            uint32_t remaining = timeout_sec - elapsed;
+            uint32_t wait_time = (remaining < check_interval) ? remaining : check_interval;
+            
+            EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
+                                                    WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+                                                    pdFALSE, pdFALSE,
+                                                    pdMS_TO_TICKS(wait_time * 1000));
+            
+            if (bits & WIFI_CONNECTED_BIT) {
+                // Get STA IP address
+                esp_netif_get_ip_info(s_netif_sta, &s_ip_info);
+                
+                // Initialize mDNS for rower.local
+                init_mdns();
+                
+                s_current_mode = WIFI_OPERATING_MODE_APSTA;
+                ESP_LOGI(TAG, "APSTA: Connected to %s, STA IP=" IPSTR ", AP IP=192.168.4.1", 
+                         sta_ssid, IP2STR(&s_ip_info.ip));
+                return ESP_OK;
+            }
+            
+            if (bits & WIFI_FAIL_BIT) {
+                ESP_LOGW(TAG, "STA connection failed, but AP is still running");
+                break;
+            }
+            
+            elapsed += wait_time;
+            
+            if (elapsed < timeout_sec) {
+                ESP_LOGI(TAG, "Still trying to connect... (%lu seconds remaining)", 
+                         (unsigned long)(timeout_sec - elapsed));
+            }
+        }
+        
+        // STA connection failed or timed out, but AP is still running
+        ESP_LOGW(TAG, "STA connection failed, falling back to AP-only mode");
+        s_current_mode = WIFI_OPERATING_MODE_AP;
+        return ESP_ERR_TIMEOUT;
+    }
+    
+    // No timeout specified, just start APSTA mode
+    s_current_mode = WIFI_OPERATING_MODE_APSTA;
+    return ESP_OK;
+}
+
+/**
  * Stop WiFi
  */
 void wifi_manager_stop(void) {
