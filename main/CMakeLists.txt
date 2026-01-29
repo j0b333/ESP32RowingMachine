@@ -6,6 +6,7 @@ idf_component_register(
         "stroke_detector.c"
         "metrics_calculator.c"
         "ble_ftms_server.c"
+        "ble_hr_client.c"
         "wifi_manager.c"
         "web_server.c"
         "config_manager.c"

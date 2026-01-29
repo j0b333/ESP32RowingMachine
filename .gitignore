@@ -44,3 +44,6 @@ Thumbs.db
 *.hex
 
 .clangd
+
+# CodeQL artifacts
+_codeql_detected_source_root

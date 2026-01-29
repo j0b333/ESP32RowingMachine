@@ -5,6 +5,8 @@
 
 #include "metrics_calculator.h"
 #include "app_config.h"
+#include "hr_receiver.h"
+#include "ble_hr_client.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include <stdio.h>
@@ -70,6 +72,36 @@ int metrics_calculator_to_json(const rowing_metrics_t *metrics, char *buffer, si
     rowing_physics_format_pace(metrics->instantaneous_pace_sec_500m, pace_str, sizeof(pace_str));
     rowing_physics_format_pace(metrics->average_pace_sec_500m, avg_pace_str, sizeof(avg_pace_str));
     
+    // Get heart rate info
+    uint8_t heart_rate = hr_receiver_get_current();
+    bool hr_valid = hr_receiver_is_valid();
+    
+    // Get HR statistics
+    uint8_t avg_hr = 0, max_hr = 0;
+    uint16_t hr_count = 0;
+    hr_receiver_get_stats(&avg_hr, &max_hr, &hr_count);
+    
+    // Get BLE HR client state
+    ble_hr_state_t hr_state = ble_hr_client_get_state();
+    const char *hr_status;
+    switch (hr_state) {
+        case BLE_HR_STATE_CONNECTED:
+            hr_status = "connected";
+            break;
+        case BLE_HR_STATE_SCANNING:
+            hr_status = "scanning";
+            break;
+        case BLE_HR_STATE_CONNECTING:
+            hr_status = "connecting";
+            break;
+        case BLE_HR_STATE_ERROR:
+            hr_status = "error";
+            break;
+        default:
+            hr_status = "idle";
+            break;
+    }
+    
     return snprintf(buffer, buf_len,
         "{"
         "\"distance\":%.1f,"
@@ -88,7 +120,12 @@ int metrics_calculator_to_json(const rowing_metrics_t *metrics, char *buffer, si
         "\"elapsedTime\":%lu,"
         "\"dragFactor\":%.1f,"
         "\"isActive\":%s,"
-        "\"phase\":\"%s\""
+        "\"isPaused\":%s,"
+        "\"phase\":\"%s\","
+        "\"heartRate\":%u,"
+        "\"avgHeartRate\":%u,"
+        "\"hrValid\":%s,"
+        "\"hrStatus\":\"%s\""
         "}",
         metrics->total_distance_meters,
         metrics->instantaneous_pace_sec_500m,
@@ -106,7 +143,12 @@ int metrics_calculator_to_json(const rowing_metrics_t *metrics, char *buffer, si
         (unsigned long)(metrics->elapsed_time_ms / 1000),
         metrics->drag_factor,
         metrics->is_active ? "true" : "false",
+        metrics->is_paused ? "true" : "false",
         metrics->current_phase == STROKE_PHASE_IDLE ? "idle" : 
-            (metrics->current_phase == STROKE_PHASE_DRIVE ? "drive" : "recovery")
+            (metrics->current_phase == STROKE_PHASE_DRIVE ? "drive" : "recovery"),
+        (unsigned int)heart_rate,
+        (unsigned int)avg_hr,
+        hr_valid ? "true" : "false",
+        hr_status
     );
 }

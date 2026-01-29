@@ -8,7 +8,7 @@ version: 2.0.0
 created: 2026-01-29
 updated: 2026-01-29
 target_audience: LLM_and_developers
-project_name: ESP32 Rowing Monitor with Galaxy Watch HR and Health Connect Integration
+project_name: ESP32 Rowing Monitor with BLE HR and Health Connect Integration
 framework: ESP-IDF (v6.0+)
 ```
 
@@ -20,9 +20,9 @@ framework: ESP-IDF (v6.0+)
 
 This project creates a self-contained rowing machine fitness tracking system using three components:
 
-1. **ESP32-S3 Microcontroller**: Acts as the central hub - rowing monitor, heart rate receiver, web server, BLE FTMS, and session storage
-2. **Samsung Galaxy Watch**: Provides real-time heart rate data via existing HeartRateToWeb Tizen app
-3. **Android Phone**: Simple app that fetches sessions from ESP32 and writes to Health Connect (syncs to Samsung Health)
+1. **ESP32-S3 Microcontroller**: Acts as the central hub - rowing monitor, BLE heart rate receiver, web server, BLE FTMS, and session storage
+2. **Android Watch (Wear OS or Tizen)**: Provides real-time heart rate data via BLE using the "Heart for Bluetooth" app
+3. **Android Phone**: Companion app for session management and Health Connect sync (see [ESP32RowingMachineCompanionApp](https://github.com/j0b333/ESP32RowingMachineCompanionApp))
 
 ### 1.2 Key Features
 
@@ -30,10 +30,11 @@ This project creates a self-contained rowing machine fitness tracking system usi
 - No cloud services required
 - No internet required (except initial NTP time sync)
 - Bluetooth FTMS compatible (Kinomap, EXR, MyHomeFit, etc.)
+- BLE Heart Rate client - receives heart rate from BLE heart rate monitors
 - Real-time web interface with WebSocket streaming
 - Stores workout sessions with heart rate data
 - Sessions persist across ESP32 reboots
-- Automatic sync to Samsung Health via Health Connect
+- Automatic sync to Samsung Health via Health Connect (using companion app)
 - Real-time heart rate display during workout
 - Complete rowing metrics: distance, strokes, power, pace, calories
 
@@ -41,14 +42,15 @@ This project creates a self-contained rowing machine fitness tracking system usi
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                          GALAXY WATCH                                        │
-│                    (HeartRateToWeb Tizen App)                               │
+│                          ANDROID WATCH                                       │
+│                    (Heart for Bluetooth App)                                 │
 │                                                                              │
-│    Reads HR sensor → HTTP POST /hr every 1 second                           │
+│    Reads HR sensor → Broadcasts via Bluetooth Low Energy (BLE)              │
+│    Standard Heart Rate Service (0x180D)                                     │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     │
-                                    │ WiFi HTTP POST
-                                    │ http://rowing.local/hr
+                                    │ Bluetooth Low Energy
+                                    │ BLE GATT Client Connection
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                              ESP32-S3                                        │
@@ -57,9 +59,9 @@ This project creates a self-contained rowing machine fitness tracking system usi
 │                                                                              │
 │  Components:                                                                 │
 │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────────┐  │
-│  │  HR Receiver    │  │  Rowing Monitor │  │  Session Storage (NVS/SPIFFS)│  │
-│  │  - POST /hr     │  │  - Reed switch  │  │  - Multiple sessions        │  │
-│  │  - GET /hr      │  │  - Physics calc │  │  - Persists on reboot       │  │
+│  │  BLE HR Client  │  │  Rowing Monitor │  │  Session Storage (NVS/SPIFFS)│  │
+│  │  - Scans for HR │  │  - Reed switch  │  │  - Multiple sessions        │  │
+│  │  - Subscribes   │  │  - Physics calc │  │  - Persists on reboot       │  │
 │  └─────────────────┘  └─────────────────┘  └─────────────────────────────┘  │
 │  ┌─────────────────┐  ┌─────────────────────────────────────────────────────┐│
 │  │  BLE FTMS       │  │  Web Server (Port 80) + WebSocket (/ws)            ││
@@ -72,12 +74,15 @@ This project creates a self-contained rowing machine fitness tracking system usi
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           ANDROID APP                                        │
+│              (ESP32RowingMachineCompanionApp)                               │
 │                                                                              │
 │  Features:                                                                   │
 │  - Lists all sessions from ESP32                                            │
 │  - Syncs individual or all sessions to Health Connect                       │
 │  - Marks sessions as synced on ESP32                                        │
 │  - Health Connect auto-syncs to Samsung Health                              │
+│                                                                              │
+│  See: https://github.com/j0b333/ESP32RowingMachineCompanionApp              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -86,21 +91,22 @@ This project creates a self-contained rowing machine fitness tracking system usi
 ```
 1. User powers on ESP32 (creates WiFi AP or connects to existing network)
 2. User starts workout (via web interface or Android app)
-3. User begins rowing
-4. ESP32 reed switches detect flywheel rotation and seat movement
-5. ESP32 calculates rowing metrics in real-time (physics-based)
-6. Galaxy Watch HeartRateToWeb app sends HR to ESP32 every second
-7. ESP32 stores HR samples in memory buffer
-8. Metrics broadcast via WebSocket to web clients and BLE FTMS to fitness apps
-9. User stops workout
-10. ESP32 saves complete session to NVS flash storage
-11. User opens Android app
-12. App fetches session list from ESP32
-13. User taps "Sync" on a session
-14. App fetches full session data including HR samples
-15. App writes ExerciseSessionRecord + HeartRateRecords to Health Connect
-16. App marks session as synced on ESP32
-17. Health Connect automatically syncs to Samsung Health
+3. ESP32 scans for and connects to BLE heart rate monitor (e.g., Heart for Bluetooth on watch)
+4. User begins rowing
+5. ESP32 reed switches detect flywheel rotation and seat movement
+6. ESP32 calculates rowing metrics in real-time (physics-based)
+7. Heart rate data received via BLE Heart Rate Service subscription
+8. ESP32 stores HR samples in memory buffer
+9. Metrics broadcast via WebSocket to web clients and BLE FTMS to fitness apps
+10. User stops workout
+11. ESP32 saves complete session to NVS flash storage
+12. User opens ESP32RowingMachineCompanionApp on their phone
+13. App fetches session list from ESP32
+14. User taps "Sync" on a session
+15. App fetches full session data including HR samples
+16. App writes ExerciseSessionRecord + HeartRateRecords to Health Connect
+17. App marks session as synced on ESP32
+18. Health Connect automatically syncs to Samsung Health
 ```
 
 ---
@@ -122,7 +128,7 @@ This project creates a self-contained rowing machine fitness tracking system usi
 
 | Item | Requirement |
 |------|-------------|
-| Samsung Galaxy Watch | Any model with HeartRateToWeb support |
+| Android/Wear OS Watch | Any watch compatible with "Heart for Bluetooth" app |
 | Android Phone | Android 9+ with Health Connect support (Android 14+ has it built-in) |
 | WiFi Router | 2.4GHz network (ESP32 does not support 5GHz) - Optional if using AP mode |
 | Rowing Machine | Crivit or similar with flywheel and seat reed switches |
@@ -172,9 +178,10 @@ main/
 ├── stroke_detector.c/h     # Stroke phase detection algorithm
 ├── metrics_calculator.c/h  # High-level metrics aggregation
 ├── ble_ftms_server.c/h     # Bluetooth FTMS service implementation
+├── ble_hr_client.c/h       # BLE Heart Rate client (connects to HR monitors)
 ├── wifi_manager.c/h        # WiFi AP/STA management
 ├── web_server.c/h          # HTTP server with WebSocket support
-├── hr_receiver.c/h         # Heart rate HTTP endpoint handler (NEW)
+├── hr_receiver.c/h         # Heart rate storage and management
 ├── config_manager.c/h      # NVS persistent storage
 ├── session_manager.c/h     # Session tracking and history
 ├── utils.c/h               # Utility functions
@@ -522,97 +529,98 @@ CONFIG_HTTPD_WS_SUPPORT=y
 
 ---
 
-## 6. Galaxy Watch Configuration
+## 6. Heart Rate Monitor Setup (Heart for Bluetooth)
 
-### 6.1 HeartRateToWeb App Setup
+The ESP32 acts as a BLE client and connects to standard BLE Heart Rate monitors. The recommended app for Android/Wear OS watches is "Heart for Bluetooth".
 
-The Galaxy Watch uses the existing HeartRateToWeb Tizen app. No custom development required.
+### 6.1 About Heart for Bluetooth
+
+Heart for Bluetooth is an Android watch app that broadcasts your heart rate over Bluetooth Low Energy (BLE) using the standard Heart Rate Service (UUID 0x180D). This allows any BLE-compatible device, including the ESP32, to receive heart rate data.
+
+**Key Information:**
+- Uses Bluetooth Low Energy (BLE), not Bluetooth Classic
+- Compatible with all modern computers and monitors
+- Standard Heart Rate Service for maximum compatibility
+
+**Download:** https://sites.google.com/view/heartforbluetooth
+
+### 6.2 Installation and Setup
 
 #### Installation Steps
 
-1. Open Galaxy Store on your Samsung Galaxy Watch
-2. Search for "HeartRateToWeb" or "Heart Rate to Web"
-3. Install the app
-4. If not available, sideload from GitHub: https://github.com/loic2665/HeartRateToWeb
+1. Install "Heart for Bluetooth" on your Android/Wear OS watch from Google Play Store
+2. Grant heart rate sensor permissions when prompted
+3. The app is now ready to broadcast your heart rate
 
-#### Configuration Steps
+#### Pairing with ESP32
 
-1. Connect Galaxy Watch to the same WiFi as ESP32 (or ESP32's AP)
-2. Open HeartRateToWeb app on watch
-3. Enter ESP32 address: `192.168.4.1` (AP mode) or `rowing.local` (STA mode)
-4. Enter port: `80`
-5. Tap "Start" to begin sending heart rate data
-6. The app will POST to `http://<address>/hr` every second
+1. Power on the ESP32 rowing monitor
+2. Start Heart for Bluetooth on your watch
+3. Navigate to the **[Activity]** screen - your heart rate will start broadcasting
+4. You have **120 seconds** to pair with the ESP32
+5. If you need more time, restart the Beacon on the **[Connection]** screen
+6. The ESP32 will automatically scan, connect, and subscribe to heart rate data
 
-### 6.2 Compatible Watches
+### 6.3 Connection Verification
 
-| Watch Model | Compatibility | Notes |
-|-------------|--------------|-------|
-| Galaxy Watch 7/6/5/4 | ✅ Full | Wear OS based |
-| Galaxy Watch 3/Active 2/Active | ✅ Full | Tizen based |
-| Galaxy Watch (Original) | ✅ Full | Tizen based |
-| Gear S3/Sport | ✅ Full | Tizen based |
+The **[Connection]** screen in Heart for Bluetooth shows two important values:
+
+| Value | Description |
+|-------|-------------|
+| **Connected devices** | Number of BLE connections established |
+| **Subscribed devices** | Number of devices receiving heart rate data |
+
+**For successful heart rate transmission, both values must be at least 1.** The ESP32 both connects AND subscribes to receive heart rate updates.
+
+### 6.4 Troubleshooting Connection Issues
+
+A common issue is when a device connects but does not subscribe for heart rate data:
+
+1. Ensure the ESP32 is powered on and initialized
+2. Check that BLE is enabled in the ESP32 configuration
+3. Restart the Heart for Bluetooth beacon on the watch
+4. Restart the ESP32 if needed
+
+See the **[Troubleshooting]** screen in Heart for Bluetooth for additional guidance.
+
+### 6.5 Compatible Watches
+
+| Watch Type | Compatibility | Notes |
+|------------|--------------|-------|
+| Wear OS watches | ✅ Full | Galaxy Watch 4/5/6/7, Pixel Watch, etc. |
+| Samsung Galaxy Watch (Tizen) | ✅ Full | Galaxy Watch 3 and earlier |
+| Other Android watches | ✅ Full | Any watch supporting the app |
+
+### 6.6 Alternative: HTTP-based Heart Rate (Legacy)
+
+The ESP32 also supports receiving heart rate via HTTP POST for compatibility with other apps like HeartRateToWeb. See the `/hr` endpoint documentation in Section 4.3.
 
 ---
 
-## 7. Android App Implementation
+## 7. Android Companion App
 
-### 7.1 Project Setup
+### 7.1 Overview
 
-The Android app is maintained in a **separate repository** to keep the ESP32 firmware repository focused. See `android-app/` directory for starter files that should be moved to a new repository.
+The Android companion app is maintained in a **separate repository** to keep the ESP32 firmware repository focused on the embedded system.
 
-#### Android Studio Project Configuration
+**Repository:** [ESP32RowingMachineCompanionApp](https://github.com/j0b333/ESP32RowingMachineCompanionApp)
 
-```
-Project Name: RowingSync
-Package Name: com.yourname.rowingsync
-Minimum SDK: API 28 (Android 9.0)
-Target SDK: API 34 (Android 14)
-Language: Kotlin
-Build System: Gradle Kotlin DSL
-```
+### 7.2 Features
 
-### 7.2 Key Dependencies
+The companion app provides:
+- Session list view with workout details
+- Individual or bulk session sync to Health Connect
+- Automatic sync status tracking
+- Health Connect integration (syncs to Samsung Health, Google Fit, etc.)
 
-```kotlin
-dependencies {
-    // Health Connect
-    implementation("androidx.health.connect:connect-client:1.1.0-alpha07")
-    
-    // Networking
-    implementation("com.squareup.retrofit2:retrofit:2.9.0")
-    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
-    
-    // Compose UI
-    implementation("androidx.activity:activity-compose:1.8.2")
-    implementation("androidx.compose.material3:material3:1.2.0")
-    
-    // Coroutines
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-}
-```
+### 7.3 Installation
 
-### 7.3 Health Connect Permissions
+1. Download the latest release from the companion app repository
+2. Install on your Android phone (Android 9+)
+3. Grant Health Connect permissions when prompted
+4. Connect to the same WiFi network as your ESP32 (or connect to ESP32's access point)
 
-The app requires these Health Connect permissions:
-- `READ_EXERCISE` / `WRITE_EXERCISE`
-- `READ_HEART_RATE` / `WRITE_HEART_RATE`
-- `READ_DISTANCE` / `WRITE_DISTANCE`
-- `READ_TOTAL_CALORIES_BURNED` / `WRITE_TOTAL_CALORIES_BURNED`
-
-### 7.4 Network Security
-
-For local HTTP access to ESP32, configure `network_security_config.xml`:
-
-```xml
-<network-security-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">192.168.0.0/16</domain>
-        <domain includeSubdomains="true">10.0.0.0/8</domain>
-        <domain includeSubdomains="true">172.16.0.0/12</domain>
-    </domain-config>
-</network-security-config>
-```
+For detailed setup instructions, API documentation, and source code, visit the companion app repository.
 
 ---
 
@@ -636,7 +644,7 @@ The web interface displays:
 - **Power** - Instantaneous power output (watts)
 - **Stroke Rate** - Strokes per minute (SPM)
 - **Calories** - Estimated calories burned
-- **Heart Rate** - Current HR from Galaxy Watch (if connected)
+- **Heart Rate** - Current HR from BLE heart rate monitor (if connected)
 
 ### 8.3 Bluetooth Connection
 
@@ -645,10 +653,18 @@ The web interface displays:
 3. Connect to "Crivit Rower"
 4. The app will receive real-time rowing data via FTMS protocol
 
-### 8.4 Syncing to Samsung Health
+### 8.4 Heart Rate Monitor Connection
+
+1. Power on the ESP32 rowing monitor
+2. Start "Heart for Bluetooth" on your watch
+3. The ESP32 will automatically scan for and connect to the heart rate monitor
+4. Heart rate will be displayed on the web interface when connected
+5. Heart rate data is included in workout sessions
+
+### 8.5 Syncing to Samsung Health
 
 1. Ensure ESP32 and phone are on same network
-2. Open RowingSync Android app
+2. Open ESP32RowingMachineCompanionApp
 3. Enter ESP32 address (or use auto-discover)
 4. View list of workout sessions
 5. Tap "Sync" on individual sessions or "Sync All"
@@ -669,16 +685,18 @@ The web interface displays:
 - Try connecting via IP address instead of mDNS
 - Move closer to the ESP32
 
-### 9.3 BLE Not Visible
+### 9.3 BLE FTMS Not Visible
 - Ensure Bluetooth is enabled on your phone/tablet
 - Check if another device is already connected (max 3 connections)
 - Restart the ESP32
 
 ### 9.4 Heart Rate Not Updating
-- Verify watch is on same WiFi network as ESP32
-- Check HeartRateToWeb configuration (correct IP and port)
+- Ensure "Heart for Bluetooth" is running on the watch
+- Check the [Connection] screen shows "Subscribed devices: 1"
+- Restart the Heart for Bluetooth beacon on the watch
+- Check serial monitor for BLE HR client connection status
 - Ensure watch has granted heart rate permission
-- Check `/hr` endpoint response in browser
+- If using HTTP method, check `/hr` endpoint response in browser
 
 ### 9.5 Inaccurate Metrics
 - Row for 50+ strokes to allow drag auto-calibration
@@ -696,4 +714,4 @@ This project is open source. See LICENSE file for details.
 - [OpenRowingMonitor](https://github.com/JaapvanEkwortel/openrowingmonitor) for physics algorithms
 - [ESP-IDF](https://github.com/espressif/esp-idf) framework
 - [NimBLE](https://github.com/apache/mynewt-nimble) Bluetooth stack
-- [HeartRateToWeb](https://github.com/loic2665/HeartRateToWeb) Galaxy Watch app
+- [Heart for Bluetooth](https://sites.google.com/view/heartforbluetooth) - Android watch HR broadcasting app

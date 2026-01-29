@@ -32,6 +32,7 @@
 #include "stroke_detector.h"
 #include "metrics_calculator.h"
 #include "ble_ftms_server.h"
+#include "ble_hr_client.h"
 #include "wifi_manager.h"
 #include "web_server.h"
 #include "config_manager.h"
@@ -252,6 +253,7 @@ static esp_err_t init_subsystems(void) {
         } else {
             ESP_LOGI(TAG, "  Mode: Access Point (Captive Portal)");
             ESP_LOGI(TAG, "  WiFi SSID: %s", g_config.wifi_ssid);
+            ESP_LOGI(TAG, "  Direct access: http://192.168.4.1");
             ESP_LOGI(TAG, "  Setup page: http://%s/setup", ip_str);
         }
         ESP_LOGI(TAG, "====================================");
@@ -267,6 +269,20 @@ static esp_err_t init_subsystems(void) {
         }
         
         ESP_LOGI(TAG, "BLE device name: %s", g_config.device_name);
+        
+        // Initialize BLE HR client to receive heart rate from watches/monitors
+#if BLE_HR_CLIENT_ENABLED
+        ESP_LOGI(TAG, "Initializing BLE HR client...");
+        ret = ble_hr_client_init();
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to initialize BLE HR client");
+            // Don't return error, HR client is optional
+        } else {
+            // Start scanning for heart rate monitors
+            ESP_LOGI(TAG, "Starting BLE HR monitor scan...");
+            ble_hr_client_start_scan();
+        }
+#endif
     }
     
     // Start a new session
@@ -364,6 +380,9 @@ void app_main(void) {
     sensor_manager_stop_task();
     web_server_stop();
     wifi_manager_deinit();
+#if BLE_HR_CLIENT_ENABLED
+    ble_hr_client_deinit();
+#endif
     ble_ftms_deinit();
     sensor_manager_deinit();
     hr_receiver_deinit();

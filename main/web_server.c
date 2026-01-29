@@ -601,6 +601,17 @@ static esp_err_t workout_stop_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
     
+    // Clear any paused state before stopping
+    if (g_metrics->is_paused) {
+        int64_t now = esp_timer_get_time();
+        int64_t paused_duration_us = now - g_metrics->pause_start_time_us;
+        if (paused_duration_us > 0) {
+            g_metrics->total_paused_time_ms += (uint32_t)(paused_duration_us / 1000);
+        }
+        g_metrics->is_paused = false;
+        g_metrics->pause_start_time_us = 0;
+    }
+    
     // Stop HR recording
     hr_receiver_stop_recording();
     
@@ -633,6 +644,81 @@ static esp_err_t workout_stop_handler(httpd_req_t *req) {
     free(json_string);
     
     ESP_LOGI(TAG, "Workout stopped via API, session #%lu", (unsigned long)session_id);
+    return ESP_OK;
+}
+
+/**
+ * POST /workout/pause - Pause current workout
+ */
+static esp_err_t workout_pause_handler(httpd_req_t *req) {
+    if (g_metrics == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    cJSON *root = cJSON_CreateObject();
+    
+    // Set paused state and record when pause started
+    if (!g_metrics->is_paused) {
+        g_metrics->is_paused = true;
+        g_metrics->pause_start_time_us = esp_timer_get_time();
+        cJSON_AddStringToObject(root, "status", "paused");
+        cJSON_AddBoolToObject(root, "success", true);
+        ESP_LOGI(TAG, "Workout paused via API");
+    } else {
+        cJSON_AddStringToObject(root, "status", "already_paused");
+        cJSON_AddBoolToObject(root, "success", false);
+    }
+    
+    char *json_string = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, json_string);
+    
+    free(json_string);
+    return ESP_OK;
+}
+
+/**
+ * POST /workout/resume - Resume paused workout
+ */
+static esp_err_t workout_resume_handler(httpd_req_t *req) {
+    if (g_metrics == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    cJSON *root = cJSON_CreateObject();
+    
+    // Resume from paused state
+    if (g_metrics->is_paused) {
+        int64_t now = esp_timer_get_time();
+        int64_t paused_duration_us = now - g_metrics->pause_start_time_us;
+        // Prevent negative/overflow issues
+        if (paused_duration_us > 0) {
+            g_metrics->total_paused_time_ms += (uint32_t)(paused_duration_us / 1000);
+        }
+        g_metrics->is_paused = false;
+        g_metrics->pause_start_time_us = 0;
+        cJSON_AddStringToObject(root, "status", "resumed");
+        cJSON_AddBoolToObject(root, "success", true);
+        ESP_LOGI(TAG, "Workout resumed via API (was paused for %lu ms)", 
+                 (unsigned long)(paused_duration_us / 1000));
+    } else {
+        cJSON_AddStringToObject(root, "status", "not_paused");
+        cJSON_AddBoolToObject(root, "success", false);
+    }
+    
+    char *json_string = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, json_string);
+    
+    free(json_string);
     return ESP_OK;
 }
 
@@ -1252,6 +1338,20 @@ static const httpd_uri_t uri_workout_stop = {
     .user_ctx = NULL
 };
 
+static const httpd_uri_t uri_workout_pause = {
+    .uri = "/workout/pause",
+    .method = HTTP_POST,
+    .handler = workout_pause_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_workout_resume = {
+    .uri = "/workout/resume",
+    .method = HTTP_POST,
+    .handler = workout_resume_handler,
+    .user_ctx = NULL
+};
+
 static const httpd_uri_t uri_live_data = {
     .uri = "/live",
     .method = HTTP_GET,
@@ -1401,6 +1501,8 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     // Workout control endpoints
     REGISTER_URI(uri_workout_start);
     REGISTER_URI(uri_workout_stop);
+    REGISTER_URI(uri_workout_pause);
+    REGISTER_URI(uri_workout_resume);
     REGISTER_URI(uri_live_data);
     
     // WiFi captive portal endpoints

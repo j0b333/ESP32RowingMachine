@@ -86,43 +86,39 @@ h1 {
     margin-bottom: 15px;
 }
 
-.metrics-grid.primary {
+.metrics-grid.row-2 {
+    grid-template-columns: repeat(2, 1fr);
+}
+
+.metrics-grid.row-3 {
     grid-template-columns: repeat(3, 1fr);
 }
 
-.metrics-grid.secondary {
-    grid-template-columns: repeat(4, 1fr);
-}
-
-.metrics-grid.averages {
+.metrics-grid.row-4 {
     grid-template-columns: repeat(4, 1fr);
 }
 
 @media (max-width: 768px) {
-    .metrics-grid.primary {
-        grid-template-columns: repeat(2, 1fr);
+    .metrics-grid.row-3 {
+        grid-template-columns: repeat(3, 1fr);
     }
     
-    .metrics-grid.primary .metric-card:first-child {
-        grid-column: span 2;
-    }
-    
-    .metrics-grid.secondary {
-        grid-template-columns: repeat(2, 1fr);
-    }
-    
-    .metrics-grid.averages {
+    .metrics-grid.row-4 {
         grid-template-columns: repeat(2, 1fr);
     }
 }
 
 @media (max-width: 480px) {
-    .metrics-grid.primary {
+    .metrics-grid.row-2 {
         grid-template-columns: 1fr;
     }
     
-    .metrics-grid.primary .metric-card:first-child {
-        grid-column: span 1;
+    .metrics-grid.row-3 {
+        grid-template-columns: 1fr;
+    }
+    
+    .metrics-grid.row-4 {
+        grid-template-columns: repeat(2, 1fr);
     }
 }
 
@@ -352,4 +348,89 @@ footer {
 
 ::-webkit-scrollbar-thumb:hover {
     background: var(--accent-primary);
+}
+
+/* Heart Rate Card */
+.metric-card.heart-rate {
+    background: linear-gradient(135deg, var(--bg-card) 0%, #2d1f3d 100%);
+    border-left: 3px solid #e94560;
+}
+
+.metric-card.hr-connected {
+    border-left-color: var(--success);
+    background: linear-gradient(135deg, var(--bg-card) 0%, #1f3d2d 100%);
+}
+
+.metric-card.hr-scanning {
+    border-left-color: var(--warning);
+    background: linear-gradient(135deg, var(--bg-card) 0%, #3d3a1f 100%);
+}
+
+.metric-card.hr-disconnected {
+    border-left-color: #666;
+    background: var(--bg-card);
+}
+
+.metric-card.heart-rate .metric-label {
+    color: #e94560;
+}
+
+.metric-card.hr-connected .metric-label {
+    color: var(--success);
+}
+
+.metric-card.hr-scanning .metric-label {
+    color: var(--warning);
+}
+
+/* Workout Controls */
+.workout-controls {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+}
+
+.btn-workout {
+    padding: 15px 30px;
+    font-size: 1.1em;
+    min-width: 120px;
+}
+
+.btn-start {
+    background: var(--success);
+    color: #000;
+}
+
+.btn-start.running {
+    background: var(--warning);
+    color: #000;
+}
+
+.btn-start.paused {
+    background: var(--success);
+    color: #000;
+}
+
+.btn-reset-workout {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 2px solid var(--warning);
+}
+
+.btn-finish {
+    background: var(--accent-primary);
+    color: #000;
+}
+
+/* Confirm Dialog */
+.confirm-dialog {
+    text-align: center;
+}
+
+.confirm-dialog p {
+    margin-bottom: 20px;
+    color: var(--text-secondary);
+    font-size: 1.1em;
 }

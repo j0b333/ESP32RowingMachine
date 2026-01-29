@@ -15,14 +15,20 @@ const elements = {
     elapsedTime: document.getElementById('elapsed-time'),
     pace: document.getElementById('pace'),
     power: document.getElementById('power'),
+    peakPower: document.getElementById('peak-power'),
     strokeRate: document.getElementById('stroke-rate'),
     strokeCount: document.getElementById('stroke-count'),
     calories: document.getElementById('calories'),
     avgPace: document.getElementById('avg-pace'),
     avgPower: document.getElementById('avg-power'),
     avgStrokeRate: document.getElementById('avg-stroke-rate'),
-    dragFactor: document.getElementById('drag-factor'),
-    btnReset: document.getElementById('btn-reset'),
+    avgHeartRate: document.getElementById('avg-heart-rate'),
+    heartRate: document.getElementById('heart-rate'),
+    hrStatus: document.getElementById('hr-status'),
+    hrCard: document.getElementById('hr-card'),
+    btnStartPause: document.getElementById('btn-start-pause'),
+    btnResetWorkout: document.getElementById('btn-reset-workout'),
+    btnFinish: document.getElementById('btn-finish'),
     btnSettings: document.getElementById('btn-settings'),
     settingsModal: document.getElementById('settings-modal'),
     settingsForm: document.getElementById('settings-form'),
@@ -30,8 +36,18 @@ const elements = {
     userWeight: document.getElementById('user-weight'),
     units: document.getElementById('units'),
     showPower: document.getElementById('show-power'),
-    showCalories: document.getElementById('show-calories')
+    showCalories: document.getElementById('show-calories'),
+    confirmModal: document.getElementById('confirm-modal'),
+    confirmTitle: document.getElementById('confirm-title'),
+    confirmMessage: document.getElementById('confirm-message'),
+    btnConfirmYes: document.getElementById('btn-confirm-yes'),
+    btnConfirmNo: document.getElementById('btn-confirm-no')
 };
+
+// Workout state
+let workoutRunning = false;
+let workoutPaused = false;
+let confirmCallback = null;
 
 /**
  * Format time in seconds to MM:SS or HH:MM:SS
@@ -86,6 +102,9 @@ function updateMetrics(data) {
     // Update power
     elements.power.textContent = Math.round(data.power);
     elements.avgPower.textContent = Math.round(data.avgPower);
+    if (elements.peakPower) {
+        elements.peakPower.textContent = Math.round(data.peakPower || 0);
+    }
     
     // Update stroke data
     elements.strokeRate.textContent = data.strokeRate.toFixed(1);
@@ -95,11 +114,16 @@ function updateMetrics(data) {
     // Update calories
     elements.calories.textContent = data.calories;
     
-    // Update drag factor
-    if (data.dragFactor > 0) {
-        elements.dragFactor.textContent = data.dragFactor.toFixed(0);
-    } else {
-        elements.dragFactor.textContent = '--';
+    // Update heart rate display
+    updateHeartRate(data);
+    
+    // Update average heart rate
+    if (elements.avgHeartRate) {
+        if (data.avgHeartRate && data.avgHeartRate > 0) {
+            elements.avgHeartRate.textContent = Math.round(data.avgHeartRate);
+        } else {
+            elements.avgHeartRate.textContent = '--';
+        }
     }
     
     // Update activity status
@@ -121,6 +145,49 @@ function updateMetrics(data) {
         if (paceCard) {
             paceCard.classList.remove('active-pulse');
         }
+    }
+}
+
+/**
+ * Update heart rate display
+ */
+function updateHeartRate(data) {
+    if (!elements.hrCard) return;
+    
+    const hrStatus = data.hrStatus || 'idle';
+    const heartRate = data.heartRate || 0;
+    const hrValid = data.hrValid || false;
+    
+    // Remove all status classes first
+    elements.hrCard.classList.remove('hr-connected', 'hr-scanning', 'hr-disconnected');
+    
+    if (hrStatus === 'connected' && hrValid && heartRate > 0) {
+        // Connected and receiving data
+        elements.heartRate.textContent = heartRate;
+        elements.hrStatus.textContent = 'Connected';
+        elements.hrCard.classList.add('hr-connected');
+    } else if (hrStatus === 'connected' && !hrValid) {
+        // Connected but data is stale
+        elements.heartRate.textContent = heartRate > 0 ? heartRate : '--';
+        elements.hrStatus.textContent = 'Signal lost';
+        elements.hrCard.classList.add('hr-disconnected');
+    } else if (hrStatus === 'scanning') {
+        elements.heartRate.textContent = '--';
+        elements.hrStatus.textContent = 'Scanning...';
+        elements.hrCard.classList.add('hr-scanning');
+    } else if (hrStatus === 'connecting') {
+        elements.heartRate.textContent = '--';
+        elements.hrStatus.textContent = 'Connecting...';
+        elements.hrCard.classList.add('hr-scanning');
+    } else if (hrStatus === 'error') {
+        elements.heartRate.textContent = '--';
+        elements.hrStatus.textContent = 'Error';
+        elements.hrCard.classList.add('hr-disconnected');
+    } else {
+        // Idle - no HR monitor
+        elements.heartRate.textContent = '--';
+        elements.hrStatus.textContent = 'No HR monitor';
+        elements.hrCard.classList.add('hr-disconnected');
     }
 }
 
@@ -195,39 +262,149 @@ function connectWebSocket() {
 }
 
 /**
- * Send reset command
+ * Show confirmation modal
  */
-async function resetSession() {
-    if (!confirm('Are you sure you want to reset the session?')) {
+function showConfirmDialog(title, message, callback) {
+    elements.confirmTitle.textContent = title;
+    elements.confirmMessage.textContent = message;
+    confirmCallback = callback;
+    elements.confirmModal.classList.remove('hidden');
+}
+
+/**
+ * Hide confirmation modal
+ */
+function hideConfirmDialog() {
+    elements.confirmModal.classList.add('hidden');
+    confirmCallback = null;
+}
+
+/**
+ * Toggle Start/Stop workout
+ */
+async function toggleStartPause() {
+    // Disable button to prevent double-clicks
+    elements.btnStartPause.disabled = true;
+    
+    try {
+        if (!workoutRunning) {
+            // Start workout
+            const response = await fetch('/workout/start', { method: 'POST' });
+            if (!response.ok) throw new Error('Server error');
+            const data = await response.json();
+            if (data.status === 'started') {
+                workoutRunning = true;
+                workoutPaused = false;
+                elements.btnStartPause.textContent = '⏸ Pause';
+                elements.btnStartPause.classList.add('running');
+            }
+        } else if (!workoutPaused) {
+            // Pause workout - call server to stop recording metrics
+            const response = await fetch('/workout/pause', { method: 'POST' });
+            if (!response.ok) throw new Error('Server error');
+            const data = await response.json();
+            // Accept paused or already_paused status
+            if (data.status === 'paused' || data.status === 'already_paused') {
+                workoutPaused = true;
+                elements.btnStartPause.textContent = '▶ Resume';
+                elements.btnStartPause.classList.remove('running');
+                elements.btnStartPause.classList.add('paused');
+            }
+        } else {
+            // Resume workout - call server to resume recording metrics
+            const response = await fetch('/workout/resume', { method: 'POST' });
+            if (!response.ok) throw new Error('Server error');
+            const data = await response.json();
+            // Accept resumed or not_paused status
+            if (data.status === 'resumed' || data.status === 'not_paused') {
+                workoutPaused = false;
+                elements.btnStartPause.textContent = '⏸ Pause';
+                elements.btnStartPause.classList.remove('paused');
+                elements.btnStartPause.classList.add('running');
+            }
+        }
+    } catch (e) {
+        console.error('Failed to control workout:', e);
+        alert('Failed to control workout. Please check connection.');
+    } finally {
+        elements.btnStartPause.disabled = false;
+    }
+}
+
+/**
+ * Reset workout with confirmation
+ */
+function resetWorkout() {
+    showConfirmDialog('Reset Workout', 'Are you sure you want to reset the workout? All data will be lost.', async () => {
+        try {
+            const response = await fetch('/api/reset', { method: 'POST' });
+            if (!response.ok) throw new Error('Server error');
+            const data = await response.json();
+            
+            if (data.success) {
+                console.log('Workout reset');
+                workoutRunning = false;
+                workoutPaused = false;
+                elements.btnStartPause.textContent = '▶ Start';
+                elements.btnStartPause.classList.remove('running', 'paused');
+                
+                // Clear local display immediately
+                updateMetrics({
+                    distance: 0,
+                    pace: 0,
+                    avgPace: 0,
+                    power: 0,
+                    avgPower: 0,
+                    peakPower: 0,
+                    strokeRate: 0,
+                    avgStrokeRate: 0,
+                    strokeCount: 0,
+                    calories: 0,
+                    elapsedTime: 0,
+                    isActive: false,
+                    heartRate: 0,
+                    avgHeartRate: 0,
+                    hrValid: false,
+                    hrStatus: 'idle'
+                });
+            }
+        } catch (e) {
+            console.error('Failed to reset workout:', e);
+            alert('Failed to reset workout');
+        }
+    });
+}
+
+/**
+ * Finish workout with confirmation (saves for export)
+ */
+function finishWorkout() {
+    if (!workoutRunning) {
+        alert('No active workout to finish.');
         return;
     }
     
-    try {
-        const response = await fetch('/api/reset', { method: 'POST' });
-        const data = await response.json();
-        
-        if (data.success) {
-            console.log('Session reset');
-            // Clear local display immediately
-            updateMetrics({
-                distance: 0,
-                pace: 0,
-                avgPace: 0,
-                power: 0,
-                avgPower: 0,
-                strokeRate: 0,
-                avgStrokeRate: 0,
-                strokeCount: 0,
-                calories: 0,
-                elapsedTime: 0,
-                dragFactor: 0,
-                isActive: false
-            });
+    showConfirmDialog('Finish Workout', 'Are you sure you want to finish and save this workout?', async () => {
+        try {
+            // Stop the workout and save
+            const stopResponse = await fetch('/workout/stop', { method: 'POST' });
+            if (!stopResponse.ok) throw new Error('Server error');
+            const stopData = await stopResponse.json();
+            
+            if (stopData.status === 'stopped') {
+                console.log('Workout finished and saved, session #' + stopData.sessionId);
+                workoutRunning = false;
+                workoutPaused = false;
+                elements.btnStartPause.textContent = '▶ Start';
+                elements.btnStartPause.classList.remove('running', 'paused');
+                
+                alert('Workout saved! Session #' + stopData.sessionId + '\nDistance: ' + Math.round(stopData.distance) + 'm');
+            }
+        } catch (e) {
+            console.error('Failed to finish workout:', e);
+            alert('Failed to finish workout');
         }
-    } catch (e) {
-        console.error('Failed to reset session:', e);
-        alert('Failed to reset session');
-    }
+    });
 }
 
 /**
@@ -315,16 +492,46 @@ async function pollMetrics() {
  * Initialize the application
  */
 function init() {
-    // Set up event listeners
-    elements.btnReset.addEventListener('click', resetSession);
+    // Set up workout control event listeners
+    elements.btnStartPause.addEventListener('click', toggleStartPause);
+    elements.btnResetWorkout.addEventListener('click', resetWorkout);
+    elements.btnFinish.addEventListener('click', finishWorkout);
+    
+    // Settings event listeners
     elements.btnSettings.addEventListener('click', showSettings);
     elements.btnCloseSettings.addEventListener('click', closeSettings);
     elements.settingsForm.addEventListener('submit', saveSettings);
     
-    // Close modal on background click
+    // Confirmation modal event listeners
+    elements.btnConfirmYes.addEventListener('click', () => {
+        if (confirmCallback) {
+            confirmCallback();
+        }
+        hideConfirmDialog();
+    });
+    elements.btnConfirmNo.addEventListener('click', hideConfirmDialog);
+    
+    // Close modals on background click
     elements.settingsModal.addEventListener('click', (e) => {
         if (e.target === elements.settingsModal) {
             closeSettings();
+        }
+    });
+    elements.confirmModal.addEventListener('click', (e) => {
+        if (e.target === elements.confirmModal) {
+            hideConfirmDialog();
+        }
+    });
+    
+    // Close modals on Escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            if (!elements.settingsModal.classList.contains('hidden')) {
+                closeSettings();
+            }
+            if (!elements.confirmModal.classList.contains('hidden')) {
+                hideConfirmDialog();
+            }
         }
     });
     

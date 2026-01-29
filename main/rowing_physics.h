@@ -85,6 +85,9 @@ typedef struct {
     bool is_active;                     // Currently rowing (vs idle)
     bool calibration_complete;          // Drag factor calibration done
     bool valid_data;                    // Data is valid for display
+    bool is_paused;                     // Workout is paused (time not accumulating)
+    int64_t pause_start_time_us;        // When pause started
+    uint32_t total_paused_time_ms;      // Total time spent paused
     
 } rowing_metrics_t;
 

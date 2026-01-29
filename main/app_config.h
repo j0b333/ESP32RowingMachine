@@ -79,6 +79,16 @@
 // FTMS Update rate
 #define BLE_NOTIFY_INTERVAL_MS          500     // Send BLE notifications every 500ms
 
+// BLE HR Client configuration
+// Disabled by default - requires these NimBLE options in menuconfig:
+//   - CONFIG_BT_NIMBLE_ROLE_CENTRAL=y
+//   - CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
+//   - CONFIG_BT_NIMBLE_GATT_CLIENT=y
+// See README.md for detailed instructions
+#define BLE_HR_CLIENT_ENABLED           0       // Set to 1 to enable BLE HR client
+#define BLE_HR_SCAN_TIMEOUT_SEC         120     // Scan timeout (matches Heart for Bluetooth pairing window)
+#define BLE_HR_CONNECT_TIMEOUT_MS       30000   // Connection timeout (30 seconds)
+
 // ============================================================================
 // WIFI CONFIGURATION
 // ============================================================================

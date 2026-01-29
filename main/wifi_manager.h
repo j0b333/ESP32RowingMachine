@@ -61,6 +61,24 @@ esp_err_t wifi_manager_start_sta(const char *ssid, const char *password);
 bool wifi_manager_connect_sta_with_timeout(const char *ssid, const char *password, uint32_t timeout_sec);
 
 /**
+ * Start WiFi in AP+STA mode (both simultaneously)
+ * This allows devices to connect directly to the ESP32's AP while also
+ * being connected to a home router. Useful for multi-device access.
+ * 
+ * @param ap_ssid AP SSID
+ * @param ap_password AP password (NULL for open network)
+ * @param sta_ssid Router SSID to connect to
+ * @param sta_password Router password
+ * @param timeout_sec Timeout for STA connection (0 for async/no wait)
+ * @return ESP_OK if AP started and STA connected successfully,
+ *         ESP_ERR_TIMEOUT if AP started but STA connection failed/timed out
+ *         (AP is still running and accessible at 192.168.4.1)
+ */
+esp_err_t wifi_manager_start_apsta(const char *ap_ssid, const char *ap_password,
+                                    const char *sta_ssid, const char *sta_password,
+                                    uint32_t timeout_sec);
+
+/**
  * Stop WiFi
  */
 void wifi_manager_stop(void);
