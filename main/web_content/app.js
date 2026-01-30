@@ -33,12 +33,11 @@ const elements = {
     settingsFeedback: document.getElementById('settings-feedback'),
     userWeight: document.getElementById('user-weight'),
     maxHeartRate: document.getElementById('max-heart-rate'),
+    momentOfInertia: document.getElementById('moment-of-inertia'),
     units: document.getElementById('units'),
     showPower: document.getElementById('show-power'),
     showCalories: document.getElementById('show-calories'),
     autoPause: document.getElementById('auto-pause'),
-    btnCalibrate: document.getElementById('btn-calibrate'),
-    calibrateFeedback: document.getElementById('calibrate-feedback'),
     confirmModal: document.getElementById('confirm-modal'),
     confirmTitle: document.getElementById('confirm-title'),
     confirmMessage: document.getElementById('confirm-message'),
@@ -488,6 +487,7 @@ async function loadSettings() {
         
         elements.userWeight.value = data.userWeight || 75;
         elements.maxHeartRate.value = data.maxHeartRate || 190;
+        elements.momentOfInertia.value = data.momentOfInertia || 0.101;
         elements.units.value = data.units || 'metric';
         elements.showPower.checked = data.showPower !== false;
         elements.showCalories.checked = data.showCalories !== false;
@@ -522,6 +522,7 @@ async function saveSettings(event) {
     const settings = {
         userWeight: parseFloat(elements.userWeight.value),
         maxHeartRate: parseInt(elements.maxHeartRate.value) || 190,
+        momentOfInertia: parseFloat(elements.momentOfInertia.value) || 0.101,
         units: elements.units.value,
         showPower: elements.showPower.checked,
         showCalories: elements.showCalories.checked,
@@ -545,45 +546,6 @@ async function saveSettings(event) {
         console.error('Failed to save settings:', e);
         showSettingsFeedback('Failed to save settings', false);
     }
-}
-
-/**
- * Reset calibration
- */
-async function resetCalibration() {
-    try {
-        const response = await fetch('/api/calibrate', {
-            method: 'POST'
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            console.log('Calibration reset');
-            showCalibrateFeedback('Calibration reset - will recalibrate on next session', true);
-        } else {
-            showCalibrateFeedback('Failed to reset calibration', false);
-        }
-    } catch (e) {
-        console.error('Failed to reset calibration:', e);
-        showCalibrateFeedback('Failed to reset calibration', false);
-    }
-}
-
-/**
- * Show calibrate feedback message
- */
-function showCalibrateFeedback(message, isSuccess) {
-    if (!elements.calibrateFeedback) return;
-    
-    elements.calibrateFeedback.textContent = message;
-    elements.calibrateFeedback.className = 'settings-feedback ' + (isSuccess ? 'success' : 'error');
-    
-    // Auto-hide after 3 seconds
-    setTimeout(() => {
-        elements.calibrateFeedback.textContent = '';
-        elements.calibrateFeedback.className = 'settings-feedback';
-    }, 3000);
 }
 
 /**
@@ -1474,11 +1436,6 @@ function init() {
     
     // Settings form event listener
     elements.settingsForm.addEventListener('submit', saveSettings);
-    
-    // Calibrate button event listener
-    if (elements.btnCalibrate) {
-        elements.btnCalibrate.addEventListener('click', resetCalibration);
-    }
     
     // Tab navigation event listeners
     document.querySelectorAll('.btn-tab').forEach(btn => {

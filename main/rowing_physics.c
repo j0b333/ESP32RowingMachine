@@ -68,19 +68,6 @@ void rowing_physics_reset(rowing_metrics_t *metrics) {
 }
 
 /**
- * Reset drag calibration to re-calibrate on next session
- */
-void rowing_physics_reset_calibration(rowing_metrics_t *metrics, const config_t *config) {
-    // Reset drag-related values to their initial state
-    metrics->drag_coefficient = config->initial_drag_coefficient;
-    metrics->drag_factor = 0;
-    metrics->drag_calibration_samples = 0;
-    metrics->calibration_complete = false;
-    
-    ESP_LOGI(TAG, "Drag calibration reset - will re-calibrate on next session");
-}
-
-/**
  * Update elapsed time
  */
 void rowing_physics_update_elapsed_time(rowing_metrics_t *metrics) {

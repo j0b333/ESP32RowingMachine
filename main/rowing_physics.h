@@ -239,13 +239,6 @@ void rowing_physics_format_pace(float pace_seconds, char *buffer, size_t buf_len
 void rowing_physics_reset(rowing_metrics_t *metrics);
 
 /**
- * Reset drag calibration to re-calibrate on next session
- * @param metrics Pointer to metrics structure
- * @param config Pointer to configuration for initial values
- */
-void rowing_physics_reset_calibration(rowing_metrics_t *metrics, const config_t *config);
-
-/**
  * Update elapsed time
  * @param metrics Pointer to metrics structure
  */

@@ -914,34 +914,6 @@ footer {
 }
 
 /* ============================================================================
-   Calibration Section Styles
-   ============================================================================ */
-
-.calibration-section {
-    margin-top: 25px;
-    padding: 15px;
-    background: var(--bg-card);
-    border-radius: 10px;
-}
-
-.calibration-section h3 {
-    font-size: 0.9em;
-    color: var(--text-secondary);
-    margin-bottom: 10px;
-    text-align: center;
-}
-
-.calibration-section .form-hint {
-    display: block;
-    text-align: center;
-    margin-bottom: 15px;
-}
-
-.calibration-section .btn {
-    width: 100%;
-}
-
-/* ============================================================================
    Storage Info Styles
    ============================================================================ */
 
