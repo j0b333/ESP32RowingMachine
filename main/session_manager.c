@@ -375,17 +375,32 @@ esp_err_t session_manager_set_synced(uint32_t session_id) {
 
 /**
  * Delete all sessions that have been synced
+ * Iterates through all possible session slots since sessions use modulo storage
  */
 esp_err_t session_manager_delete_synced(void) {
     uint32_t deleted_count = 0;
     
-    for (uint32_t i = 1; i <= s_session_count; i++) {
+    // Iterate through all possible session slots
+    // Sessions are stored at slot = session_id % MAX_STORED_SESSIONS
+    // So we need to check each slot, not just session IDs up to count
+    for (uint32_t slot = 0; slot < MAX_STORED_SESSIONS; slot++) {
+        nvs_handle_t handle;
+        esp_err_t ret = nvs_open(SESSION_NVS_NAMESPACE, NVS_READONLY, &handle);
+        if (ret != ESP_OK) {
+            continue;
+        }
+        
+        char key[16];
+        snprintf(key, sizeof(key), "s%lu", (unsigned long)slot);
+        
         session_record_t record;
-        if (session_manager_get_session(i, &record) == ESP_OK) {
-            if (record.synced) {
-                if (session_manager_delete_session(i) == ESP_OK) {
-                    deleted_count++;
-                }
+        size_t len = sizeof(session_record_t);
+        ret = nvs_get_blob(handle, key, &record, &len);
+        nvs_close(handle);
+        
+        if (ret == ESP_OK && record.synced) {
+            if (session_manager_delete_session(record.session_id) == ESP_OK) {
+                deleted_count++;
             }
         }
     }

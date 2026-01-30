@@ -625,7 +625,7 @@ static esp_err_t api_sessions_list_handler(httpd_req_t *req) {
             cJSON_AddNumberToObject(session, "dragFactor", record.drag_factor);
             cJSON_AddNumberToObject(session, "avgHeartRate", record.average_heart_rate);
             cJSON_AddNumberToObject(session, "maxHeartRate", record.max_heart_rate);
-            cJSON_AddBoolToObject(session, "synced", record.synced ? true : false);
+            cJSON_AddBoolToObject(session, "synced", record.synced);
             cJSON_AddItemToArray(sessions, session);
         }
     }
@@ -702,7 +702,7 @@ static esp_err_t api_session_detail_handler(httpd_req_t *req) {
     cJSON_AddNumberToObject(root, "maxHeartRate", record.max_heart_rate);
     cJSON_AddNumberToObject(root, "avgStrokeRate", record.average_stroke_rate);
     cJSON_AddNumberToObject(root, "sampleCount", record.sample_count);
-    cJSON_AddBoolToObject(root, "synced", record.synced ? true : false);
+    cJSON_AddBoolToObject(root, "synced", record.synced);
     
     // Health Connect compatible sample arrays (always present, may be empty)
     cJSON *heartRateSamples = cJSON_CreateArray();
@@ -725,7 +725,10 @@ static esp_err_t api_session_detail_handler(httpd_req_t *req) {
             uint32_t actual_count = 0;
             if (session_manager_get_samples(session_id, samples, max_samples, &actual_count) == ESP_OK && actual_count > 0) {
                 // Calculate base timestamp in milliseconds
-                // Start timestamp is in microseconds from ESP32 boot, need to convert
+                // NOTE: start_timestamp is microseconds since boot (esp_timer_get_time), NOT Unix time.
+                // The companion app should add a time offset if it knows when the ESP32 booted.
+                // For Health Connect, the companion app may need to calculate: 
+                //   unix_time_ms = boot_time_unix_ms + (start_timestamp / 1000)
                 int64_t base_time_ms = record.start_timestamp / 1000;  // Convert us to ms
                 
                 for (uint32_t i = 0; i < actual_count; i++) {
@@ -1995,11 +1998,12 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     REGISTER_URI(uri_hr_get);
     
     // Session management endpoints
-    REGISTER_URI(uri_api_sessions);
-    REGISTER_URI(uri_api_session_detail);
-    REGISTER_URI(uri_api_session_delete);
-    REGISTER_URI(uri_api_session_synced);
-    REGISTER_URI(uri_api_sessions_delete_synced);
+    // NOTE: Order matters! More specific routes must come before wildcards
+    REGISTER_URI(uri_api_sessions);                  // GET /api/sessions (exact)
+    REGISTER_URI(uri_api_sessions_delete_synced);    // DELETE /api/sessions/synced (specific)
+    REGISTER_URI(uri_api_session_synced);            // POST /api/sessions/*/synced (specific with ID)
+    REGISTER_URI(uri_api_session_detail);            // GET /api/sessions/* (wildcard)
+    REGISTER_URI(uri_api_session_delete);            // DELETE /api/sessions/* (wildcard)
     
     // Workout control endpoints
     REGISTER_URI(uri_workout_start);

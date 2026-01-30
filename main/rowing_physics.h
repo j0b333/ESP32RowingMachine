@@ -188,7 +188,7 @@ typedef struct __attribute__((packed)) {
  */
 typedef struct {
     uint32_t session_id;                // Unique session identifier
-    int64_t start_timestamp;            // Unix timestamp of session start
+    int64_t start_timestamp;            // Microseconds since boot (from esp_timer_get_time), NOT Unix time
     uint32_t duration_seconds;          // Total session duration
     float total_distance_meters;        // Total distance rowed
     float average_pace_sec_500m;        // Average pace (seconds per 500m)
