@@ -397,3 +397,148 @@ void rowing_physics_format_pace(float pace_seconds, char *buffer, size_t buf_len
     
     snprintf(buffer, buf_len, "%02" PRIu32 ":%02" PRIu32 ".%01" PRIu32, minutes, seconds, tenths);
 }
+
+// ============================================================================
+// Inertia Calibration Functions
+// ============================================================================
+
+// Calibration constants
+#define CALIBRATION_TIMEOUT_US      60000000    // 60 second timeout
+#define MIN_PEAK_VELOCITY_RAD_S     20.0f       // Minimum peak velocity for valid calibration
+#define SPINDOWN_STOP_VELOCITY      2.0f        // Velocity threshold for "stopped"
+#define SPINDOWN_STABLE_TIME_US     500000      // 0.5 seconds of low velocity = stopped
+
+/**
+ * Start inertia calibration process
+ */
+void rowing_physics_start_inertia_calibration(inertia_calibration_t *calibration, rowing_metrics_t *metrics) {
+    memset(calibration, 0, sizeof(inertia_calibration_t));
+    
+    calibration->state = CALIBRATION_WAITING;
+    calibration->start_time_us = esp_timer_get_time();
+    calibration->drag_coefficient_used = metrics->drag_coefficient;
+    calibration->peak_velocity_rad_s = 0;
+    calibration->calculated_inertia = 0;
+    calibration->sample_count = 0;
+    
+    snprintf(calibration->status_message, sizeof(calibration->status_message), 
+             "Pull the handle to spin up the flywheel");
+    
+    ESP_LOGI(TAG, "Inertia calibration started, using drag coefficient: %.6f", 
+             calibration->drag_coefficient_used);
+}
+
+/**
+ * Cancel inertia calibration
+ */
+void rowing_physics_cancel_inertia_calibration(inertia_calibration_t *calibration) {
+    calibration->state = CALIBRATION_IDLE;
+    snprintf(calibration->status_message, sizeof(calibration->status_message), "Calibration cancelled");
+    ESP_LOGI(TAG, "Inertia calibration cancelled");
+}
+
+/**
+ * Update inertia calibration with new flywheel data
+ * Returns true if calibration state changed
+ */
+bool rowing_physics_update_inertia_calibration(inertia_calibration_t *calibration, 
+                                                float angular_velocity, 
+                                                int64_t current_time_us) {
+    if (calibration->state == CALIBRATION_IDLE || 
+        calibration->state == CALIBRATION_COMPLETE ||
+        calibration->state == CALIBRATION_FAILED) {
+        return false;
+    }
+    
+    calibration->sample_count++;
+    
+    // Check for timeout
+    if (current_time_us - calibration->start_time_us > CALIBRATION_TIMEOUT_US) {
+        calibration->state = CALIBRATION_FAILED;
+        snprintf(calibration->status_message, sizeof(calibration->status_message), 
+                 "Calibration timed out");
+        ESP_LOGW(TAG, "Inertia calibration timed out");
+        return true;
+    }
+    
+    calibration_state_t prev_state = calibration->state;
+    
+    switch (calibration->state) {
+        case CALIBRATION_WAITING:
+            // Waiting for user to spin up flywheel
+            if (angular_velocity > MIN_PEAK_VELOCITY_RAD_S) {
+                calibration->state = CALIBRATION_SPINUP;
+                calibration->peak_velocity_rad_s = angular_velocity;
+                snprintf(calibration->status_message, sizeof(calibration->status_message), 
+                         "Detecting peak velocity...");
+                ESP_LOGI(TAG, "Spinup detected, velocity: %.2f rad/s", angular_velocity);
+            }
+            break;
+            
+        case CALIBRATION_SPINUP:
+            // Track peak velocity
+            if (angular_velocity > calibration->peak_velocity_rad_s) {
+                calibration->peak_velocity_rad_s = angular_velocity;
+                calibration->peak_time_us = current_time_us;
+            } else if (angular_velocity < calibration->peak_velocity_rad_s * 0.95f) {
+                // Velocity starting to drop - transition to spindown
+                calibration->state = CALIBRATION_SPINDOWN;
+                calibration->peak_time_us = current_time_us;
+                snprintf(calibration->status_message, sizeof(calibration->status_message), 
+                         "Let the flywheel coast to a stop...");
+                ESP_LOGI(TAG, "Peak velocity reached: %.2f rad/s, starting spindown tracking", 
+                         calibration->peak_velocity_rad_s);
+            }
+            break;
+            
+        case CALIBRATION_SPINDOWN:
+            // Track spindown and detect when flywheel stops
+            if (angular_velocity < SPINDOWN_STOP_VELOCITY) {
+                // Check if we've been at low velocity long enough
+                if (calibration->stop_time_us == 0) {
+                    calibration->stop_time_us = current_time_us;
+                } else if (current_time_us - calibration->stop_time_us > SPINDOWN_STABLE_TIME_US) {
+                    // Flywheel has stopped - calculate inertia
+                    float spindown_time_sec = (float)(current_time_us - calibration->peak_time_us) / 1000000.0f;
+                    float k = calibration->drag_coefficient_used;
+                    float omega0 = calibration->peak_velocity_rad_s;
+                    
+                    // Simplified inertia calculation: I = k × ω₀ × Δt
+                    // This is derived from the drag equation: I × dω/dt = -k × ω²
+                    calibration->calculated_inertia = k * omega0 * spindown_time_sec;
+                    
+                    // Sanity check the result (typical range 0.05 - 0.20)
+                    if (calibration->calculated_inertia >= 0.01f && calibration->calculated_inertia <= 1.0f) {
+                        calibration->state = CALIBRATION_COMPLETE;
+                        snprintf(calibration->status_message, sizeof(calibration->status_message), 
+                                 "Calibration complete! Inertia: %.4f kg⋅m²", calibration->calculated_inertia);
+                        ESP_LOGI(TAG, "Inertia calibration complete: %.4f kg⋅m² (spindown: %.2fs, peak: %.2f rad/s)", 
+                                 calibration->calculated_inertia, spindown_time_sec, omega0);
+                    } else {
+                        calibration->state = CALIBRATION_FAILED;
+                        snprintf(calibration->status_message, sizeof(calibration->status_message), 
+                                 "Invalid result (%.4f). Try again with a stronger pull.", 
+                                 calibration->calculated_inertia);
+                        ESP_LOGW(TAG, "Inertia calibration failed - invalid result: %.4f", 
+                                 calibration->calculated_inertia);
+                    }
+                }
+            } else {
+                // Still spinning - reset stop timer
+                calibration->stop_time_us = 0;
+            }
+            break;
+            
+        default:
+            break;
+    }
+    
+    return calibration->state != prev_state;
+}
+
+/**
+ * Get inertia calibration status
+ */
+calibration_state_t rowing_physics_get_calibration_state(inertia_calibration_t *calibration) {
+    return calibration->state;
+}

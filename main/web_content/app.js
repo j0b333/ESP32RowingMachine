@@ -34,6 +34,7 @@ const elements = {
     userWeight: document.getElementById('user-weight'),
     maxHeartRate: document.getElementById('max-heart-rate'),
     momentOfInertia: document.getElementById('moment-of-inertia'),
+    btnCalibrateInertia: document.getElementById('btn-calibrate-inertia'),
     units: document.getElementById('units'),
     showPower: document.getElementById('show-power'),
     showCalories: document.getElementById('show-calories'),
@@ -43,6 +44,15 @@ const elements = {
     confirmMessage: document.getElementById('confirm-message'),
     btnConfirmYes: document.getElementById('btn-confirm-yes'),
     btnConfirmNo: document.getElementById('btn-confirm-no'),
+    // Calibration modal elements
+    calibrationModal: document.getElementById('calibration-modal'),
+    calibrationStatus: document.getElementById('calibration-status'),
+    calibrationStateIcon: document.getElementById('calibration-state-icon'),
+    calibrationStateText: document.getElementById('calibration-state-text'),
+    calibrationResult: document.getElementById('calibration-result'),
+    calibrationValue: document.getElementById('calibration-value'),
+    btnCalibrationApply: document.getElementById('btn-calibration-apply'),
+    btnCalibrationCancel: document.getElementById('btn-calibration-cancel'),
     // Tab elements
     tabRow: document.getElementById('tab-row'),
     tabChart: document.getElementById('tab-chart'),
@@ -53,6 +63,9 @@ const elements = {
 // Workout state
 let workoutRunning = false;
 let workoutPaused = false;
+
+// Calibration state
+let calibrationPollingInterval = null;
 let confirmCallback = null;
 let currentTab = 'row';
 
@@ -546,6 +559,149 @@ async function saveSettings(event) {
         console.error('Failed to save settings:', e);
         showSettingsFeedback('Failed to save settings', false);
     }
+}
+
+// ============================================================================
+// Inertia Calibration Functions
+// ============================================================================
+
+/**
+ * Start inertia calibration
+ */
+async function startInertiaCalibration() {
+    try {
+        const response = await fetch('/api/calibrate/inertia/start', {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            showCalibrationModal();
+            startCalibrationPolling();
+        } else {
+            showSettingsFeedback(data.error || 'Failed to start calibration', false);
+        }
+    } catch (e) {
+        console.error('Failed to start calibration:', e);
+        showSettingsFeedback('Failed to start calibration', false);
+    }
+}
+
+/**
+ * Show calibration modal
+ */
+function showCalibrationModal() {
+    elements.calibrationModal.classList.remove('hidden');
+    elements.calibrationResult.classList.add('hidden');
+    elements.btnCalibrationApply.classList.add('hidden');
+    updateCalibrationUI('waiting', 'Pull the handle to spin up the flywheel');
+}
+
+/**
+ * Hide calibration modal
+ */
+function hideCalibrationModal() {
+    elements.calibrationModal.classList.add('hidden');
+    stopCalibrationPolling();
+}
+
+/**
+ * Update calibration UI based on state
+ */
+function updateCalibrationUI(state, message) {
+    // Update status class
+    elements.calibrationStatus.className = 'calibration-status ' + state;
+    
+    // Update icon
+    const icons = {
+        waiting: '⏳',
+        spinup: '🚀',
+        spindown: '📉',
+        complete: '✅',
+        failed: '❌',
+        idle: '⚙️'
+    };
+    elements.calibrationStateIcon.textContent = icons[state] || '⚙️';
+    
+    // Update text
+    elements.calibrationStateText.textContent = message;
+}
+
+/**
+ * Start polling for calibration status
+ */
+function startCalibrationPolling() {
+    stopCalibrationPolling(); // Clear any existing interval
+    calibrationPollingInterval = setInterval(pollCalibrationStatus, 200);
+}
+
+/**
+ * Stop polling for calibration status
+ */
+function stopCalibrationPolling() {
+    if (calibrationPollingInterval) {
+        clearInterval(calibrationPollingInterval);
+        calibrationPollingInterval = null;
+    }
+}
+
+/**
+ * Poll calibration status
+ */
+async function pollCalibrationStatus() {
+    try {
+        const response = await fetch('/api/calibrate/inertia/status');
+        const data = await response.json();
+        
+        updateCalibrationUI(data.state, data.message);
+        
+        if (data.state === 'complete') {
+            stopCalibrationPolling();
+            elements.calibrationResult.classList.remove('hidden');
+            elements.calibrationValue.textContent = data.calculatedInertia.toFixed(4);
+            elements.btnCalibrationApply.classList.remove('hidden');
+        } else if (data.state === 'failed' || data.state === 'idle') {
+            stopCalibrationPolling();
+        }
+    } catch (e) {
+        console.error('Failed to poll calibration status:', e);
+    }
+}
+
+/**
+ * Apply calibrated inertia value
+ */
+async function applyCalibration() {
+    try {
+        const response = await fetch('/api/calibrate/inertia/apply', {
+            method: 'POST'
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+            // Update the input field with the new value
+            elements.momentOfInertia.value = data.momentOfInertia.toFixed(4);
+            hideCalibrationModal();
+            showSettingsFeedback('Inertia calibration applied!', true);
+        } else {
+            showSettingsFeedback(data.error || 'Failed to apply calibration', false);
+        }
+    } catch (e) {
+        console.error('Failed to apply calibration:', e);
+        showSettingsFeedback('Failed to apply calibration', false);
+    }
+}
+
+/**
+ * Cancel inertia calibration
+ */
+async function cancelCalibration() {
+    try {
+        await fetch('/api/calibrate/inertia/cancel', { method: 'POST' });
+    } catch (e) {
+        console.error('Failed to cancel calibration:', e);
+    }
+    hideCalibrationModal();
 }
 
 /**
@@ -1436,6 +1592,17 @@ function init() {
     
     // Settings form event listener
     elements.settingsForm.addEventListener('submit', saveSettings);
+    
+    // Inertia calibration event listeners
+    if (elements.btnCalibrateInertia) {
+        elements.btnCalibrateInertia.addEventListener('click', startInertiaCalibration);
+    }
+    if (elements.btnCalibrationApply) {
+        elements.btnCalibrationApply.addEventListener('click', applyCalibration);
+    }
+    if (elements.btnCalibrationCancel) {
+        elements.btnCalibrationCancel.addEventListener('click', cancelCalibration);
+    }
     
     // Tab navigation event listeners
     document.querySelectorAll('.btn-tab').forEach(btn => {
