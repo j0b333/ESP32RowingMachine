@@ -108,40 +108,42 @@
                 <div class="chart-content">
                     <h2>📊 Live Graphs</h2>
                     
-                    <!-- Chart: Pace -->
-                    <div class="chart-container">
-                        <div class="chart-header">
-                            <span class="chart-title">Pace /500m</span>
-                            <span class="chart-value" id="chart-pace-value">--:--</span>
+                    <div class="charts-grid">
+                        <!-- Chart: Pace -->
+                        <div class="chart-container">
+                            <div class="chart-header">
+                                <span class="chart-title">Pace /500m</span>
+                                <span class="chart-value" id="chart-pace-value">--:--</span>
+                            </div>
+                            <canvas id="chart-pace" class="chart-canvas" aria-label="Pace over time chart"></canvas>
                         </div>
-                        <canvas id="chart-pace" class="chart-canvas" aria-label="Pace over time chart"></canvas>
-                    </div>
-                    
-                    <!-- Chart: Power -->
-                    <div class="chart-container">
-                        <div class="chart-header">
-                            <span class="chart-title">Power</span>
-                            <span class="chart-value" id="chart-power-value">0 W</span>
+                        
+                        <!-- Chart: Power -->
+                        <div class="chart-container">
+                            <div class="chart-header">
+                                <span class="chart-title">Power</span>
+                                <span class="chart-value" id="chart-power-value">0 W</span>
+                            </div>
+                            <canvas id="chart-power" class="chart-canvas" aria-label="Power over time chart"></canvas>
                         </div>
-                        <canvas id="chart-power" class="chart-canvas" aria-label="Power over time chart"></canvas>
-                    </div>
-                    
-                    <!-- Chart: Heart Rate -->
-                    <div class="chart-container">
-                        <div class="chart-header">
-                            <span class="chart-title">Heart Rate</span>
-                            <span class="chart-value" id="chart-hr-value">-- bpm</span>
+                        
+                        <!-- Chart: Heart Rate -->
+                        <div class="chart-container">
+                            <div class="chart-header">
+                                <span class="chart-title">Heart Rate</span>
+                                <span class="chart-value" id="chart-hr-value">-- bpm</span>
+                            </div>
+                            <canvas id="chart-hr" class="chart-canvas" aria-label="Heart rate over time chart"></canvas>
                         </div>
-                        <canvas id="chart-hr" class="chart-canvas" aria-label="Heart rate over time chart"></canvas>
-                    </div>
-                    
-                    <!-- Chart: Strokes Per Minute -->
-                    <div class="chart-container">
-                        <div class="chart-header">
-                            <span class="chart-title">Strokes/min</span>
-                            <span class="chart-value" id="chart-spm-value">0 spm</span>
+                        
+                        <!-- Chart: Strokes Per Minute -->
+                        <div class="chart-container">
+                            <div class="chart-header">
+                                <span class="chart-title">Strokes/min</span>
+                                <span class="chart-value" id="chart-spm-value">0 spm</span>
+                            </div>
+                            <canvas id="chart-spm" class="chart-canvas" aria-label="Strokes per minute over time chart"></canvas>
                         </div>
-                        <canvas id="chart-spm" class="chart-canvas" aria-label="Strokes per minute over time chart"></canvas>
                     </div>
                     
                     <!-- Target Settings -->
@@ -182,46 +184,38 @@
                 </div>
             </div>
 
-            <!-- Workout Detail Modal -->
+            <!-- Workout Charts Modal -->
             <div id="workout-detail-modal" class="modal hidden">
-                <div class="modal-content workout-detail">
-                    <h2 id="detail-title">Workout Details</h2>
-                    <div class="workout-detail-grid">
-                        <div class="detail-item">
-                            <span class="detail-label">Date</span>
-                            <span class="detail-value" id="detail-date">--</span>
+                <div class="modal-content workout-charts-modal">
+                    <h2 id="detail-title">Workout Charts</h2>
+                    <div class="modal-charts-grid">
+                        <div class="chart-container">
+                            <div class="chart-header">
+                                <span class="chart-title">Pace /500m</span>
+                            </div>
+                            <canvas id="modal-chart-pace" class="chart-canvas" aria-label="Pace chart"></canvas>
                         </div>
-                        <div class="detail-item">
-                            <span class="detail-label">Duration</span>
-                            <span class="detail-value" id="detail-duration">--</span>
+                        <div class="chart-container">
+                            <div class="chart-header">
+                                <span class="chart-title">Power</span>
+                            </div>
+                            <canvas id="modal-chart-power" class="chart-canvas" aria-label="Power chart"></canvas>
                         </div>
-                        <div class="detail-item">
-                            <span class="detail-label">Distance</span>
-                            <span class="detail-value" id="detail-distance">--</span>
+                        <div class="chart-container">
+                            <div class="chart-header">
+                                <span class="chart-title">Heart Rate</span>
+                            </div>
+                            <canvas id="modal-chart-hr" class="chart-canvas" aria-label="Heart rate chart"></canvas>
                         </div>
-                        <div class="detail-item">
-                            <span class="detail-label">Avg Pace /500m</span>
-                            <span class="detail-value" id="detail-pace">--</span>
-                        </div>
-                        <div class="detail-item">
-                            <span class="detail-label">Avg Power</span>
-                            <span class="detail-value" id="detail-power">--</span>
-                        </div>
-                        <div class="detail-item">
-                            <span class="detail-label">Strokes</span>
-                            <span class="detail-value" id="detail-strokes">--</span>
-                        </div>
-                        <div class="detail-item">
-                            <span class="detail-label">Calories</span>
-                            <span class="detail-value" id="detail-calories">--</span>
-                        </div>
-                        <div class="detail-item">
-                            <span class="detail-label">Drag Factor</span>
-                            <span class="detail-value" id="detail-drag">--</span>
+                        <div class="chart-container">
+                            <div class="chart-header">
+                                <span class="chart-title">Strokes/min</span>
+                            </div>
+                            <canvas id="modal-chart-spm" class="chart-canvas" aria-label="Strokes per minute chart"></canvas>
                         </div>
                     </div>
+                    <p class="modal-note">Note: Detailed per-second data not yet stored. Charts will show averages.</p>
                     <div class="modal-actions">
-                        <button id="btn-delete-workout" class="btn btn-danger">Delete</button>
                         <button id="btn-close-detail" class="btn btn-secondary">Close</button>
                     </div>
                 </div>

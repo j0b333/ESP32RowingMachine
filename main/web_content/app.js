@@ -553,8 +553,9 @@ function formatDuration(seconds) {
  * Format date from timestamp
  */
 function formatDate(timestamp) {
-    // If timestamp is in microseconds (ESP32 format), convert to milliseconds
-    const ms = timestamp > 1e12 ? timestamp / 1000 : timestamp;
+    // If timestamp is in microseconds (ESP32 format uses microseconds), convert to milliseconds
+    // Microsecond timestamps are around 1.7e15, millisecond timestamps are around 1.7e12
+    const ms = timestamp > 1e15 ? timestamp / 1000 : timestamp;
     const date = new Date(ms);
     
     // If the date is invalid or before 2020, it's likely an ESP32 uptime timestamp
@@ -605,19 +606,62 @@ async function loadWorkoutHistory() {
                 ? (session.distance / 1000).toFixed(2) + ' km'
                 : Math.round(session.distance) + ' m';
             
+            const avgHr = session.avgHeartRate ? Math.round(session.avgHeartRate) + ' bpm' : '-- bpm';
+            
             item.innerHTML = `
-                <div class="history-item-main">
-                    <div class="history-item-title">Workout #${session.id}</div>
-                    <div class="history-item-date">${formatDate(session.startTime)}</div>
+                <div class="history-item-header">
+                    <div class="history-item-title">${formatDate(session.startTime)}</div>
+                    <button class="btn-delete-history" data-id="${session.id}" aria-label="Delete workout">🗑</button>
                 </div>
-                <div class="history-item-stats">
-                    <span class="stat">${distanceStr}</span>
-                    <span class="stat">${formatDuration(session.duration)}</span>
-                    <span class="stat">${Math.round(session.avgPower)} W</span>
+                <div class="history-item-stats-grid">
+                    <div class="history-stat">
+                        <span class="stat-label">Duration</span>
+                        <span class="stat-value">${formatDuration(session.duration)}</span>
+                    </div>
+                    <div class="history-stat">
+                        <span class="stat-label">Distance</span>
+                        <span class="stat-value">${distanceStr}</span>
+                    </div>
+                    <div class="history-stat">
+                        <span class="stat-label">Avg Pace</span>
+                        <span class="stat-value">${formatPace(session.avgPace)}</span>
+                    </div>
+                    <div class="history-stat">
+                        <span class="stat-label">Avg Power</span>
+                        <span class="stat-value">${Math.round(session.avgPower)} W</span>
+                    </div>
+                    <div class="history-stat">
+                        <span class="stat-label">Strokes</span>
+                        <span class="stat-value">${session.strokes}</span>
+                    </div>
+                    <div class="history-stat">
+                        <span class="stat-label">Calories</span>
+                        <span class="stat-value">${session.calories} kcal</span>
+                    </div>
+                    <div class="history-stat">
+                        <span class="stat-label">Avg HR</span>
+                        <span class="stat-value">${avgHr}</span>
+                    </div>
+                </div>
+                <div class="history-item-action">
+                    <span class="view-charts-link">Tap to view charts →</span>
                 </div>
             `;
             
-            item.addEventListener('click', () => showWorkoutDetail(session));
+            // Add click handler for view charts (not on delete button)
+            item.addEventListener('click', (e) => {
+                if (!e.target.classList.contains('btn-delete-history')) {
+                    showWorkoutCharts(session);
+                }
+            });
+            
+            // Add delete button handler
+            const deleteBtn = item.querySelector('.btn-delete-history');
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                deleteWorkout(session.id);
+            });
+            
             listEl.appendChild(item);
         });
         
@@ -632,35 +676,68 @@ async function loadWorkoutHistory() {
 }
 
 /**
- * Show workout detail modal
+ * Show workout charts modal
  */
-function showWorkoutDetail(session) {
+function showWorkoutCharts(session) {
     selectedWorkoutId = session.id;
     
     const modal = document.getElementById('workout-detail-modal');
     if (!modal) return;
     
-    // Helper to safely set element text content
-    const setElement = (id, value) => {
-        const el = document.getElementById(id);
-        if (el) el.textContent = value;
+    // Set title to date/time
+    const titleEl = document.getElementById('detail-title');
+    if (titleEl) {
+        titleEl.textContent = formatDate(session.startTime);
+    }
+    
+    // For now, just show placeholder charts since we don't have per-second data stored
+    // In the future, this would load historical data and render actual charts
+    const drawPlaceholderChart = (canvasId, value, label, color) => {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+        
+        const ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.parentElement.getBoundingClientRect();
+        
+        canvas.width = rect.width * dpr;
+        canvas.height = 100 * dpr;
+        canvas.style.width = rect.width + 'px';
+        canvas.style.height = '100px';
+        ctx.scale(dpr, dpr);
+        
+        const width = rect.width;
+        const height = 100;
+        
+        // Background
+        ctx.fillStyle = 'rgba(15, 52, 96, 0.5)';
+        ctx.fillRect(0, 0, width, height);
+        
+        // Draw horizontal line at average
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(20, height / 2);
+        ctx.lineTo(width - 20, height / 2);
+        ctx.stroke();
+        
+        // Show average value
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 16px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Avg: ${value}`, width / 2, height / 2 - 10);
+        ctx.font = '12px sans-serif';
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.fillText('(Per-second data not stored yet)', width / 2, height / 2 + 25);
     };
     
-    // Populate detail fields
-    setElement('detail-title', `Workout #${session.id}`);
-    setElement('detail-date', formatDate(session.startTime));
-    setElement('detail-duration', formatDuration(session.duration));
-    
-    const distanceStr = session.distance >= 1000 
-        ? (session.distance / 1000).toFixed(2) + ' km'
-        : Math.round(session.distance) + ' m';
-    setElement('detail-distance', distanceStr);
-    
-    setElement('detail-pace', formatPace(session.avgPace));
-    setElement('detail-power', Math.round(session.avgPower) + ' W');
-    setElement('detail-strokes', session.strokes);
-    setElement('detail-calories', session.calories + ' kcal');
-    setElement('detail-drag', session.dragFactor ? session.dragFactor.toFixed(1) : '--');
+    // Draw placeholder charts with session averages
+    setTimeout(() => {
+        drawPlaceholderChart('modal-chart-pace', formatPace(session.avgPace), 'Pace', '#16d9e3');
+        drawPlaceholderChart('modal-chart-power', Math.round(session.avgPower) + ' W', 'Power', '#96fbc4');
+        drawPlaceholderChart('modal-chart-hr', session.avgHeartRate ? Math.round(session.avgHeartRate) + ' bpm' : '-- bpm', 'HR', '#e94560');
+        drawPlaceholderChart('modal-chart-spm', session.avgStrokeRate ? session.avgStrokeRate.toFixed(1) + ' spm' : '-- spm', 'SPM', '#fbbf24');
+    }, 100);
     
     modal.classList.remove('hidden');
 }
@@ -677,7 +754,29 @@ function closeWorkoutDetail() {
 }
 
 /**
- * Delete selected workout
+ * Delete workout by ID (called from history list)
+ */
+function deleteWorkout(workoutId) {
+    showConfirmDialog('Delete Workout', `Are you sure you want to delete this workout? This cannot be undone.`, async () => {
+        try {
+            const response = await fetch(`/api/sessions/${workoutId}`, { method: 'DELETE' });
+            const data = await response.json();
+            
+            if (data.success) {
+                console.log('Workout deleted:', workoutId);
+                loadWorkoutHistory(); // Refresh the list
+            } else {
+                alert('Failed to delete workout');
+            }
+        } catch (e) {
+            console.error('Failed to delete workout:', e);
+            alert('Failed to delete workout. Please check connection.');
+        }
+    });
+}
+
+/**
+ * Delete selected workout (legacy - kept for compatibility)
  */
 function deleteSelectedWorkout() {
     if (!selectedWorkoutId) return;
