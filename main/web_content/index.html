@@ -135,15 +135,6 @@
                             </div>
                             <canvas id="chart-hr" class="chart-canvas" aria-label="Heart rate over time chart"></canvas>
                         </div>
-                        
-                        <!-- Chart: Strokes Per Minute -->
-                        <div class="chart-container">
-                            <div class="chart-header">
-                                <span class="chart-title">Strokes/min</span>
-                                <span class="chart-value" id="chart-spm-value">0 spm</span>
-                            </div>
-                            <canvas id="chart-spm" class="chart-canvas" aria-label="Strokes per minute over time chart"></canvas>
-                        </div>
                     </div>
                     
                     <!-- Target Settings -->
@@ -161,10 +152,6 @@
                             <div class="target-input">
                                 <label for="target-hr">Heart Rate (bpm)</label>
                                 <input type="number" id="target-hr" min="60" max="220" step="1" placeholder="e.g. 140">
-                            </div>
-                            <div class="target-input">
-                                <label for="target-spm">Strokes/min</label>
-                                <input type="number" id="target-spm" min="10" max="50" step="1" placeholder="e.g. 24">
                             </div>
                         </div>
                     </div>
@@ -207,14 +194,8 @@
                             </div>
                             <canvas id="modal-chart-hr" class="chart-canvas" aria-label="Heart rate chart"></canvas>
                         </div>
-                        <div class="chart-container">
-                            <div class="chart-header">
-                                <span class="chart-title">Strokes/min</span>
-                            </div>
-                            <canvas id="modal-chart-spm" class="chart-canvas" aria-label="Strokes per minute chart"></canvas>
-                        </div>
                     </div>
-                    <p class="modal-note">Note: Detailed per-second data not yet stored. Charts will show averages.</p>
+                    <p class="modal-note">Note: Per-second data shown. Pace converted from velocity.</p>
                     <div class="modal-actions">
                         <button id="btn-close-detail" class="btn btn-secondary">Close</button>
                     </div>
