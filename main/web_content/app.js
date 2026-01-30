@@ -1059,7 +1059,7 @@ async function showWorkoutCharts(session) {
         
         // For HR charts, ensure zones are visible
         if (isHRChart) {
-            const maxHR = config.maxHR || 200;
+            const maxHR = config.maxHR || 190;
             minVal = Math.min(minVal, maxHR * 0.5);  // Show from zone 1
             maxVal = Math.max(maxVal, maxHR);
             
@@ -1489,7 +1489,7 @@ function renderChart(canvasId, dataArray, timestamps, color, target = null, inve
     
     // Draw HR zone bands if this is an HR chart
     if (isHRChart) {
-        const maxHR = config.maxHR || 200;
+        const maxHR = config.maxHR || 190;
         // HR Zones (% of max HR) with colors
         const hrZones = [
             { min: 0.50, max: 0.60, color: 'rgba(128, 128, 128, 0.3)', label: 'Z1' },  // Gray - Recovery
