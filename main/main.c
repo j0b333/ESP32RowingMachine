@@ -285,8 +285,8 @@ static esp_err_t init_subsystems(void) {
 #endif
     }
     
-    // Start a new session
-    session_manager_start_session(&g_metrics);
+    // Session is NOT auto-started on boot - user must press Start button in web UI
+    // session_manager_start_session() is called via /workout/start API endpoint
     
     return ESP_OK;
 }
