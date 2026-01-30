@@ -88,6 +88,7 @@ typedef struct {
     bool valid_data;                    // Data is valid for display
     bool is_paused;                     // Workout is paused (time not accumulating)
     int64_t pause_start_time_us;        // When pause started
+    int64_t last_resume_time_us;        // When session was last resumed (for auto-pause logic)
     uint32_t total_paused_time_ms;      // Total time spent paused
     
 } rowing_metrics_t;

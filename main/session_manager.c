@@ -101,6 +101,7 @@ esp_err_t session_manager_start_session(rowing_metrics_t *metrics) {
     metrics->is_paused = false;
     metrics->pause_start_time_us = 0;
     metrics->total_paused_time_ms = 0;
+    metrics->last_resume_time_us = s_session_start_time;  // Track when session started/resumed
     
     ESP_LOGI(TAG, "Session #%lu started", (unsigned long)s_current_session_id);
     
@@ -490,11 +491,14 @@ esp_err_t session_manager_check_activity(rowing_metrics_t *metrics, const config
             
             metrics->is_paused = false;
             metrics->pause_start_time_us = 0;
+            metrics->last_resume_time_us = now;  // Track when we resumed
         }
     } else {
         // No rowing activity
-        // Only auto-pause if: session active, not already paused, AND at least 1 stroke detected
-        if (session_active && !is_paused && metrics->stroke_count > 0) {
+        // Only auto-pause if: session active, not already paused, 
+        // AND there was activity AFTER the last resume (not just old strokes)
+        bool had_activity_since_resume = (last_activity_time > metrics->last_resume_time_us);
+        if (session_active && !is_paused && had_activity_since_resume) {
             // Session is running but no activity - auto-pause
             ESP_LOGI(TAG, "Auto-pausing session (no drive phase for %ld ms)", (long)auto_pause_timeout_ms);
             metrics->is_paused = true;

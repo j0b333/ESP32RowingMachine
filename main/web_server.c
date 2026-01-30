@@ -679,6 +679,7 @@ static esp_err_t workout_start_handler(httpd_req_t *req) {
         
         g_metrics->is_paused = false;
         g_metrics->pause_start_time_us = 0;
+        g_metrics->last_resume_time_us = now;  // Track when we resumed for auto-pause logic
         
         cJSON *root = cJSON_CreateObject();
         cJSON_AddStringToObject(root, "status", "resumed");
@@ -835,6 +836,7 @@ static esp_err_t workout_resume_handler(httpd_req_t *req) {
         }
         g_metrics->is_paused = false;
         g_metrics->pause_start_time_us = 0;
+        g_metrics->last_resume_time_us = now;  // Track when we resumed for auto-pause logic
         cJSON_AddStringToObject(root, "status", "resumed");
         cJSON_AddBoolToObject(root, "success", true);
         ESP_LOGI(TAG, "Workout resumed via API (was paused for %lu ms)", 
