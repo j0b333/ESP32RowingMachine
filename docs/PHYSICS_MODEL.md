@@ -40,33 +40,78 @@ Where:
 
 **What it is**: A measure of how much torque is needed to change the flywheel's rotational speed. It depends on the flywheel's mass and how that mass is distributed.
 
-**How to estimate without a Concept2**:
+**How to calibrate**:
 
-1. **Geometric Method**: For a solid disc flywheel:
-   ```
-   I = 0.5 × m × r²
-   ```
-   Where:
-   - `m` = mass of flywheel in kg (weigh it if possible)
-   - `r` = radius of flywheel in meters
-   
-   Example: A 5kg flywheel with 15cm radius:
-   ```
-   I = 0.5 × 5 × 0.15² = 0.0563 kg⋅m²
-   ```
+#### Method 1: Automated Spindown Calibration (RECOMMENDED)
 
-2. **Spindown Method** (more accurate):
-   - Spin the flywheel to a known speed (count revolutions per second)
-   - Let it coast and time how long it takes to stop
-   - Use the deceleration curve to estimate I
+The system includes a built-in automated calibration feature that measures your flywheel's moment of inertia using the spindown method.
 
-3. **Trial and Error**:
-   - Row at what feels like moderate effort
-   - Adjust I until displayed power matches expected output:
-     - Light rowing: 50-100W
-     - Moderate rowing: 100-200W
-     - Hard rowing: 200-300W
-     - Sprint: 300-500W
+**How to use**:
+1. Open the web UI and go to the **Settings** tab
+2. Click **"Calibrate Inertia"**
+3. A modal dialog will appear with instructions
+4. Give the flywheel **one strong pull** (spin it up)
+5. **Let it coast to a complete stop** - don't touch it!
+6. The system automatically:
+   - Detects when the flywheel reaches peak speed
+   - Tracks the deceleration during coast-down
+   - Calculates the moment of inertia from the deceleration curve
+   - Saves the result to persistent storage
+
+**The Math Behind Spindown Calibration**:
+
+During coast-down, the flywheel decelerates due to air drag. The deceleration equation is:
+
+```
+I × dω/dt = -k × ω²
+```
+
+Where:
+- `I` = moment of inertia (what we want to find)
+- `ω` = angular velocity
+- `k` = drag coefficient (known from auto-calibration during rowing)
+- `dω/dt` = angular deceleration
+
+By measuring:
+- Initial angular velocity (ω₀) at peak speed
+- Time to coast down (Δt)
+- Known drag coefficient (k)
+
+We calculate:
+```
+I = k × ω₀ × Δt / ln(ω₀/ω_final)
+```
+
+In practice, we use a simplified model:
+```
+I = k × ω₀ × Δt
+```
+
+This typically produces values in the range of 0.05 - 0.15 kg⋅m² for most rowing ergometers.
+
+#### Method 2: Geometric Estimation
+
+For a solid disc flywheel:
+```
+I = 0.5 × m × r²
+```
+Where:
+- `m` = mass of flywheel in kg (weigh it if possible)
+- `r` = radius of flywheel in meters
+
+Example: A 5kg flywheel with 15cm radius:
+```
+I = 0.5 × 5 × 0.15² = 0.0563 kg⋅m²
+```
+
+#### Method 3: Trial and Error
+
+- Row at what feels like moderate effort
+- Adjust I until displayed power matches expected output:
+  - Light rowing: 50-100W
+  - Moderate rowing: 100-200W
+  - Hard rowing: 200-300W
+  - Sprint: 300-500W
 
 ### 2. Initial Drag Coefficient (`initial_drag_coefficient`)
 
@@ -230,28 +275,44 @@ Where:
 - `0.01433` kcal per watt-minute (standard conversion)
 - `1.0` kcal per minute baseline metabolic rate
 
-## Calibration Without a Concept2
+## Calibration Guide
 
-If you don't have a Concept2 to compare against, here are practical approaches:
+### Quick Start Calibration (Recommended)
 
-### Method 1: Perceived Effort
+For the best calibration experience:
+
+1. **Run Automated Spindown Calibration** (see above)
+   - Go to Settings → Click "Calibrate Inertia"
+   - Pull once and let the flywheel coast to a stop
+   - System automatically calculates and saves the moment of inertia
+
+2. **Row for 50+ Strokes**
+   - This allows the drag coefficient to auto-calibrate
+   - The Drag Factor display will stabilize
+
+3. **Verify with Perceived Effort**
+   - Row at conversation pace (Zone 2)
+   - Power should read 100-180W for most people
+   - If power seems off, re-run spindown calibration
+
+### Alternative Calibration Methods (No Concept2 Required)
+
+#### Method 1: Perceived Effort Tuning
 
 1. Start with default values
 2. Row at what feels like moderate effort (conversation pace)
 3. Check displayed power:
    - Should be 100-200W for most people
-   - Adjust `moment_of_inertia` if power seems off:
-     - Power too high? Decrease I
-     - Power too low? Increase I
+   - If power seems wrong, use automated calibration
 
-### Method 2: Heart Rate Correlation
+#### Method 2: Heart Rate Correlation
 
 If you have a heart rate monitor:
 1. Row at 65-75% max HR (Zone 2)
 2. This typically corresponds to 100-180W depending on fitness
-3. Adjust parameters until power matches expectations
+3. If power doesn't match expectations, re-calibrate inertia
 
-### Method 3: Known Workout Benchmark
+#### Method 3: Known Workout Benchmark
 
 Row a "standard" 2000m test:
 - Beginner: 9-10 minutes (avg ~2:15-2:30/500m, ~130-180W)
@@ -260,13 +321,13 @@ Row a "standard" 2000m test:
 
 If your time doesn't match expected effort level, check your moment of inertia calibration.
 
-### Method 4: Flywheel Measurement
+#### Method 4: Flywheel Measurement
 
 1. Measure your flywheel:
    - Mass (weigh it)
    - Radius (measure from center to edge)
 2. Calculate theoretical I: `I = 0.5 × mass × radius²`
-3. Start with this value and fine-tune based on feel
+3. Enter this value in Settings and fine-tune based on feel
 
 ## Practical Tips
 
@@ -285,10 +346,24 @@ If your time doesn't match expected effort level, check your moment of inertia c
 | File | Purpose |
 |------|---------|
 | `app_config.h` | All compile-time configuration constants |
-| `rowing_physics.c` | Core physics calculations |
-| `rowing_physics.h` | Data structures and function declarations |
+| `rowing_physics.c` | Core physics calculations including spindown calibration |
+| `rowing_physics.h` | Data structures (including `calibration_state_t`) and function declarations |
 | `stroke_detector.c` | Stroke phase detection algorithm |
-| `config_manager.c` | Runtime configuration storage (NVS) |
+| `config_manager.c` | Runtime configuration storage (NVS) for calibrated values |
+| `session_manager.c` | Session tracking and per-second data recording |
+| `web_server.c` | REST API including `/api/calibrate/inertia` endpoint |
+
+## Web UI Features
+
+The Settings tab provides:
+
+| Feature | Description |
+|---------|-------------|
+| **Calibrate Inertia Button** | Start automated spindown calibration |
+| **Drag Factor Display** | Shows auto-calibrated drag coefficient |
+| **Moment of Inertia** | View/edit the calibrated or entered value |
+| **Auto-Pause Timeout** | Configure seconds before auto-pause (0 = disabled) |
+| **Storage Used** | Shows hours of workout data saved |
 
 ## References
 
