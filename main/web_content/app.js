@@ -7,6 +7,39 @@ let ws = null;
 let reconnectTimeout = null;
 let isConnected = false;
 
+// Screen Wake Lock to keep the screen awake
+let wakeLock = null;
+
+/**
+ * Request a screen wake lock to prevent the device from sleeping
+ */
+async function requestWakeLock() {
+    if ('wakeLock' in navigator) {
+        try {
+            wakeLock = await navigator.wakeLock.request('screen');
+            console.log('Screen wake lock acquired');
+            
+            // Re-acquire wake lock when the page becomes visible again
+            wakeLock.addEventListener('release', () => {
+                console.log('Screen wake lock released');
+            });
+        } catch (err) {
+            console.warn('Failed to acquire wake lock:', err.message);
+        }
+    } else {
+        console.log('Wake Lock API not supported');
+    }
+}
+
+/**
+ * Handle visibility change to re-acquire wake lock
+ */
+function handleVisibilityChange() {
+    if (document.visibilityState === 'visible' && wakeLock === null) {
+        requestWakeLock();
+    }
+}
+
 // DOM Elements
 const elements = {
     connectionStatus: document.getElementById('connection-status'),
@@ -500,7 +533,7 @@ async function loadSettings() {
         
         elements.userWeight.value = data.userWeight || 75;
         elements.maxHeartRate.value = data.maxHeartRate || 190;
-        elements.momentOfInertia.value = data.momentOfInertia || 0.101;
+        elements.momentOfInertia.value = (data.momentOfInertia || 0.101).toFixed(3);
         elements.units.value = data.units || 'metric';
         elements.showPower.checked = data.showPower !== false;
         elements.showCalories.checked = data.showCalories !== false;
@@ -658,7 +691,7 @@ async function pollCalibrationStatus() {
         if (data.state === 'complete') {
             stopCalibrationPolling();
             elements.calibrationResult.classList.remove('hidden');
-            elements.calibrationValue.textContent = data.calculatedInertia.toFixed(4);
+            elements.calibrationValue.textContent = data.calculatedInertia.toFixed(3);
             elements.btnCalibrationApply.classList.remove('hidden');
         } else if (data.state === 'failed' || data.state === 'idle') {
             stopCalibrationPolling();
@@ -680,7 +713,7 @@ async function applyCalibration() {
         
         if (data.success) {
             // Update the input field with the new value
-            elements.momentOfInertia.value = data.momentOfInertia.toFixed(4);
+            elements.momentOfInertia.value = data.momentOfInertia.toFixed(3);
             hideCalibrationModal();
             showSettingsFeedback('Inertia calibration applied!', true);
         } else {
@@ -1713,6 +1746,12 @@ function init() {
             }
         }
     });
+    
+    // Request screen wake lock to keep display on
+    requestWakeLock();
+    
+    // Re-acquire wake lock when page becomes visible
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     
     console.log('Rowing Monitor client initialized');
 }
