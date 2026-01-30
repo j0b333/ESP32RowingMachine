@@ -493,7 +493,8 @@ esp_err_t session_manager_check_activity(rowing_metrics_t *metrics, const config
         }
     } else {
         // No rowing activity
-        if (session_active && !is_paused) {
+        // Only auto-pause if: session active, not already paused, AND at least 1 stroke detected
+        if (session_active && !is_paused && metrics->stroke_count > 0) {
             // Session is running but no activity - auto-pause
             ESP_LOGI(TAG, "Auto-pausing session (no drive phase for %ld ms)", (long)auto_pause_timeout_ms);
             metrics->is_paused = true;

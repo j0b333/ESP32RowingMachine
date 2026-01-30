@@ -55,6 +55,32 @@ let confirmCallback = null;
 let currentTab = 'row';
 
 /**
+ * Update control buttons to reflect current state
+ */
+function updateControlButtons() {
+    if (!elements.btnStartPause) return;
+    
+    if (!workoutRunning) {
+        // Not running - show play button
+        elements.btnStartPause.textContent = '▶';
+        elements.btnStartPause.setAttribute('aria-label', 'Start workout');
+        elements.btnStartPause.classList.remove('running', 'paused');
+    } else if (workoutPaused) {
+        // Running but paused - show play button with paused style
+        elements.btnStartPause.textContent = '▶';
+        elements.btnStartPause.setAttribute('aria-label', 'Resume workout');
+        elements.btnStartPause.classList.remove('running');
+        elements.btnStartPause.classList.add('paused');
+    } else {
+        // Running - show pause button
+        elements.btnStartPause.textContent = '⏸';
+        elements.btnStartPause.setAttribute('aria-label', 'Pause workout');
+        elements.btnStartPause.classList.remove('paused');
+        elements.btnStartPause.classList.add('running');
+    }
+}
+
+/**
  * Format time in seconds to MM:SS or HH:MM:SS
  */
 function formatTime(totalSeconds) {
@@ -94,6 +120,35 @@ function formatDistance(meters) {
  * Update the UI with new metrics
  */
 function updateMetrics(data) {
+    // Sync client state with server state (handles auto-start/auto-pause)
+    if (data.sessionId !== undefined) {
+        const serverHasSession = data.sessionId > 0;
+        const serverIsPaused = data.isPaused === true;
+        
+        // Detect auto-start: server has session, client thinks none is running
+        if (serverHasSession && !workoutRunning) {
+            console.log('Syncing state: session auto-started on server');
+            workoutRunning = true;
+            workoutPaused = serverIsPaused;
+            updateControlButtons();
+        }
+        
+        // Sync paused state
+        if (serverHasSession && workoutRunning && workoutPaused !== serverIsPaused) {
+            console.log('Syncing state: paused=' + serverIsPaused);
+            workoutPaused = serverIsPaused;
+            updateControlButtons();
+        }
+        
+        // Detect session ended: server has no session, client thinks one exists
+        if (!serverHasSession && workoutRunning) {
+            console.log('Syncing state: session ended on server');
+            workoutRunning = false;
+            workoutPaused = false;
+            updateControlButtons();
+        }
+    }
+    
     // Update distance
     elements.distance.textContent = Math.round(data.distance);
     

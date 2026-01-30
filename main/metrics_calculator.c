@@ -7,6 +7,7 @@
 #include "app_config.h"
 #include "hr_receiver.h"
 #include "ble_hr_client.h"
+#include "session_manager.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include <stdio.h>
@@ -108,8 +109,12 @@ int metrics_calculator_to_json(const rowing_metrics_t *metrics, char *buffer, si
         display_power = metrics->instantaneous_power_watts;
     }
     
+    // Get current session ID for client sync
+    uint32_t session_id = session_manager_get_current_session_id();
+    
     return snprintf(buffer, buf_len,
         "{"
+        "\"sessionId\":%lu,"
         "\"distance\":%.1f,"
         "\"pace\":\"%.1f\","
         "\"paceStr\":\"%s\","
@@ -133,6 +138,7 @@ int metrics_calculator_to_json(const rowing_metrics_t *metrics, char *buffer, si
         "\"hrValid\":%s,"
         "\"hrStatus\":\"%s\""
         "}",
+        (unsigned long)session_id,
         metrics->total_distance_meters,
         metrics->instantaneous_pace_sec_500m,
         pace_str,
