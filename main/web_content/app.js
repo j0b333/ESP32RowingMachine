@@ -1151,11 +1151,19 @@ async function showWorkoutCharts(session) {
         if (response.ok) {
             const data = await response.json();
             
+            // Extract values from Health Connect format arrays
+            // Convert speedSamples (metersPerSecond) to pace (seconds per 500m)
+            const paceValues = (data.speedSamples || []).map(s => 
+                s.metersPerSecond > 0 ? 500 / s.metersPerSecond : 0
+            );
+            const powerValues = (data.powerSamples || []).map(s => s.watts);
+            const hrValues = (data.heartRateSamples || []).map(s => s.bpm);
+            
             // Draw charts with actual sample data (SPM removed - not stored per-second)
             setTimeout(() => {
-                drawSampleChart('modal-chart-pace', data.paceSamples, data.avgPace, 'Pace', '#16d9e3', formatPace);
-                drawSampleChart('modal-chart-power', data.powerSamplesArray, data.avgPower, 'Power', '#96fbc4', v => Math.round(v) + ' W');
-                drawSampleChart('modal-chart-hr', data.hrSamples, data.avgHeartRate || 0, 'HR', '#e94560', v => v > 0 ? Math.round(v) + ' bpm' : '-- bpm', true);
+                drawSampleChart('modal-chart-pace', paceValues, data.avgPace, 'Pace', '#16d9e3', formatPace);
+                drawSampleChart('modal-chart-power', powerValues, data.avgPower, 'Power', '#96fbc4', v => Math.round(v) + ' W');
+                drawSampleChart('modal-chart-hr', hrValues, data.avgHeartRate || 0, 'HR', '#e94560', v => v > 0 ? Math.round(v) + ' bpm' : '-- bpm', true);
             }, 50);
         } else {
             throw new Error('Failed to fetch session');
