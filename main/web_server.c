@@ -66,6 +66,9 @@ static inertia_calibration_t g_inertia_calibration = {0};
         } \
     } while(0)
 
+// Helper to set Connection: close header to free sockets faster
+#define HTTPD_RESP_SET_CLOSE(req) httpd_resp_set_hdr(req, "Connection", "close")
+
 // ============================================================================
 // Embedded Web Content Declarations
 // ============================================================================
@@ -114,6 +117,7 @@ static esp_err_t index_handler(httpd_req_t *req) {
         httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
         httpd_resp_set_hdr(req, "Pragma", "no-cache");
         httpd_resp_set_hdr(req, "Expires", "0");
+        HTTPD_RESP_SET_CLOSE(req);
         httpd_resp_send(req, captive_response, sizeof(captive_response) - 1);
         
         return ESP_OK;
@@ -124,6 +128,7 @@ static esp_err_t index_handler(httpd_req_t *req) {
     
     httpd_resp_set_type(req, "text/html");
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    HTTPD_RESP_SET_CLOSE(req);
     httpd_resp_send(req, index_html_start, index_html_size);
     
     return ESP_OK;
@@ -137,6 +142,7 @@ static esp_err_t setup_handler(httpd_req_t *req) {
     
     httpd_resp_set_type(req, "text/html");
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    HTTPD_RESP_SET_CLOSE(req);
     httpd_resp_send(req, setup_html_start, setup_html_size);
     
     return ESP_OK;
@@ -171,6 +177,7 @@ static esp_err_t captive_portal_handler(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
     httpd_resp_set_hdr(req, "Pragma", "no-cache");
     httpd_resp_set_hdr(req, "Expires", "0");
+    HTTPD_RESP_SET_CLOSE(req);
     httpd_resp_send(req, captive_response, sizeof(captive_response) - 1);
     
     return ESP_OK;
@@ -184,6 +191,7 @@ static esp_err_t style_css_handler(httpd_req_t *req) {
     
     httpd_resp_set_type(req, "text/css");
     httpd_resp_set_hdr(req, "Cache-Control", "max-age=3600");
+    HTTPD_RESP_SET_CLOSE(req);
     httpd_resp_send(req, style_css_start, style_css_size);
     
     return ESP_OK;
@@ -197,6 +205,7 @@ static esp_err_t app_js_handler(httpd_req_t *req) {
     
     httpd_resp_set_type(req, "application/javascript");
     httpd_resp_set_hdr(req, "Cache-Control", "max-age=3600");
+    HTTPD_RESP_SET_CLOSE(req);
     httpd_resp_send(req, app_js_start, app_js_size);
     
     return ESP_OK;
@@ -210,6 +219,7 @@ static esp_err_t favicon_handler(httpd_req_t *req) {
     
     httpd_resp_set_type(req, "image/x-icon");
     httpd_resp_set_hdr(req, "Cache-Control", "max-age=86400");
+    HTTPD_RESP_SET_CLOSE(req);
     httpd_resp_send(req, favicon_ico_start, favicon_size);
     
     return ESP_OK;
@@ -1947,15 +1957,16 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     
     httpd_config_t http_config = HTTPD_DEFAULT_CONFIG();
     http_config.server_port = WEB_SERVER_PORT;
-    http_config.max_open_sockets = 12;  // Increased from 7 for better stability
-    http_config.max_uri_handlers = 40;  // We have 30+ handlers, ensure enough slots
-    http_config.lru_purge_enable = true;  // Enable LRU purging of stale connections
+    http_config.max_open_sockets = 8;    // Reduced from 12 to limit socket usage
+    http_config.max_uri_handlers = 40;   // We have 30+ handlers, ensure enough slots
+    http_config.lru_purge_enable = true; // Enable LRU purging of stale connections
     http_config.uri_match_fn = httpd_uri_match_wildcard;
     http_config.open_fn = ws_open_callback;
     http_config.close_fn = ws_close_callback;
-    http_config.recv_wait_timeout = 5;   // Reduced from 10 for faster cleanup
-    http_config.send_wait_timeout = 5;   // Reduced from 10 for faster cleanup
-    http_config.backlog_conn = 5;        // Max pending connections
+    http_config.recv_wait_timeout = 3;   // Reduced from 5 for faster cleanup
+    http_config.send_wait_timeout = 3;   // Reduced from 5 for faster cleanup
+    http_config.backlog_conn = 3;        // Reduced from 5 to limit pending connections
+    http_config.keep_alive_enable = false; // Disable keep-alive to free sockets faster
     
     ESP_LOGI(TAG, "Starting web server on port %d (max %d URI handlers)", 
              http_config.server_port, http_config.max_uri_handlers);
