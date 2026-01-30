@@ -58,11 +58,13 @@ void rowing_physics_reset(rowing_metrics_t *metrics) {
     metrics->drag_coefficient = drag;
     metrics->calibration_complete = cal_complete;
     
-    metrics->session_start_time_us = esp_timer_get_time();
+    // Don't set session_start_time_us - keep at 0 so timer stays at 0 until session starts
+    metrics->session_start_time_us = 0;
     metrics->current_phase = STROKE_PHASE_IDLE;
     metrics->best_pace_sec_500m = 999999.0f;
+    metrics->is_paused = true;  // Start in paused state until rowing detected
     
-    ESP_LOGI(TAG, "Session reset - metrics cleared");
+    ESP_LOGI(TAG, "Session reset - metrics cleared, timer at 0");
 }
 
 /**

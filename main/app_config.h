@@ -47,6 +47,9 @@
 // Idle timeout in milliseconds
 #define IDLE_TIMEOUT_MS         5000    // 5 seconds without pulses = idle
 
+// Auto-pause timeout - pause recording when no flywheel activity
+#define AUTO_PAUSE_TIMEOUT_MS   5000    // 5 seconds without pulses = auto-pause
+
 // Maximum expected flywheel frequency (Hz)
 #define MAX_FLYWHEEL_FREQ_HZ    200     // Very fast rowing limit
 

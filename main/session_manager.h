@@ -87,4 +87,12 @@ esp_err_t session_manager_get_samples(uint32_t session_id, sample_data_t *buffer
  */
 uint32_t session_manager_get_current_sample_count(void);
 
+/**
+ * Handle auto-start and auto-pause based on flywheel activity
+ * Call this periodically from the metrics update task
+ * @param metrics Pointer to metrics structure
+ * @return ESP_OK on success
+ */
+esp_err_t session_manager_check_activity(rowing_metrics_t *metrics);
+
 #endif // SESSION_MANAGER_H

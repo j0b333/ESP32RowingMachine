@@ -96,8 +96,11 @@ esp_err_t session_manager_start_session(rowing_metrics_t *metrics) {
     s_stroke_rate_sum = 0;
     s_stroke_rate_samples = 0;
     
-    // Reset metrics for new session
+    // Set session start time and un-pause
     metrics->session_start_time_us = s_session_start_time;
+    metrics->is_paused = false;
+    metrics->pause_start_time_us = 0;
+    metrics->total_paused_time_ms = 0;
     
     ESP_LOGI(TAG, "Session #%lu started", (unsigned long)s_current_session_id);
     
@@ -423,4 +426,64 @@ esp_err_t session_manager_get_samples(uint32_t session_id, sample_data_t *buffer
  */
 uint32_t session_manager_get_current_sample_count(void) {
     return s_sample_count;
+}
+
+/**
+ * Handle auto-start and auto-pause based on flywheel activity
+ * Call this periodically from the metrics update task
+ */
+esp_err_t session_manager_check_activity(rowing_metrics_t *metrics) {
+    if (metrics == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    int64_t now = esp_timer_get_time();
+    int64_t time_since_last_pulse_ms = (now - metrics->last_flywheel_time_us) / 1000;
+    
+    // Check if there's recent flywheel activity
+    bool has_activity = (time_since_last_pulse_ms < AUTO_PAUSE_TIMEOUT_MS) && 
+                        (metrics->last_flywheel_time_us > 0);
+    
+    // Current state
+    bool session_active = (s_current_session_id > 0);
+    bool is_paused = metrics->is_paused;
+    
+    if (has_activity) {
+        // Flywheel is active
+        if (!session_active) {
+            // No session yet - auto-start a new session
+            ESP_LOGI(TAG, "Auto-starting session (flywheel activity detected)");
+            session_manager_start_session(metrics);
+            metrics->is_paused = false;
+        } else if (is_paused) {
+            // Session exists but is paused - auto-resume
+            ESP_LOGI(TAG, "Auto-resuming session (flywheel activity detected)");
+            
+            // Calculate pause duration and add to total
+            if (metrics->pause_start_time_us > 0) {
+                int64_t paused_duration_us = now - metrics->pause_start_time_us;
+                if (paused_duration_us > 0) {
+                    metrics->total_paused_time_ms += (uint32_t)(paused_duration_us / 1000);
+                }
+            }
+            
+            // If session_start_time was 0 (reset state), set it now
+            if (metrics->session_start_time_us == 0) {
+                metrics->session_start_time_us = now;
+            }
+            
+            metrics->is_paused = false;
+            metrics->pause_start_time_us = 0;
+        }
+    } else {
+        // No flywheel activity
+        if (session_active && !is_paused) {
+            // Session is running but no activity - auto-pause
+            ESP_LOGI(TAG, "Auto-pausing session (no flywheel activity for %d ms)", AUTO_PAUSE_TIMEOUT_MS);
+            metrics->is_paused = true;
+            metrics->pause_start_time_us = now;
+        }
+    }
+    
+    return ESP_OK;
 }
