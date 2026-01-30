@@ -305,6 +305,11 @@ static esp_err_t api_calibrate_handler(httpd_req_t *req) {
     char *json_string = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     
+    if (json_string == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, json_string);
     
