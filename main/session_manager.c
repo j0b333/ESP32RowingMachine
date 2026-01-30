@@ -432,16 +432,22 @@ uint32_t session_manager_get_current_sample_count(void) {
  * Handle auto-start and auto-pause based on flywheel activity
  * Call this periodically from the metrics update task
  */
-esp_err_t session_manager_check_activity(rowing_metrics_t *metrics) {
-    if (metrics == NULL) {
+esp_err_t session_manager_check_activity(rowing_metrics_t *metrics, const config_t *config) {
+    if (metrics == NULL || config == NULL) {
         return ESP_ERR_INVALID_ARG;
+    }
+    
+    // If auto-pause is disabled (0 seconds), don't do anything
+    if (config->auto_pause_seconds == 0) {
+        return ESP_OK;
     }
     
     int64_t now = esp_timer_get_time();
     int64_t time_since_last_pulse_ms = (now - metrics->last_flywheel_time_us) / 1000;
+    int32_t auto_pause_timeout_ms = (int32_t)config->auto_pause_seconds * 1000;
     
     // Check if there's recent flywheel activity
-    bool has_activity = (time_since_last_pulse_ms < AUTO_PAUSE_TIMEOUT_MS) && 
+    bool has_activity = (time_since_last_pulse_ms < auto_pause_timeout_ms) && 
                         (metrics->last_flywheel_time_us > 0);
     
     // Current state
@@ -479,7 +485,7 @@ esp_err_t session_manager_check_activity(rowing_metrics_t *metrics) {
         // No flywheel activity
         if (session_active && !is_paused) {
             // Session is running but no activity - auto-pause
-            ESP_LOGI(TAG, "Auto-pausing session (no flywheel activity for %d ms)", AUTO_PAUSE_TIMEOUT_MS);
+            ESP_LOGI(TAG, "Auto-pausing session (no flywheel activity for %d ms)", auto_pause_timeout_ms);
             metrics->is_paused = true;
             metrics->pause_start_time_us = now;
         }

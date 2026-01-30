@@ -91,8 +91,9 @@ uint32_t session_manager_get_current_sample_count(void);
  * Handle auto-start and auto-pause based on flywheel activity
  * Call this periodically from the metrics update task
  * @param metrics Pointer to metrics structure
+ * @param config Pointer to config structure (for auto_pause_seconds)
  * @return ESP_OK on success
  */
-esp_err_t session_manager_check_activity(rowing_metrics_t *metrics);
+esp_err_t session_manager_check_activity(rowing_metrics_t *metrics, const config_t *config);
 
 #endif // SESSION_MANAGER_H

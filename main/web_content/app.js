@@ -35,6 +35,7 @@ const elements = {
     units: document.getElementById('units'),
     showPower: document.getElementById('show-power'),
     showCalories: document.getElementById('show-calories'),
+    autoPause: document.getElementById('auto-pause'),
     confirmModal: document.getElementById('confirm-modal'),
     confirmTitle: document.getElementById('confirm-title'),
     confirmMessage: document.getElementById('confirm-message'),
@@ -431,6 +432,7 @@ async function loadSettings() {
         elements.units.value = data.units || 'metric';
         elements.showPower.checked = data.showPower !== false;
         elements.showCalories.checked = data.showCalories !== false;
+        elements.autoPause.value = data.autoPauseSeconds !== undefined ? data.autoPauseSeconds : 5;
     } catch (e) {
         console.error('Failed to load settings:', e);
     }
@@ -462,7 +464,8 @@ async function saveSettings(event) {
         userWeight: parseFloat(elements.userWeight.value),
         units: elements.units.value,
         showPower: elements.showPower.checked,
-        showCalories: elements.showCalories.checked
+        showCalories: elements.showCalories.checked,
+        autoPauseSeconds: parseInt(elements.autoPause.value) || 5
     };
     
     try {

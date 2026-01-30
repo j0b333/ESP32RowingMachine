@@ -305,6 +305,7 @@ static esp_err_t api_config_handler(httpd_req_t *req) {
         cJSON_AddStringToObject(root, "units", g_config->units);
         cJSON_AddBoolToObject(root, "showPower", g_config->show_power);
         cJSON_AddBoolToObject(root, "showCalories", g_config->show_calories);
+        cJSON_AddNumberToObject(root, "autoPauseSeconds", g_config->auto_pause_seconds);
         
         char *json_string = cJSON_PrintUnformatted(root);
         cJSON_Delete(root);
@@ -344,6 +345,10 @@ static esp_err_t api_config_handler(httpd_req_t *req) {
     }
     if ((item = cJSON_GetObjectItem(root, "showCalories")) != NULL) {
         g_config->show_calories = cJSON_IsTrue(item);
+    }
+    if ((item = cJSON_GetObjectItem(root, "autoPauseSeconds")) != NULL) {
+        int val = (int)cJSON_GetNumberValue(item);
+        g_config->auto_pause_seconds = (val >= 0 && val <= 60) ? (uint8_t)val : 5;
     }
     
     cJSON_Delete(root);

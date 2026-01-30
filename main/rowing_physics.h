@@ -130,6 +130,9 @@ typedef struct {
     bool show_calories;                 // Show calories on web UI
     char units[8];                      // "metric" or "imperial"
     
+    // ============ Auto-pause Settings ============
+    uint8_t auto_pause_seconds;         // Seconds of inactivity before auto-pause (0 = disabled)
+    
 } config_t;
 
 /**

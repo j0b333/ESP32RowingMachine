@@ -83,7 +83,7 @@ static void metrics_update_task(void *arg) {
         rowing_physics_calculate_calories(&g_metrics, g_config.user_weight_kg);
         
         // Check for auto-start/pause based on flywheel activity
-        session_manager_check_activity(&g_metrics);
+        session_manager_check_activity(&g_metrics, &g_config);
         
         // Record per-second sample for graphs (every 10 updates = 1 second)
         sample_counter++;

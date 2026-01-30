@@ -247,6 +247,11 @@
                                 <input type="checkbox" id="show-calories" checked> Show Calories
                             </label>
                         </div>
+                        <div class="form-group">
+                            <label for="auto-pause">Auto-pause (seconds)</label>
+                            <input type="number" id="auto-pause" min="0" max="60" step="1" value="5">
+                            <small class="form-hint">0 = disabled, 1-60 = pause after inactivity</small>
+                        </div>
                         <div class="form-actions">
                             <button type="submit" class="btn btn-primary">Save Settings</button>
                             <span id="settings-feedback" class="settings-feedback"></span>
