@@ -38,6 +38,7 @@ void rowing_physics_init(rowing_metrics_t *metrics, const config_t *config) {
     ESP_LOGI(TAG, "Physics engine initialized");
     ESP_LOGI(TAG, "Moment of inertia: %.4f kg⋅m²", metrics->moment_of_inertia);
     ESP_LOGI(TAG, "Initial drag coefficient: %.6f", metrics->drag_coefficient);
+    ESP_LOGI(TAG, "Magnets per revolution: %d (compile-time)", DEFAULT_MAGNETS_PER_REV);
 }
 
 /**
@@ -109,8 +110,10 @@ void rowing_physics_process_flywheel_pulse(rowing_metrics_t *metrics, int64_t cu
     }
     
     // Calculate angular velocity (rad/s)
-    // Assumes 1 pulse per revolution = 2π radians
-    float angular_velocity = TWO_PI / delta_time_s;
+    // With multiple magnets: each pulse = 2π/magnets radians
+    // MAGNETS_PER_REV is configured at compile time in app_config.h
+    float radians_per_pulse = TWO_PI / (float)DEFAULT_MAGNETS_PER_REV;
+    float angular_velocity = radians_per_pulse / delta_time_s;
     
     // Calculate angular acceleration (rad/s²)
     float angular_acceleration = 0.0f;

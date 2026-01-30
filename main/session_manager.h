@@ -62,4 +62,29 @@ uint32_t session_manager_get_current_session_id(void);
  */
 esp_err_t session_manager_delete_session(uint32_t session_id);
 
+/**
+ * Record a per-second sample during active workout
+ * @param metrics Pointer to current metrics
+ * @param heart_rate Current heart rate (0 if not available)
+ * @return ESP_OK on success
+ */
+esp_err_t session_manager_record_sample(rowing_metrics_t *metrics, uint8_t heart_rate);
+
+/**
+ * Get sample data for a session
+ * @param session_id Session ID to retrieve samples for
+ * @param buffer Pointer to buffer to store samples
+ * @param buffer_size Size of buffer in number of samples
+ * @param sample_count Output: number of samples retrieved
+ * @return ESP_OK if found
+ */
+esp_err_t session_manager_get_samples(uint32_t session_id, sample_data_t *buffer, 
+                                       uint32_t buffer_size, uint32_t *sample_count);
+
+/**
+ * Get sample count for current session
+ * @return Number of samples recorded in current session
+ */
+uint32_t session_manager_get_current_sample_count(void);
+
 #endif // SESSION_MANAGER_H

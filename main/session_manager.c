@@ -10,6 +10,7 @@
 #include "nvs.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_heap_caps.h"
 
 #include <string.h>
 #include <time.h>
@@ -22,10 +23,23 @@ static const char *TAG = "SESSION";
 // Maximum number of sessions to store
 #define MAX_STORED_SESSIONS     20
 
+// Sample buffer size - allocate in PSRAM if available
+// 7200 samples = 2 hours at 1 sample/sec, 8 bytes each = 57.6KB
+#define SAMPLE_BUFFER_SIZE      7200
+
 // Current session state
 static uint32_t s_current_session_id = 0;
 static int64_t s_session_start_time = 0;
 static uint32_t s_session_count = 0;
+
+// Sample buffer for current session
+static sample_data_t *s_sample_buffer = NULL;
+static uint32_t s_sample_count = 0;
+static float s_last_distance = 0;
+static uint32_t s_heart_rate_sum = 0;
+static uint32_t s_heart_rate_count = 0;
+static float s_stroke_rate_sum = 0;
+static uint32_t s_stroke_rate_samples = 0;
 
 /**
  * Initialize session manager
@@ -43,6 +57,24 @@ esp_err_t session_manager_init(void) {
         s_session_count = 0;
     }
     
+    // Allocate sample buffer (try PSRAM first, fallback to regular heap)
+#ifdef CONFIG_SPIRAM
+    s_sample_buffer = heap_caps_malloc(SAMPLE_BUFFER_SIZE * sizeof(sample_data_t), MALLOC_CAP_SPIRAM);
+    if (s_sample_buffer) {
+        ESP_LOGI(TAG, "Sample buffer allocated in PSRAM (%u bytes)", 
+                 SAMPLE_BUFFER_SIZE * sizeof(sample_data_t));
+    }
+#endif
+    if (s_sample_buffer == NULL) {
+        s_sample_buffer = malloc(SAMPLE_BUFFER_SIZE * sizeof(sample_data_t));
+        if (s_sample_buffer) {
+            ESP_LOGI(TAG, "Sample buffer allocated in heap (%u bytes)", 
+                     (unsigned int)(SAMPLE_BUFFER_SIZE * sizeof(sample_data_t)));
+        } else {
+            ESP_LOGE(TAG, "Failed to allocate sample buffer!");
+        }
+    }
+    
     ESP_LOGI(TAG, "Session manager initialized, %lu sessions in history", 
              (unsigned long)s_session_count);
     
@@ -55,6 +87,14 @@ esp_err_t session_manager_init(void) {
 esp_err_t session_manager_start_session(rowing_metrics_t *metrics) {
     s_current_session_id = s_session_count + 1;
     s_session_start_time = esp_timer_get_time();
+    
+    // Reset sample buffer for new session
+    s_sample_count = 0;
+    s_last_distance = 0;
+    s_heart_rate_sum = 0;
+    s_heart_rate_count = 0;
+    s_stroke_rate_sum = 0;
+    s_stroke_rate_samples = 0;
     
     // Reset metrics for new session
     metrics->session_start_time_us = s_session_start_time;
@@ -93,6 +133,21 @@ esp_err_t session_manager_end_session(rowing_metrics_t *metrics) {
     record.stroke_count = metrics->stroke_count;
     record.total_calories = metrics->total_calories;
     record.drag_factor = metrics->drag_factor;
+    record.sample_count = s_sample_count;
+    
+    // Calculate average heart rate from samples
+    if (s_heart_rate_count > 0) {
+        record.average_heart_rate = (float)s_heart_rate_sum / (float)s_heart_rate_count;
+    } else {
+        record.average_heart_rate = 0;
+    }
+    
+    // Calculate average stroke rate from samples
+    if (s_stroke_rate_samples > 0) {
+        record.average_stroke_rate = s_stroke_rate_sum / (float)s_stroke_rate_samples;
+    } else {
+        record.average_stroke_rate = metrics->avg_stroke_rate_spm;
+    }
     
     // Save to NVS
     nvs_handle_t handle;
@@ -112,6 +167,24 @@ esp_err_t session_manager_end_session(rowing_metrics_t *metrics) {
         ESP_LOGE(TAG, "Failed to save session: %s", esp_err_to_name(ret));
         nvs_close(handle);
         return ret;
+    }
+    
+    // Save sample data if we have samples
+    if (s_sample_count > 0 && s_sample_buffer != NULL) {
+        char samples_key[16];
+        snprintf(samples_key, sizeof(samples_key), "d%lu", (unsigned long)(s_current_session_id % MAX_STORED_SESSIONS));
+        
+        // Save samples (limit to first 3600 samples = 1 hour to fit in NVS)
+        uint32_t samples_to_save = s_sample_count;
+        if (samples_to_save > 3600) samples_to_save = 3600;
+        
+        ret = nvs_set_blob(handle, samples_key, s_sample_buffer, samples_to_save * sizeof(sample_data_t));
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to save samples: %s", esp_err_to_name(ret));
+            // Continue anyway - session record is saved
+        } else {
+            ESP_LOGI(TAG, "Saved %lu samples for session", (unsigned long)samples_to_save);
+        }
     }
     
     // Update session count
@@ -231,10 +304,119 @@ esp_err_t session_manager_delete_session(uint32_t session_id) {
         return ret;
     }
     
+    // Also erase sample data
+    char samples_key[16];
+    snprintf(samples_key, sizeof(samples_key), "d%lu", (unsigned long)(session_id % MAX_STORED_SESSIONS));
+    nvs_erase_key(handle, samples_key);  // Ignore error if not found
+    
     nvs_commit(handle);
     nvs_close(handle);
     
     ESP_LOGI(TAG, "Session #%lu deleted", (unsigned long)session_id);
     
     return ESP_OK;
+}
+
+/**
+ * Record a per-second sample during active workout
+ */
+esp_err_t session_manager_record_sample(rowing_metrics_t *metrics, uint8_t heart_rate) {
+    if (s_current_session_id == 0 || s_sample_buffer == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    if (s_sample_count >= SAMPLE_BUFFER_SIZE) {
+        // Buffer full - could implement circular buffer or stop recording
+        return ESP_ERR_NO_MEM;
+    }
+    
+    sample_data_t *sample = &s_sample_buffer[s_sample_count];
+    
+    // Convert values to packed format with proper clamping before cast
+    float power = metrics->instantaneous_power_watts;
+    if (power < 0) power = 0;
+    if (power > 65535) power = 65535;
+    sample->power_watts = (uint16_t)power;
+    
+    float pace = metrics->instantaneous_pace_sec_500m * 10.0f;
+    if (pace < 0) pace = 0;
+    if (pace > 65535) pace = 65535;
+    sample->pace_tenths = (uint16_t)pace;
+    
+    sample->heart_rate = heart_rate;
+    
+    float spm = metrics->stroke_rate_spm * 10.0f;
+    if (spm < 0) spm = 0;
+    if (spm > 255) spm = 255;
+    sample->stroke_rate_tenths = (uint8_t)spm;
+    
+    // Calculate distance delta since last sample
+    float distance_delta = metrics->total_distance_meters - s_last_distance;
+    if (distance_delta < 0) distance_delta = 0;  // Handle reset
+    s_last_distance = metrics->total_distance_meters;
+    float distance_dm = distance_delta * 10.0f;
+    if (distance_dm > 65535) distance_dm = 65535;
+    sample->distance_dm = (uint16_t)distance_dm;
+    
+    s_sample_count++;
+    
+    // Accumulate for averages
+    if (heart_rate > 0) {
+        s_heart_rate_sum += heart_rate;
+        s_heart_rate_count++;
+    }
+    if (metrics->stroke_rate_spm > 0) {
+        s_stroke_rate_sum += metrics->stroke_rate_spm;
+        s_stroke_rate_samples++;
+    }
+    
+    return ESP_OK;
+}
+
+/**
+ * Get sample data for a session
+ */
+esp_err_t session_manager_get_samples(uint32_t session_id, sample_data_t *buffer, 
+                                       uint32_t buffer_size, uint32_t *sample_count) {
+    if (buffer == NULL || sample_count == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    *sample_count = 0;
+    
+    // If requesting current session, return from buffer
+    if (session_id == s_current_session_id && s_sample_buffer != NULL) {
+        uint32_t count = s_sample_count < buffer_size ? s_sample_count : buffer_size;
+        memcpy(buffer, s_sample_buffer, count * sizeof(sample_data_t));
+        *sample_count = count;
+        return ESP_OK;
+    }
+    
+    // Load from NVS
+    nvs_handle_t handle;
+    esp_err_t ret = nvs_open(SESSION_NVS_NAMESPACE, NVS_READONLY, &handle);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    
+    char samples_key[16];
+    snprintf(samples_key, sizeof(samples_key), "d%lu", (unsigned long)(session_id % MAX_STORED_SESSIONS));
+    
+    size_t len = buffer_size * sizeof(sample_data_t);
+    ret = nvs_get_blob(handle, samples_key, buffer, &len);
+    
+    nvs_close(handle);
+    
+    if (ret == ESP_OK) {
+        *sample_count = len / sizeof(sample_data_t);
+    }
+    
+    return ret;
+}
+
+/**
+ * Get sample count for current session
+ */
+uint32_t session_manager_get_current_sample_count(void) {
+    return s_sample_count;
 }

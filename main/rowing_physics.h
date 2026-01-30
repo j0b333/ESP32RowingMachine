@@ -132,6 +132,21 @@ typedef struct {
 } config_t;
 
 /**
+ * Per-second sample data for graphs (8 bytes per sample)
+ */
+typedef struct __attribute__((packed)) {
+    uint16_t power_watts;           // 0-65535 W
+    uint16_t pace_tenths;           // Pace in 0.1s units (0-6553.5 sec/500m)
+    uint8_t  heart_rate;            // 0-255 bpm
+    uint8_t  stroke_rate_tenths;    // Stroke rate * 10 (0-25.5 spm)
+    uint16_t distance_dm;           // Distance delta in decimeters (0-6553.5m)
+} sample_data_t;
+
+// Maximum samples per session (7200 = 2 hours at 1 sample/sec)
+// 8 bytes * 7200 = 57.6KB per session
+#define MAX_SAMPLES_PER_SESSION     7200
+
+/**
  * Session history entry (for storage)
  */
 typedef struct {
@@ -144,6 +159,9 @@ typedef struct {
     uint32_t stroke_count;              // Total strokes
     uint32_t total_calories;            // Total calories burned
     float drag_factor;                  // Drag factor used
+    float average_heart_rate;           // Average heart rate
+    float average_stroke_rate;          // Average stroke rate
+    uint32_t sample_count;              // Number of per-second samples
 } session_record_t;
 
 // ============================================================================

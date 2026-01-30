@@ -278,6 +278,13 @@ footer {
     margin-right: 8px;
 }
 
+.form-hint {
+    display: block;
+    font-size: 0.8em;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+
 .modal-actions {
     display: flex;
     justify-content: flex-end;

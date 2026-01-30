@@ -73,6 +73,7 @@ static void metrics_update_task(void *arg) {
     
     TickType_t last_wake_time = xTaskGetTickCount();
     const TickType_t update_period = pdMS_TO_TICKS(100);  // 10Hz update rate
+    uint32_t sample_counter = 0;  // Counter for 1-second sample recording
     
     while (g_running) {
         // Update derived metrics
@@ -80,6 +81,17 @@ static void metrics_update_task(void *arg) {
         
         // Calculate calories
         rowing_physics_calculate_calories(&g_metrics, g_config.user_weight_kg);
+        
+        // Record per-second sample for graphs (every 10 updates = 1 second)
+        sample_counter++;
+        if (sample_counter >= 10) {
+            sample_counter = 0;
+            // Only record if session is active and not paused
+            if (session_manager_get_current_session_id() > 0 && !g_metrics.is_paused) {
+                uint8_t hr = hr_receiver_get_current();
+                session_manager_record_sample(&g_metrics, hr);
+            }
+        }
         
         vTaskDelayUntil(&last_wake_time, update_period);
     }
