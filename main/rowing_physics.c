@@ -26,7 +26,9 @@ static const char *TAG = "PHYSICS";
 void rowing_physics_init(rowing_metrics_t *metrics, const config_t *config) {
     memset(metrics, 0, sizeof(rowing_metrics_t));
     
-    metrics->session_start_time_us = esp_timer_get_time();
+    // Don't set session_start_time_us - it will be set when session actually starts
+    // This keeps elapsed_time at 0 until user presses Start
+    metrics->session_start_time_us = 0;
     metrics->moment_of_inertia = config->moment_of_inertia;
     metrics->drag_coefficient = config->initial_drag_coefficient;
     metrics->current_phase = STROKE_PHASE_IDLE;
@@ -38,6 +40,7 @@ void rowing_physics_init(rowing_metrics_t *metrics, const config_t *config) {
     ESP_LOGI(TAG, "Physics engine initialized");
     ESP_LOGI(TAG, "Moment of inertia: %.4f kg⋅m²", metrics->moment_of_inertia);
     ESP_LOGI(TAG, "Initial drag coefficient: %.6f", metrics->drag_coefficient);
+    ESP_LOGI(TAG, "Magnets per revolution: %d (compile-time)", DEFAULT_MAGNETS_PER_REV);
 }
 
 /**
@@ -55,11 +58,13 @@ void rowing_physics_reset(rowing_metrics_t *metrics) {
     metrics->drag_coefficient = drag;
     metrics->calibration_complete = cal_complete;
     
-    metrics->session_start_time_us = esp_timer_get_time();
+    // Don't set session_start_time_us - keep at 0 so timer stays at 0 until session starts
+    metrics->session_start_time_us = 0;
     metrics->current_phase = STROKE_PHASE_IDLE;
     metrics->best_pace_sec_500m = 999999.0f;
+    metrics->is_paused = true;  // Start in paused state until rowing detected
     
-    ESP_LOGI(TAG, "Session reset - metrics cleared");
+    ESP_LOGI(TAG, "Session reset - metrics cleared, timer at 0");
 }
 
 /**
@@ -68,6 +73,13 @@ void rowing_physics_reset(rowing_metrics_t *metrics) {
 void rowing_physics_update_elapsed_time(rowing_metrics_t *metrics) {
     // Don't update elapsed time if paused
     if (metrics->is_paused) {
+        return;
+    }
+    
+    // Only update elapsed time if session_start_time_us is set (session started)
+    // A value of 0 or near-boot time when no session started should keep elapsed at 0
+    if (metrics->session_start_time_us == 0) {
+        metrics->elapsed_time_ms = 0;
         return;
     }
     
@@ -109,8 +121,10 @@ void rowing_physics_process_flywheel_pulse(rowing_metrics_t *metrics, int64_t cu
     }
     
     // Calculate angular velocity (rad/s)
-    // Assumes 1 pulse per revolution = 2π radians
-    float angular_velocity = TWO_PI / delta_time_s;
+    // With multiple magnets: each pulse = 2π/magnets radians
+    // MAGNETS_PER_REV is configured at compile time in app_config.h
+    float radians_per_pulse = TWO_PI / (float)DEFAULT_MAGNETS_PER_REV;
+    float angular_velocity = radians_per_pulse / delta_time_s;
     
     // Calculate angular acceleration (rad/s²)
     float angular_acceleration = 0.0f;
@@ -202,9 +216,12 @@ void rowing_physics_calibrate_drag(rowing_metrics_t *metrics, float omega, float
 /**
  * Calculate instantaneous power output
  * 
- * Power = (I × α + k × ω²) × ω
+ * Physics-based: Power = (I × α + k × ω²) × ω
  * First term: power to accelerate flywheel
  * Second term: power to overcome drag
+ * 
+ * For DISPLAY, we use Concept2-style stroke-averaged power which is smoother.
+ * The instantaneous calculation is used internally for work/energy tracking.
  */
 void rowing_physics_calculate_power(rowing_metrics_t *metrics) {
     float omega = metrics->angular_velocity_rad_s;
@@ -212,7 +229,7 @@ void rowing_physics_calculate_power(rowing_metrics_t *metrics) {
     float I = metrics->moment_of_inertia;
     float k = metrics->drag_coefficient;
     
-    // Calculate power components
+    // Calculate power components (physics-based instantaneous power)
     float accel_power = I * alpha * omega;
     float drag_power = k * omega * omega * omega;
     float total_power = accel_power + drag_power;
@@ -223,12 +240,12 @@ void rowing_physics_calculate_power(rowing_metrics_t *metrics) {
     
     metrics->instantaneous_power_watts = total_power;
     
-    // Update peak power
+    // Update peak power (for internal tracking)
     if (total_power > metrics->peak_power_watts) {
         metrics->peak_power_watts = total_power;
     }
     
-    // Accumulate work during drive phase
+    // Accumulate work during drive phase (for energy calculations)
     if (metrics->current_phase == STROKE_PHASE_DRIVE && total_power > 0) {
         // Approximate time step (assume 50ms between updates for simplicity)
         float dt = 0.05f;
@@ -236,34 +253,68 @@ void rowing_physics_calculate_power(rowing_metrics_t *metrics) {
         metrics->total_work_joules += total_power * dt;
     }
     
-    // Update average power (running average)
-    if (metrics->current_phase == STROKE_PHASE_DRIVE && total_power > 10.0f) {
-        uint32_t n = metrics->stroke_count;
-        if (n == 0) n = 1;
-        metrics->average_power_watts = (metrics->average_power_watts * (n - 1) + total_power) / n;
+    // Display power is calculated using Concept2-style formula based on pace
+    // This gives smooth, stable readings that match expected rowing power output
+    // Formula: Watts = 2.80 / (pace_per_meter)³
+    // Only update display power when we have valid pace data
+    if (metrics->average_pace_sec_500m > 60.0f && metrics->average_pace_sec_500m < 9999.0f) {
+        float pace_per_meter = metrics->average_pace_sec_500m / 500.0f;  // seconds per meter
+        float concept2_power = 2.80f / (pace_per_meter * pace_per_meter * pace_per_meter);
+        
+        // Clamp to reasonable range
+        if (concept2_power < 0) concept2_power = 0;
+        if (concept2_power > 1000) concept2_power = 1000;  // Elite rowers max ~500W sustained
+        
+        // Smooth the display power with exponential moving average
+        if (metrics->display_power_watts == 0) {
+            metrics->display_power_watts = concept2_power;
+        } else {
+            // 30% new, 70% old for stability
+            metrics->display_power_watts = 0.7f * metrics->display_power_watts + 0.3f * concept2_power;
+        }
+        
+        // Also update average power to match Concept2-style
+        metrics->average_power_watts = metrics->display_power_watts;
     }
 }
 
 /**
- * Calculate distance for completed stroke
+ * Calculate distance using Concept2-derived physics
+ * 
+ * Physics basis:
+ * - Boat drag: F = ½ρCdAv² → Power = ½ρCdAv³ = k×v³
+ * - Concept2 defines k = 2.80 for a standard racing shell
+ * - Therefore: P = 2.80 × v³, where v is boat speed in m/s
+ * - Rearranging: v = ³√(P / 2.80)
+ * - Distance = v × time = ³√(P / 2.80) × t = ³√(P×t³ / 2.80) = ³√(Energy×t² / 2.80)
+ * 
+ * For incremental calculation:
+ * - Each stroke, we have work done in joules (drive_phase_work_joules)
+ * - Distance for this stroke = ³√(work / 2.80)
+ * 
+ * Note: The 2.80 constant IS physics-based - it represents the combined
+ * drag parameters of a standard racing shell: k = ½ρCdA
  */
 void rowing_physics_calculate_distance(rowing_metrics_t *metrics, float calibration_factor) {
-    // Method 1: Use work-based distance calculation
-    // Distance = Work / (resistance factor)
-    // For simplicity, use calibration factor per stroke
+    (void)calibration_factor;  // No longer used - pure physics calculation
     
-    float distance_this_stroke = calibration_factor;
+    // Use accumulated work from drive phase
+    float work_joules = metrics->drive_phase_work_joules;
     
-    // Alternative: Scale by power output
-    if (metrics->average_power_watts > 10.0f) {
-        // Adjust distance based on power relative to baseline (100W)
-        float power_factor = sqrtf(metrics->average_power_watts / 100.0f);
-        distance_this_stroke *= power_factor;
+    // Calculate distance using Concept2 physics formula
+    // Distance = ³√(Energy / 2.80)
+    // Note: This directly derives from P = 2.80/pace³ where pace = time/distance
+    float distance_this_stroke = 0.0f;
+    
+    if (work_joules > 0.1f) {  // Minimum threshold to avoid noise
+        // Pure physics: distance = cube_root(work / 2.80)
+        distance_this_stroke = cbrtf(work_joules / 2.80f);
+        
+        // Clamp to reasonable range (2-20 meters per stroke)
+        // Elite rowers do ~10m/stroke at racing pace
+        if (distance_this_stroke < 2.0f) distance_this_stroke = 2.0f;
+        if (distance_this_stroke > 20.0f) distance_this_stroke = 20.0f;
     }
-    
-    // Clamp to reasonable range (2-20 meters per stroke)
-    if (distance_this_stroke < 2.0f) distance_this_stroke = 2.0f;
-    if (distance_this_stroke > 20.0f) distance_this_stroke = 20.0f;
     
     metrics->total_distance_meters += distance_this_stroke;
     metrics->distance_per_stroke_meters = distance_this_stroke;
@@ -279,10 +330,11 @@ void rowing_physics_calculate_distance(rowing_metrics_t *metrics, float calibrat
  * Calculate pace (time per 500m)
  */
 void rowing_physics_calculate_pace(rowing_metrics_t *metrics) {
-    int64_t elapsed_us = esp_timer_get_time() - metrics->session_start_time_us;
-    float elapsed_s = (float)elapsed_us / 1000000.0f;
+    // Use elapsed_time_ms which already accounts for pause time
+    // This ensures pace freezes when paused
+    float elapsed_s = (float)metrics->elapsed_time_ms / 1000.0f;
     
-    if (metrics->total_distance_meters < 1.0f) {
+    if (metrics->total_distance_meters < 1.0f || elapsed_s < 0.1f) {
         metrics->instantaneous_pace_sec_500m = 999999.0f;
         metrics->average_pace_sec_500m = 999999.0f;
         return;
@@ -310,8 +362,8 @@ void rowing_physics_calculate_calories(rowing_metrics_t *metrics, float user_wei
     // Rowing efficiency is approximately 20-25%
     // 1 watt = 0.01433 kcal/min (approximately)
     
-    int64_t elapsed_us = esp_timer_get_time() - metrics->session_start_time_us;
-    float elapsed_min = (float)elapsed_us / 60000000.0f;
+    // Use elapsed_time_ms which already accounts for pause time
+    float elapsed_min = (float)metrics->elapsed_time_ms / 60000.0f;
     
     if (elapsed_min < 0.1f) {
         return;  // Too early to calculate

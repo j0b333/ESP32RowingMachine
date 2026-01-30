@@ -74,6 +74,9 @@ void config_manager_get_defaults(config_t *config) {
     config->show_power = true;
     config->show_calories = true;
     strncpy(config->units, "metric", sizeof(config->units) - 1);
+    
+    // Auto-pause settings (default 5 seconds)
+    config->auto_pause_seconds = 5;
 }
 
 /**
@@ -158,6 +161,9 @@ esp_err_t config_manager_load(config_t *config) {
     len = sizeof(config->units);
     nvs_get_str(handle, "units", config->units, &len);
     
+    // Auto-pause settings
+    nvs_get_u8(handle, "auto_pause", &config->auto_pause_seconds);
+    
     nvs_close(handle);
     
     ESP_LOGI(TAG, "Configuration loaded from NVS (STA configured: %s)", 
@@ -212,6 +218,9 @@ esp_err_t config_manager_save(const config_t *config) {
     nvs_set_u8(handle, "show_power", config->show_power ? 1 : 0);
     nvs_set_u8(handle, "show_cal", config->show_calories ? 1 : 0);
     nvs_set_str(handle, "units", config->units);
+    
+    // Save auto-pause settings
+    nvs_set_u8(handle, "auto_pause", config->auto_pause_seconds);
     
     // Commit changes
     ret = nvs_commit(handle);

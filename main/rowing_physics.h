@@ -67,6 +67,7 @@ typedef struct {
     float instantaneous_power_watts;    // Current power output
     float average_power_watts;          // Average power for session
     float peak_power_watts;             // Peak power achieved
+    float display_power_watts;          // Power for display (smoothed, holds peak during recovery)
     float total_work_joules;            // Total work done (cumulative)
     float drive_phase_work_joules;      // Work in current/last drive phase
     
@@ -87,6 +88,7 @@ typedef struct {
     bool valid_data;                    // Data is valid for display
     bool is_paused;                     // Workout is paused (time not accumulating)
     int64_t pause_start_time_us;        // When pause started
+    int64_t last_resume_time_us;        // When session was last resumed (for auto-pause logic)
     uint32_t total_paused_time_ms;      // Total time spent paused
     
 } rowing_metrics_t;
@@ -129,7 +131,25 @@ typedef struct {
     bool show_calories;                 // Show calories on web UI
     char units[8];                      // "metric" or "imperial"
     
+    // ============ Auto-pause Settings ============
+    uint8_t auto_pause_seconds;         // Seconds of inactivity before auto-pause (0 = disabled)
+    
 } config_t;
+
+/**
+ * Per-second sample data for graphs (8 bytes per sample)
+ */
+typedef struct __attribute__((packed)) {
+    uint16_t power_watts;           // 0-65535 W
+    uint16_t pace_tenths;           // Pace in 0.1s units (0-6553.5 sec/500m)
+    uint8_t  heart_rate;            // 0-255 bpm
+    uint8_t  stroke_rate_tenths;    // Stroke rate * 10 (0-25.5 spm)
+    uint16_t distance_dm;           // Distance delta in decimeters (0-6553.5m)
+} sample_data_t;
+
+// Maximum samples per session (7200 = 2 hours at 1 sample/sec)
+// 8 bytes * 7200 = 57.6KB per session
+#define MAX_SAMPLES_PER_SESSION     7200
 
 /**
  * Session history entry (for storage)
@@ -144,6 +164,9 @@ typedef struct {
     uint32_t stroke_count;              // Total strokes
     uint32_t total_calories;            // Total calories burned
     float drag_factor;                  // Drag factor used
+    float average_heart_rate;           // Average heart rate
+    float average_stroke_rate;          // Average stroke rate
+    uint32_t sample_count;              // Number of per-second samples
 } session_record_t;
 
 // ============================================================================

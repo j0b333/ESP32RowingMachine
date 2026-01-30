@@ -47,6 +47,9 @@
 // Idle timeout in milliseconds
 #define IDLE_TIMEOUT_MS         5000    // 5 seconds without pulses = idle
 
+// Auto-pause timeout - pause recording when no flywheel activity
+#define AUTO_PAUSE_TIMEOUT_MS   5000    // 5 seconds without pulses = auto-pause
+
 // Maximum expected flywheel frequency (Hz)
 #define MAX_FLYWHEEL_FREQ_HZ    200     // Very fast rowing limit
 
@@ -61,6 +64,7 @@
 #define DEFAULT_MOMENT_OF_INERTIA   0.101f      // kg⋅m² (typical rowing machine)
 #define DEFAULT_DRAG_COEFFICIENT    0.0001f     // Initial estimate
 #define DEFAULT_DISTANCE_PER_REV    2.8f        // meters per flywheel revolution
+#define DEFAULT_MAGNETS_PER_REV     1           // Number of magnets on flywheel (1-16)
 
 // ============================================================================
 // STROKE DETECTION THRESHOLDS

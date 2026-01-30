@@ -38,8 +38,8 @@ static const char *TAG = "WEB_SERVER";
 static httpd_handle_t g_server = NULL;
 
 // WebSocket file descriptors for connected clients
-#define MAX_WS_CLIENTS 4
-static int g_ws_fds[MAX_WS_CLIENTS] = {-1, -1, -1, -1};
+#define MAX_WS_CLIENTS 8
+static int g_ws_fds[MAX_WS_CLIENTS] = {-1, -1, -1, -1, -1, -1, -1, -1};
 
 // Mutex for thread-safe WebSocket client list access
 static SemaphoreHandle_t g_ws_mutex = NULL;
@@ -305,6 +305,7 @@ static esp_err_t api_config_handler(httpd_req_t *req) {
         cJSON_AddStringToObject(root, "units", g_config->units);
         cJSON_AddBoolToObject(root, "showPower", g_config->show_power);
         cJSON_AddBoolToObject(root, "showCalories", g_config->show_calories);
+        cJSON_AddNumberToObject(root, "autoPauseSeconds", g_config->auto_pause_seconds);
         
         char *json_string = cJSON_PrintUnformatted(root);
         cJSON_Delete(root);
@@ -344,6 +345,10 @@ static esp_err_t api_config_handler(httpd_req_t *req) {
     }
     if ((item = cJSON_GetObjectItem(root, "showCalories")) != NULL) {
         g_config->show_calories = cJSON_IsTrue(item);
+    }
+    if ((item = cJSON_GetObjectItem(root, "autoPauseSeconds")) != NULL) {
+        int val = (int)cJSON_GetNumberValue(item);
+        g_config->auto_pause_seconds = (val >= 0 && val <= 60) ? (uint8_t)val : 5;
     }
     
     cJSON_Delete(root);
@@ -530,10 +535,41 @@ static esp_err_t api_session_detail_handler(httpd_req_t *req) {
     cJSON_AddNumberToObject(root, "avgPower", record.average_power_watts);
     cJSON_AddNumberToObject(root, "avgPace", record.average_pace_sec_500m);
     cJSON_AddNumberToObject(root, "dragFactor", record.drag_factor);
+    cJSON_AddNumberToObject(root, "avgHeartRate", record.average_heart_rate);
+    cJSON_AddNumberToObject(root, "avgStrokeRate", record.average_stroke_rate);
+    cJSON_AddNumberToObject(root, "sampleCount", record.sample_count);
     
-    // Note: HR samples are currently only available during active session
-    cJSON *hrSamples = cJSON_CreateArray();
-    cJSON_AddItemToObject(root, "heartRateSamples", hrSamples);
+    // Load per-second sample data if available
+    if (record.sample_count > 0) {
+        // Allocate buffer for samples (limit to avoid memory issues)
+        uint32_t max_samples = record.sample_count;
+        if (max_samples > 3600) max_samples = 3600;  // Limit to 1 hour for JSON response
+        
+        sample_data_t *samples = malloc(max_samples * sizeof(sample_data_t));
+        if (samples != NULL) {
+            uint32_t actual_count = 0;
+            if (session_manager_get_samples(session_id, samples, max_samples, &actual_count) == ESP_OK && actual_count > 0) {
+                // Add sample arrays
+                cJSON *powerArr = cJSON_CreateArray();
+                cJSON *paceArr = cJSON_CreateArray();
+                cJSON *hrArr = cJSON_CreateArray();
+                cJSON *spmArr = cJSON_CreateArray();
+                
+                for (uint32_t i = 0; i < actual_count; i++) {
+                    cJSON_AddItemToArray(powerArr, cJSON_CreateNumber(samples[i].power_watts));
+                    cJSON_AddItemToArray(paceArr, cJSON_CreateNumber(samples[i].pace_tenths / 10.0));
+                    cJSON_AddItemToArray(hrArr, cJSON_CreateNumber(samples[i].heart_rate));
+                    cJSON_AddItemToArray(spmArr, cJSON_CreateNumber(samples[i].stroke_rate_tenths / 10.0));
+                }
+                
+                cJSON_AddItemToObject(root, "powerSamples", powerArr);
+                cJSON_AddItemToObject(root, "paceSamples", paceArr);
+                cJSON_AddItemToObject(root, "hrSamples", hrArr);
+                cJSON_AddItemToObject(root, "spmSamples", spmArr);
+            }
+            free(samples);
+        }
+    }
     
     char *json_string = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
@@ -551,17 +587,115 @@ static esp_err_t api_session_detail_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+/**
+ * DELETE /api/sessions/{id} - Delete a specific session
+ */
+static esp_err_t api_session_delete_handler(httpd_req_t *req) {
+    // Parse session ID from URI: /api/sessions/123
+    const char *uri = req->uri;
+    const char *id_start = strrchr(uri, '/');
+    if (id_start == NULL || *(id_start + 1) == '\0') {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid session ID");
+        return ESP_FAIL;
+    }
+    
+    // Check if the string after '/' contains only digits
+    const char *id_str = id_start + 1;
+    for (const char *p = id_str; *p != '\0'; p++) {
+        if (*p < '0' || *p > '9') {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid session ID format");
+            return ESP_FAIL;
+        }
+    }
+    
+    // Session IDs start from 1, not 0
+    long session_id_long = strtol(id_str, NULL, 10);
+    if (session_id_long <= 0 || session_id_long > UINT32_MAX) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid session ID");
+        return ESP_FAIL;
+    }
+    uint32_t session_id = (uint32_t)session_id_long;
+    
+    esp_err_t result = session_manager_delete_session(session_id);
+    if (result != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Session not found");
+        return ESP_FAIL;
+    }
+    
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "success", true);
+    cJSON_AddNumberToObject(root, "deletedId", session_id);
+    
+    char *json_string = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    
+    if (json_string == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, json_string);
+    
+    free(json_string);
+    
+    ESP_LOGI(TAG, "Session #%lu deleted via API", (unsigned long)session_id);
+    return ESP_OK;
+}
+
 // ============================================================================
 // Workout Control Endpoints
 // ============================================================================
 
 /**
- * POST /workout/start - Start a new workout
+ * POST /workout/start - Start a new workout or resume if paused
  */
 static esp_err_t workout_start_handler(httpd_req_t *req) {
     if (g_metrics == NULL) {
         httpd_resp_send_500(req);
         return ESP_FAIL;
+    }
+    
+    uint32_t session_id = session_manager_get_current_session_id();
+    
+    // Check if we have an existing session that's paused - resume it instead of starting new
+    if (session_id > 0 && g_metrics->is_paused) {
+        // Resume existing paused session
+        int64_t now = esp_timer_get_time();
+        
+        // Calculate pause duration and add to total
+        if (g_metrics->pause_start_time_us > 0) {
+            int64_t paused_duration_us = now - g_metrics->pause_start_time_us;
+            if (paused_duration_us > 0) {
+                g_metrics->total_paused_time_ms += (uint32_t)(paused_duration_us / 1000);
+            }
+        }
+        
+        // If session_start_time was 0 (reset state), set it now
+        if (g_metrics->session_start_time_us == 0) {
+            g_metrics->session_start_time_us = now;
+        }
+        
+        g_metrics->is_paused = false;
+        g_metrics->pause_start_time_us = 0;
+        g_metrics->last_resume_time_us = now;  // Track when we resumed for auto-pause logic
+        
+        cJSON *root = cJSON_CreateObject();
+        cJSON_AddStringToObject(root, "status", "resumed");
+        cJSON_AddNumberToObject(root, "sessionId", session_id);
+        
+        char *json_string = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+        httpd_resp_sendstr(req, json_string);
+        
+        free(json_string);
+        
+        ESP_LOGI(TAG, "Workout resumed via API, session #%lu", (unsigned long)session_id);
+        return ESP_OK;
     }
     
     // Start HR recording
@@ -573,7 +707,7 @@ static esp_err_t workout_start_handler(httpd_req_t *req) {
     // Start a new session
     session_manager_start_session(g_metrics);
     
-    uint32_t session_id = session_manager_get_current_session_id();
+    session_id = session_manager_get_current_session_id();
     
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "status", "started");
@@ -702,6 +836,7 @@ static esp_err_t workout_resume_handler(httpd_req_t *req) {
         }
         g_metrics->is_paused = false;
         g_metrics->pause_start_time_us = 0;
+        g_metrics->last_resume_time_us = now;  // Track when we resumed for auto-pause logic
         cJSON_AddStringToObject(root, "status", "resumed");
         cJSON_AddBoolToObject(root, "success", true);
         ESP_LOGI(TAG, "Workout resumed via API (was paused for %lu ms)", 
@@ -1323,6 +1458,13 @@ static const httpd_uri_t uri_api_session_detail = {
     .user_ctx = NULL
 };
 
+static const httpd_uri_t uri_api_session_delete = {
+    .uri = "/api/sessions/*",
+    .method = HTTP_DELETE,
+    .handler = api_session_delete_handler,
+    .user_ctx = NULL
+};
+
 // Workout control endpoints
 static const httpd_uri_t uri_workout_start = {
     .uri = "/workout/start",
@@ -1449,14 +1591,15 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     
     httpd_config_t http_config = HTTPD_DEFAULT_CONFIG();
     http_config.server_port = WEB_SERVER_PORT;
-    http_config.max_open_sockets = 7;
+    http_config.max_open_sockets = 12;  // Increased from 7 for better stability
     http_config.max_uri_handlers = 40;  // We have 30+ handlers, ensure enough slots
-    http_config.lru_purge_enable = true;
+    http_config.lru_purge_enable = true;  // Enable LRU purging of stale connections
     http_config.uri_match_fn = httpd_uri_match_wildcard;
     http_config.open_fn = ws_open_callback;
     http_config.close_fn = ws_close_callback;
-    http_config.recv_wait_timeout = 10;  // 10 second timeout for receive
-    http_config.send_wait_timeout = 10;  // 10 second timeout for send
+    http_config.recv_wait_timeout = 5;   // Reduced from 10 for faster cleanup
+    http_config.send_wait_timeout = 5;   // Reduced from 10 for faster cleanup
+    http_config.backlog_conn = 5;        // Max pending connections
     
     ESP_LOGI(TAG, "Starting web server on port %d (max %d URI handlers)", 
              http_config.server_port, http_config.max_uri_handlers);
@@ -1497,6 +1640,7 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     // Session management endpoints
     REGISTER_URI(uri_api_sessions);
     REGISTER_URI(uri_api_session_detail);
+    REGISTER_URI(uri_api_session_delete);
     
     // Workout control endpoints
     REGISTER_URI(uri_workout_start);
