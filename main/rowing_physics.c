@@ -216,9 +216,12 @@ void rowing_physics_calibrate_drag(rowing_metrics_t *metrics, float omega, float
 /**
  * Calculate instantaneous power output
  * 
- * Power = (I × α + k × ω²) × ω
+ * Physics-based: Power = (I × α + k × ω²) × ω
  * First term: power to accelerate flywheel
  * Second term: power to overcome drag
+ * 
+ * For DISPLAY, we use Concept2-style stroke-averaged power which is smoother.
+ * The instantaneous calculation is used internally for work/energy tracking.
  */
 void rowing_physics_calculate_power(rowing_metrics_t *metrics) {
     float omega = metrics->angular_velocity_rad_s;
@@ -226,7 +229,7 @@ void rowing_physics_calculate_power(rowing_metrics_t *metrics) {
     float I = metrics->moment_of_inertia;
     float k = metrics->drag_coefficient;
     
-    // Calculate power components
+    // Calculate power components (physics-based instantaneous power)
     float accel_power = I * alpha * omega;
     float drag_power = k * omega * omega * omega;
     float total_power = accel_power + drag_power;
@@ -237,22 +240,12 @@ void rowing_physics_calculate_power(rowing_metrics_t *metrics) {
     
     metrics->instantaneous_power_watts = total_power;
     
-    // Update peak power
+    // Update peak power (for internal tracking)
     if (total_power > metrics->peak_power_watts) {
         metrics->peak_power_watts = total_power;
     }
     
-    // Update display power - holds peak during recovery for smoother display
-    // During drive phase, update to current power if higher
-    // During recovery/idle, slowly decay but don't go to zero immediately
-    if (metrics->current_phase == STROKE_PHASE_DRIVE) {
-        if (total_power > metrics->display_power_watts) {
-            metrics->display_power_watts = total_power;
-        }
-    }
-    // Display power will be updated at stroke completion with average stroke power
-    
-    // Accumulate work during drive phase
+    // Accumulate work during drive phase (for energy calculations)
     if (metrics->current_phase == STROKE_PHASE_DRIVE && total_power > 0) {
         // Approximate time step (assume 50ms between updates for simplicity)
         float dt = 0.05f;
@@ -260,11 +253,28 @@ void rowing_physics_calculate_power(rowing_metrics_t *metrics) {
         metrics->total_work_joules += total_power * dt;
     }
     
-    // Update average power (running average)
-    if (metrics->current_phase == STROKE_PHASE_DRIVE && total_power > 10.0f) {
-        uint32_t n = metrics->stroke_count;
-        if (n == 0) n = 1;
-        metrics->average_power_watts = (metrics->average_power_watts * (n - 1) + total_power) / n;
+    // Display power is calculated using Concept2-style formula based on pace
+    // This gives smooth, stable readings that match expected rowing power output
+    // Formula: Watts = 2.80 / (pace_per_meter)³
+    // Only update display power when we have valid pace data
+    if (metrics->average_pace_sec_500m > 60.0f && metrics->average_pace_sec_500m < 9999.0f) {
+        float pace_per_meter = metrics->average_pace_sec_500m / 500.0f;  // seconds per meter
+        float concept2_power = 2.80f / (pace_per_meter * pace_per_meter * pace_per_meter);
+        
+        // Clamp to reasonable range
+        if (concept2_power < 0) concept2_power = 0;
+        if (concept2_power > 1000) concept2_power = 1000;  // Elite rowers max ~500W sustained
+        
+        // Smooth the display power with exponential moving average
+        if (metrics->display_power_watts == 0) {
+            metrics->display_power_watts = concept2_power;
+        } else {
+            // 30% new, 70% old for stability
+            metrics->display_power_watts = 0.7f * metrics->display_power_watts + 0.3f * concept2_power;
+        }
+        
+        // Also update average power to match Concept2-style
+        metrics->average_power_watts = metrics->display_power_watts;
     }
 }
 
