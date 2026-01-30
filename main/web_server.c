@@ -340,9 +340,7 @@ static esp_err_t api_config_handler(httpd_req_t *req) {
     }
     if ((item = cJSON_GetObjectItem(root, "momentOfInertia")) != NULL) {
         float val = (float)cJSON_GetNumberValue(item);
-        if (val >= 0.01f && val <= 1.0f) {
-            g_config->moment_of_inertia = val;
-        }
+        g_config->moment_of_inertia = (val >= 0.01f && val <= 1.0f) ? val : 0.101f;
     }
     if ((item = cJSON_GetObjectItem(root, "units")) != NULL) {
         strncpy(g_config->units, cJSON_GetStringValue(item), sizeof(g_config->units) - 1);
