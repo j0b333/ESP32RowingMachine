@@ -102,6 +102,12 @@ int metrics_calculator_to_json(const rowing_metrics_t *metrics, char *buffer, si
             break;
     }
     
+    // Use display_power for smoother UI (holds peak during recovery)
+    float display_power = metrics->display_power_watts;
+    if (display_power <= 0 && metrics->instantaneous_power_watts > 0) {
+        display_power = metrics->instantaneous_power_watts;
+    }
+    
     return snprintf(buffer, buf_len,
         "{"
         "\"distance\":%.1f,"
@@ -132,7 +138,7 @@ int metrics_calculator_to_json(const rowing_metrics_t *metrics, char *buffer, si
         pace_str,
         metrics->average_pace_sec_500m,
         avg_pace_str,
-        metrics->instantaneous_power_watts,
+        display_power,
         metrics->average_power_watts,
         metrics->peak_power_watts,
         metrics->stroke_rate_spm,

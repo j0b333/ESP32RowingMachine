@@ -67,6 +67,7 @@ typedef struct {
     float instantaneous_power_watts;    // Current power output
     float average_power_watts;          // Average power for session
     float peak_power_watts;             // Peak power achieved
+    float display_power_watts;          // Power for display (smoothed, holds peak during recovery)
     float total_work_joules;            // Total work done (cumulative)
     float drive_phase_work_joules;      // Work in current/last drive phase
     

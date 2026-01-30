@@ -678,7 +678,7 @@ async function loadWorkoutHistory() {
 /**
  * Show workout charts modal
  */
-function showWorkoutCharts(session) {
+async function showWorkoutCharts(session) {
     selectedWorkoutId = session.id;
     
     const modal = document.getElementById('workout-detail-modal');
@@ -690,9 +690,11 @@ function showWorkoutCharts(session) {
         titleEl.textContent = formatDate(session.startTime);
     }
     
-    // For now, just show placeholder charts since we don't have per-second data stored
-    // In the future, this would load historical data and render actual charts
-    const drawPlaceholderChart = (canvasId, value, label, color) => {
+    // Show modal with loading state
+    modal.classList.remove('hidden');
+    
+    // Draw a chart with actual sample data
+    const drawSampleChart = (canvasId, samples, avgValue, label, color, formatFn) => {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return;
         
@@ -708,38 +710,102 @@ function showWorkoutCharts(session) {
         
         const width = rect.width;
         const height = 100;
+        const padding = 10;
         
         // Background
         ctx.fillStyle = 'rgba(15, 52, 96, 0.5)';
         ctx.fillRect(0, 0, width, height);
         
-        // Draw horizontal line at average
+        if (!samples || samples.length === 0) {
+            // No data - show average only
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(padding, height / 2);
+            ctx.lineTo(width - padding, height / 2);
+            ctx.stroke();
+            
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(`Avg: ${formatFn ? formatFn(avgValue) : avgValue}`, width / 2, height / 2 + 5);
+            return;
+        }
+        
+        // Find min/max for scaling
+        let minVal = Infinity, maxVal = -Infinity;
+        for (const val of samples) {
+            if (val > 0) {
+                if (val < minVal) minVal = val;
+                if (val > maxVal) maxVal = val;
+            }
+        }
+        if (minVal === Infinity) minVal = 0;
+        if (maxVal === -Infinity) maxVal = 100;
+        const range = maxVal - minVal || 1;
+        
+        // Draw the line chart
         ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(20, height / 2);
-        ctx.lineTo(width - 20, height / 2);
+        
+        const xStep = (width - 2 * padding) / (samples.length - 1 || 1);
+        for (let i = 0; i < samples.length; i++) {
+            const x = padding + i * xStep;
+            const normalizedY = (samples[i] - minVal) / range;
+            const y = height - padding - normalizedY * (height - 2 * padding);
+            
+            if (i === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        }
         ctx.stroke();
         
-        // Show average value
+        // Draw average line (dotted)
+        const avgY = height - padding - ((avgValue - minVal) / range) * (height - 2 * padding);
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.beginPath();
+        ctx.moveTo(padding, avgY);
+        ctx.lineTo(width - padding, avgY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        // Show average label
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 16px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(`Avg: ${value}`, width / 2, height / 2 - 10);
-        ctx.font = '12px sans-serif';
-        ctx.fillStyle = 'rgba(255,255,255,0.6)';
-        ctx.fillText('(Per-second data not stored yet)', width / 2, height / 2 + 25);
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(`Avg: ${formatFn ? formatFn(avgValue) : avgValue}`, width - padding, avgY - 3);
     };
     
-    // Draw placeholder charts with session averages
-    setTimeout(() => {
-        drawPlaceholderChart('modal-chart-pace', formatPace(session.avgPace), 'Pace', '#16d9e3');
-        drawPlaceholderChart('modal-chart-power', Math.round(session.avgPower) + ' W', 'Power', '#96fbc4');
-        drawPlaceholderChart('modal-chart-hr', session.avgHeartRate ? Math.round(session.avgHeartRate) + ' bpm' : '-- bpm', 'HR', '#e94560');
-        drawPlaceholderChart('modal-chart-spm', session.avgStrokeRate ? session.avgStrokeRate.toFixed(1) + ' spm' : '-- spm', 'SPM', '#fbbf24');
-    }, 100);
-    
-    modal.classList.remove('hidden');
+    // Try to fetch detailed session data with samples
+    try {
+        const response = await fetch(`/api/sessions/${session.id}`);
+        if (response.ok) {
+            const data = await response.json();
+            
+            // Draw charts with actual sample data
+            setTimeout(() => {
+                drawSampleChart('modal-chart-pace', data.paceSamples, data.avgPace, 'Pace', '#16d9e3', formatPace);
+                drawSampleChart('modal-chart-power', data.powerSamples, data.avgPower, 'Power', '#96fbc4', v => Math.round(v) + ' W');
+                drawSampleChart('modal-chart-hr', data.hrSamples, data.avgHeartRate || 0, 'HR', '#e94560', v => v > 0 ? Math.round(v) + ' bpm' : '-- bpm');
+                drawSampleChart('modal-chart-spm', data.spmSamples, data.avgStrokeRate || 0, 'SPM', '#fbbf24', v => v > 0 ? v.toFixed(1) + ' spm' : '-- spm');
+            }, 50);
+        } else {
+            throw new Error('Failed to fetch session');
+        }
+    } catch (e) {
+        console.error('Failed to load session details:', e);
+        // Fallback to showing just averages
+        setTimeout(() => {
+            drawSampleChart('modal-chart-pace', null, session.avgPace, 'Pace', '#16d9e3', formatPace);
+            drawSampleChart('modal-chart-power', null, session.avgPower, 'Power', '#96fbc4', v => Math.round(v) + ' W');
+            drawSampleChart('modal-chart-hr', null, session.avgHeartRate || 0, 'HR', '#e94560', v => v > 0 ? Math.round(v) + ' bpm' : '-- bpm');
+            drawSampleChart('modal-chart-spm', null, session.avgStrokeRate || 0, 'SPM', '#fbbf24', v => v > 0 ? v.toFixed(1) + ' spm' : '-- spm');
+        }, 50);
+    }
 }
 
 /**

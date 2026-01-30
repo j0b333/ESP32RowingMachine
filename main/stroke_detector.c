@@ -57,6 +57,7 @@ void stroke_detector_update(rowing_metrics_t *metrics) {
                 metrics->last_stroke_start_time_us = now;
                 metrics->peak_velocity_in_stroke = omega;
                 metrics->drive_phase_work_joules = 0;
+                metrics->display_power_watts = 0;  // Reset display power for new stroke
                 ESP_LOGD(TAG, "Drive phase started (ω=%.1f, α=%.1f)", omega, alpha);
             }
             break;
@@ -87,11 +88,15 @@ void stroke_detector_update(rowing_metrics_t *metrics) {
                     // Calculate distance for this stroke
                     rowing_physics_calculate_distance(metrics, g_distance_calibration);
                     
+                    // At end of drive, set display power to the peak achieved
+                    // This holds the power display steady during recovery
+                    metrics->display_power_watts = metrics->display_power_watts;  // Already set during drive
+                    
                     ESP_LOGI(TAG, "Stroke #%lu complete, SPM=%.1f, dist=%.1fm, power=%.0fW", 
                              (unsigned long)metrics->stroke_count, 
                              metrics->stroke_rate_spm,
                              metrics->total_distance_meters,
-                             metrics->instantaneous_power_watts);
+                             metrics->display_power_watts);
                 } else {
                     ESP_LOGD(TAG, "Drive too short (%lums), not counting stroke", 
                              (unsigned long)drive_duration_ms);
@@ -123,6 +128,7 @@ void stroke_detector_update(rowing_metrics_t *metrics) {
                 metrics->last_stroke_start_time_us = now;
                 metrics->peak_velocity_in_stroke = omega;
                 metrics->drive_phase_work_joules = 0;
+                metrics->display_power_watts = 0;  // Reset display power for new stroke
                 
                 ESP_LOGD(TAG, "New drive phase started (ω=%.1f, α=%.1f)", omega, alpha);
             }

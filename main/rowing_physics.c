@@ -26,7 +26,9 @@ static const char *TAG = "PHYSICS";
 void rowing_physics_init(rowing_metrics_t *metrics, const config_t *config) {
     memset(metrics, 0, sizeof(rowing_metrics_t));
     
-    metrics->session_start_time_us = esp_timer_get_time();
+    // Don't set session_start_time_us - it will be set when session actually starts
+    // This keeps elapsed_time at 0 until user presses Start
+    metrics->session_start_time_us = 0;
     metrics->moment_of_inertia = config->moment_of_inertia;
     metrics->drag_coefficient = config->initial_drag_coefficient;
     metrics->current_phase = STROKE_PHASE_IDLE;
@@ -69,6 +71,13 @@ void rowing_physics_reset(rowing_metrics_t *metrics) {
 void rowing_physics_update_elapsed_time(rowing_metrics_t *metrics) {
     // Don't update elapsed time if paused
     if (metrics->is_paused) {
+        return;
+    }
+    
+    // Only update elapsed time if session_start_time_us is set (session started)
+    // A value of 0 or near-boot time when no session started should keep elapsed at 0
+    if (metrics->session_start_time_us == 0) {
+        metrics->elapsed_time_ms = 0;
         return;
     }
     
@@ -230,6 +239,16 @@ void rowing_physics_calculate_power(rowing_metrics_t *metrics) {
     if (total_power > metrics->peak_power_watts) {
         metrics->peak_power_watts = total_power;
     }
+    
+    // Update display power - holds peak during recovery for smoother display
+    // During drive phase, update to current power if higher
+    // During recovery/idle, slowly decay but don't go to zero immediately
+    if (metrics->current_phase == STROKE_PHASE_DRIVE) {
+        if (total_power > metrics->display_power_watts) {
+            metrics->display_power_watts = total_power;
+        }
+    }
+    // Display power will be updated at stroke completion with average stroke power
     
     // Accumulate work during drive phase
     if (metrics->current_phase == STROKE_PHASE_DRIVE && total_power > 0) {

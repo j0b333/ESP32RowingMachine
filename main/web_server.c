@@ -38,8 +38,8 @@ static const char *TAG = "WEB_SERVER";
 static httpd_handle_t g_server = NULL;
 
 // WebSocket file descriptors for connected clients
-#define MAX_WS_CLIENTS 4
-static int g_ws_fds[MAX_WS_CLIENTS] = {-1, -1, -1, -1};
+#define MAX_WS_CLIENTS 8
+static int g_ws_fds[MAX_WS_CLIENTS] = {-1, -1, -1, -1, -1, -1, -1, -1};
 
 // Mutex for thread-safe WebSocket client list access
 static SemaphoreHandle_t g_ws_mutex = NULL;
@@ -530,10 +530,41 @@ static esp_err_t api_session_detail_handler(httpd_req_t *req) {
     cJSON_AddNumberToObject(root, "avgPower", record.average_power_watts);
     cJSON_AddNumberToObject(root, "avgPace", record.average_pace_sec_500m);
     cJSON_AddNumberToObject(root, "dragFactor", record.drag_factor);
+    cJSON_AddNumberToObject(root, "avgHeartRate", record.average_heart_rate);
+    cJSON_AddNumberToObject(root, "avgStrokeRate", record.average_stroke_rate);
+    cJSON_AddNumberToObject(root, "sampleCount", record.sample_count);
     
-    // Note: HR samples are currently only available during active session
-    cJSON *hrSamples = cJSON_CreateArray();
-    cJSON_AddItemToObject(root, "heartRateSamples", hrSamples);
+    // Load per-second sample data if available
+    if (record.sample_count > 0) {
+        // Allocate buffer for samples (limit to avoid memory issues)
+        uint32_t max_samples = record.sample_count;
+        if (max_samples > 3600) max_samples = 3600;  // Limit to 1 hour for JSON response
+        
+        sample_data_t *samples = malloc(max_samples * sizeof(sample_data_t));
+        if (samples != NULL) {
+            uint32_t actual_count = 0;
+            if (session_manager_get_samples(session_id, samples, max_samples, &actual_count) == ESP_OK && actual_count > 0) {
+                // Add sample arrays
+                cJSON *powerArr = cJSON_CreateArray();
+                cJSON *paceArr = cJSON_CreateArray();
+                cJSON *hrArr = cJSON_CreateArray();
+                cJSON *spmArr = cJSON_CreateArray();
+                
+                for (uint32_t i = 0; i < actual_count; i++) {
+                    cJSON_AddItemToArray(powerArr, cJSON_CreateNumber(samples[i].power_watts));
+                    cJSON_AddItemToArray(paceArr, cJSON_CreateNumber(samples[i].pace_tenths / 10.0));
+                    cJSON_AddItemToArray(hrArr, cJSON_CreateNumber(samples[i].heart_rate));
+                    cJSON_AddItemToArray(spmArr, cJSON_CreateNumber(samples[i].stroke_rate_tenths / 10.0));
+                }
+                
+                cJSON_AddItemToObject(root, "powerSamples", powerArr);
+                cJSON_AddItemToObject(root, "paceSamples", paceArr);
+                cJSON_AddItemToObject(root, "hrSamples", hrArr);
+                cJSON_AddItemToObject(root, "spmSamples", spmArr);
+            }
+            free(samples);
+        }
+    }
     
     char *json_string = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
@@ -1513,14 +1544,15 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     
     httpd_config_t http_config = HTTPD_DEFAULT_CONFIG();
     http_config.server_port = WEB_SERVER_PORT;
-    http_config.max_open_sockets = 7;
+    http_config.max_open_sockets = 12;  // Increased from 7 for better stability
     http_config.max_uri_handlers = 40;  // We have 30+ handlers, ensure enough slots
-    http_config.lru_purge_enable = true;
+    http_config.lru_purge_enable = true;  // Enable LRU purging of stale connections
     http_config.uri_match_fn = httpd_uri_match_wildcard;
     http_config.open_fn = ws_open_callback;
     http_config.close_fn = ws_close_callback;
-    http_config.recv_wait_timeout = 10;  // 10 second timeout for receive
-    http_config.send_wait_timeout = 10;  // 10 second timeout for send
+    http_config.recv_wait_timeout = 5;   // Reduced from 10 for faster cleanup
+    http_config.send_wait_timeout = 5;   // Reduced from 10 for faster cleanup
+    http_config.backlog_conn = 5;        // Max pending connections
     
     ESP_LOGI(TAG, "Starting web server on port %d (max %d URI handlers)", 
              http_config.server_port, http_config.max_uri_handlers);

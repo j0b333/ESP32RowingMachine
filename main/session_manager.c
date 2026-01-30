@@ -202,6 +202,10 @@ esp_err_t session_manager_end_session(rowing_metrics_t *metrics) {
     
     s_current_session_id = 0;
     
+    // Reset session_start_time to stop timer from counting
+    metrics->session_start_time_us = 0;
+    metrics->elapsed_time_ms = 0;
+    
     return ESP_OK;
 }
 
