@@ -6,9 +6,15 @@
 #include "utils.h"
 #include "esp_system.h"
 #include "esp_timer.h"
+#include "esp_sntp.h"
+#include "esp_log.h"
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+#include <sys/time.h>
+
+static const char *TAG = "UTILS";
 
 /**
  * Format time in seconds to HH:MM:SS string
@@ -103,4 +109,57 @@ void utils_restart(void) {
  */
 uint32_t utils_get_uptime_seconds(void) {
     return (uint32_t)(esp_timer_get_time() / 1000000);
+}
+
+/**
+ * Track if SNTP has synced
+ */
+static bool s_time_synced = false;
+
+/**
+ * SNTP sync notification callback
+ */
+static void time_sync_notification_cb(struct timeval *tv) {
+    ESP_LOGI(TAG, "Time synchronized via SNTP");
+    s_time_synced = true;
+}
+
+/**
+ * Initialize SNTP for time synchronization
+ */
+void utils_init_sntp(void) {
+    ESP_LOGI(TAG, "Initializing SNTP...");
+    
+    // Set timezone to UTC (apps will handle local time conversion)
+    setenv("TZ", "UTC0", 1);
+    tzset();
+    
+    // Configure SNTP
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_setservername(1, "time.google.com");
+    esp_sntp_set_time_sync_notification_cb(time_sync_notification_cb);
+    esp_sntp_init();
+    
+    ESP_LOGI(TAG, "SNTP initialized, waiting for time sync...");
+}
+
+/**
+ * Check if time has been synchronized via SNTP
+ */
+bool utils_time_is_synced(void) {
+    return s_time_synced;
+}
+
+/**
+ * Get current Unix timestamp in milliseconds
+ */
+int64_t utils_get_unix_time_ms(void) {
+    if (!s_time_synced) {
+        return 0;
+    }
+    
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (int64_t)tv.tv_sec * 1000LL + (int64_t)tv.tv_usec / 1000LL;
 }

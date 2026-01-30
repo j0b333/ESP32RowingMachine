@@ -827,10 +827,12 @@ async function loadWorkoutHistory() {
                 : Math.round(session.distance) + ' m';
             
             const avgHr = session.avgHeartRate ? Math.round(session.avgHeartRate) + ' bpm' : '-- bpm';
+            const maxHr = session.maxHeartRate ? Math.round(session.maxHeartRate) + ' bpm' : '-- bpm';
+            const syncedIcon = session.synced ? '✓ Synced' : '';
             
             item.innerHTML = `
                 <div class="history-item-header">
-                    <div class="history-item-title">${formatDate(session.startTime)}</div>
+                    <div class="history-item-title">${formatDate(session.startTime)}${syncedIcon ? '<span class="synced-badge">' + syncedIcon + '</span>' : ''}</div>
                     <button class="btn-delete-history" data-id="${session.id}" aria-label="Delete workout">🗑</button>
                 </div>
                 <div class="history-item-stats-grid">
@@ -861,6 +863,10 @@ async function loadWorkoutHistory() {
                     <div class="history-stat">
                         <span class="stat-label">Avg HR</span>
                         <span class="stat-value">${avgHr}</span>
+                    </div>
+                    <div class="history-stat">
+                        <span class="stat-label">Max HR</span>
+                        <span class="stat-value">${maxHr}</span>
                     </div>
                 </div>
                 <div class="history-item-action">
@@ -1048,24 +1054,30 @@ async function showWorkoutCharts(session) {
         if (response.ok) {
             const data = await response.json();
             
-            // Draw charts with actual sample data
+            // Extract values from Health Connect format objects
+            // heartRateSamples: [{time, bpm}] -> [bpm values]
+            const hrValues = data.heartRateSamples ? data.heartRateSamples.map(s => s.bpm) : [];
+            // powerSamples: [{time, watts}] -> [watts values]
+            const powerValues = data.powerSamples ? data.powerSamples.map(s => s.watts) : [];
+            // paceSamples is already a simple array of pace values
+            const paceValues = data.paceSamples || [];
+            
+            // Draw charts with actual sample data (no SPM chart in history - not stored for Health Connect)
             setTimeout(() => {
-                drawSampleChart('modal-chart-pace', data.paceSamples, data.avgPace, 'Pace', '#16d9e3', formatPace);
-                drawSampleChart('modal-chart-power', data.powerSamples, data.avgPower, 'Power', '#96fbc4', v => Math.round(v) + ' W');
-                drawSampleChart('modal-chart-hr', data.hrSamples, data.avgHeartRate || 0, 'HR', '#e94560', v => v > 0 ? Math.round(v) + ' bpm' : '-- bpm', true);
-                drawSampleChart('modal-chart-spm', data.spmSamples, data.avgStrokeRate || 0, 'SPM', '#fbbf24', v => v > 0 ? v.toFixed(1) + ' spm' : '-- spm');
+                drawSampleChart('modal-chart-pace', paceValues, data.avgPace, 'Pace', '#16d9e3', formatPace);
+                drawSampleChart('modal-chart-power', powerValues, data.avgPower, 'Power', '#96fbc4', v => Math.round(v) + ' W');
+                drawSampleChart('modal-chart-hr', hrValues, data.avgHeartRate || 0, 'HR', '#e94560', v => v > 0 ? Math.round(v) + ' bpm' : '-- bpm', true);
             }, 50);
         } else {
             throw new Error('Failed to fetch session');
         }
     } catch (e) {
         console.error('Failed to load session details:', e);
-        // Fallback to showing just averages
+        // Fallback to showing just averages (no SPM chart in history)
         setTimeout(() => {
             drawSampleChart('modal-chart-pace', null, session.avgPace, 'Pace', '#16d9e3', formatPace);
             drawSampleChart('modal-chart-power', null, session.avgPower, 'Power', '#96fbc4', v => Math.round(v) + ' W');
             drawSampleChart('modal-chart-hr', null, session.avgHeartRate || 0, 'HR', '#e94560', v => v > 0 ? Math.round(v) + ' bpm' : '-- bpm', true);
-            drawSampleChart('modal-chart-spm', null, session.avgStrokeRate || 0, 'SPM', '#fbbf24', v => v > 0 ? v.toFixed(1) + ' spm' : '-- spm');
         }, 50);
     }
 }

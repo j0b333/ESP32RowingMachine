@@ -167,13 +167,15 @@ typedef struct {
 } config_t;
 
 /**
- * Per-second sample data for graphs (8 bytes per sample)
+ * Per-second sample data for Health Connect (8 bytes per sample)
+ * Stores only data needed for Health Connect sync: power, speed, heart rate
+ * Distance delta is kept to enable accurate reconstruction
  */
 typedef struct __attribute__((packed)) {
     uint16_t power_watts;           // 0-65535 W
-    uint16_t pace_tenths;           // Pace in 0.1s units (0-6553.5 sec/500m)
+    uint16_t speed_cm_per_sec;      // Speed in cm/s (0-655.35 m/s) - for Health Connect speedSamples
     uint8_t  heart_rate;            // 0-255 bpm
-    uint8_t  stroke_rate_tenths;    // Stroke rate * 10 (0-25.5 spm)
+    uint8_t  reserved;              // Padding for alignment (was stroke_rate_tenths, kept for struct size)
     uint16_t distance_dm;           // Distance delta in decimeters (0-6553.5m)
 } sample_data_t;
 
@@ -183,20 +185,23 @@ typedef struct __attribute__((packed)) {
 
 /**
  * Session history entry (for storage)
+ * Contains only data needed for Health Connect, plus fields for display derivation
  */
 typedef struct {
     uint32_t session_id;                // Unique session identifier
-    int64_t start_timestamp;            // Unix timestamp of session start
-    uint32_t duration_seconds;          // Total session duration
+    int64_t start_timestamp;            // Unix timestamp (ms) of session start
+    uint32_t duration_seconds;          // Active workout duration (excludes pauses)
     float total_distance_meters;        // Total distance rowed
-    float average_pace_sec_500m;        // Average pace (seconds per 500m)
+    float average_pace_sec_500m;        // Average pace (seconds per 500m) - derived from distance/duration
     float average_power_watts;          // Average power output
     uint32_t stroke_count;              // Total strokes
     uint32_t total_calories;            // Total calories burned
     float drag_factor;                  // Drag factor used
-    float average_heart_rate;           // Average heart rate
-    float average_stroke_rate;          // Average stroke rate
+    float average_heart_rate;           // Average heart rate (derived from samples)
+    float max_heart_rate;               // Maximum heart rate (derived from samples)
+    float average_stroke_rate;          // Average stroke rate (derived during session, for display)
     uint32_t sample_count;              // Number of per-second samples
+    bool synced;                        // True if synced to Health Connect via companion app
 } session_record_t;
 
 // ============================================================================

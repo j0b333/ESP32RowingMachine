@@ -5,6 +5,7 @@
 
 #include "session_manager.h"
 #include "app_config.h"
+#include "utils.h"
 
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -29,7 +30,8 @@ static const char *TAG = "SESSION";
 
 // Current session state
 static uint32_t s_current_session_id = 0;
-static int64_t s_session_start_time = 0;
+static int64_t s_session_start_time = 0;      // esp_timer microseconds (for elapsed time calc)
+static int64_t s_session_start_unix_ms = 0;   // Unix timestamp in milliseconds (for Health Connect)
 static uint32_t s_session_count = 0;
 
 // Sample buffer for current session
@@ -38,6 +40,7 @@ static uint32_t s_sample_count = 0;
 static float s_last_distance = 0;
 static uint32_t s_heart_rate_sum = 0;
 static uint32_t s_heart_rate_count = 0;
+static uint8_t s_max_heart_rate = 0;
 static float s_stroke_rate_sum = 0;
 static uint32_t s_stroke_rate_samples = 0;
 
@@ -88,11 +91,18 @@ esp_err_t session_manager_start_session(rowing_metrics_t *metrics) {
     s_current_session_id = s_session_count + 1;
     s_session_start_time = esp_timer_get_time();
     
+    // Capture Unix timestamp for Health Connect (requires SNTP sync)
+    s_session_start_unix_ms = utils_get_unix_time_ms();
+    if (s_session_start_unix_ms == 0) {
+        ESP_LOGW(TAG, "Time not synced - session will have relative timestamp");
+    }
+    
     // Reset sample buffer for new session
     s_sample_count = 0;
     s_last_distance = 0;
     s_heart_rate_sum = 0;
     s_heart_rate_count = 0;
+    s_max_heart_rate = 0;
     s_stroke_rate_sum = 0;
     s_stroke_rate_samples = 0;
     
@@ -129,7 +139,9 @@ esp_err_t session_manager_end_session(rowing_metrics_t *metrics) {
     memset(&record, 0, sizeof(record));
     
     record.session_id = s_current_session_id;
-    record.start_timestamp = s_session_start_time;
+    // Store Unix timestamp in milliseconds for Health Connect compatibility
+    record.start_timestamp = s_session_start_unix_ms;
+    // Duration excludes pauses (elapsed_time_ms already accounts for pauses)
     record.duration_seconds = metrics->elapsed_time_ms / 1000;
     record.total_distance_meters = metrics->total_distance_meters;
     record.average_pace_sec_500m = metrics->average_pace_sec_500m;
@@ -138,6 +150,7 @@ esp_err_t session_manager_end_session(rowing_metrics_t *metrics) {
     record.total_calories = metrics->total_calories;
     record.drag_factor = metrics->drag_factor;
     record.sample_count = s_sample_count;
+    record.synced = false;  // Not yet synced to Health Connect
     
     // Calculate average heart rate from samples
     if (s_heart_rate_count > 0) {
@@ -145,6 +158,9 @@ esp_err_t session_manager_end_session(rowing_metrics_t *metrics) {
     } else {
         record.average_heart_rate = 0;
     }
+    
+    // Store max heart rate
+    record.max_heart_rate = (float)s_max_heart_rate;
     
     // Calculate average stroke rate from samples
     if (s_stroke_rate_samples > 0) {
@@ -346,17 +362,21 @@ esp_err_t session_manager_record_sample(rowing_metrics_t *metrics, uint8_t heart
     if (power > 65535) power = 65535;
     sample->power_watts = (uint16_t)power;
     
-    float pace = metrics->instantaneous_pace_sec_500m * 10.0f;
-    if (pace < 0) pace = 0;
-    if (pace > 65535) pace = 65535;
-    sample->pace_tenths = (uint16_t)pace;
+    // Convert pace to speed for Health Connect
+    // pace is in seconds per 500m, speed is in m/s
+    // speed = 500 / pace (when pace > 0)
+    float speed_m_s = 0.0f;
+    if (metrics->instantaneous_pace_sec_500m > 0) {
+        speed_m_s = 500.0f / metrics->instantaneous_pace_sec_500m;
+    }
+    // Store as cm/s (multiply by 100) for precision in uint16
+    float speed_cm_s = speed_m_s * 100.0f;
+    if (speed_cm_s < 0) speed_cm_s = 0;
+    if (speed_cm_s > 65535) speed_cm_s = 65535;
+    sample->speed_cm_per_sec = (uint16_t)speed_cm_s;
     
     sample->heart_rate = heart_rate;
-    
-    float spm = metrics->stroke_rate_spm * 10.0f;
-    if (spm < 0) spm = 0;
-    if (spm > 255) spm = 255;
-    sample->stroke_rate_tenths = (uint8_t)spm;
+    sample->reserved = 0;  // Not used, kept for struct alignment
     
     // Calculate distance delta since last sample
     float distance_delta = metrics->total_distance_meters - s_last_distance;
@@ -368,10 +388,13 @@ esp_err_t session_manager_record_sample(rowing_metrics_t *metrics, uint8_t heart
     
     s_sample_count++;
     
-    // Accumulate for averages
+    // Accumulate for averages and track max
     if (heart_rate > 0) {
         s_heart_rate_sum += heart_rate;
         s_heart_rate_count++;
+        if (heart_rate > s_max_heart_rate) {
+            s_max_heart_rate = heart_rate;
+        }
     }
     if (metrics->stroke_rate_spm > 0) {
         s_stroke_rate_sum += metrics->stroke_rate_spm;
@@ -507,4 +530,53 @@ esp_err_t session_manager_check_activity(rowing_metrics_t *metrics, const config
     }
     
     return ESP_OK;
+}
+
+/**
+ * Mark a session as synced to Health Connect
+ */
+esp_err_t session_manager_set_synced(uint32_t session_id) {
+    // First load the session record
+    session_record_t record;
+    esp_err_t ret = session_manager_get_session(session_id, &record);
+    if (ret != ESP_OK) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    
+    // Update the synced flag
+    record.synced = true;
+    
+    // Save back to NVS
+    nvs_handle_t handle;
+    ret = nvs_open(SESSION_NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open NVS for sync update: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    
+    char key[16];
+    snprintf(key, sizeof(key), "s%lu", (unsigned long)(session_id % MAX_STORED_SESSIONS));
+    
+    ret = nvs_set_blob(handle, key, &record, sizeof(record));
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to update session sync status: %s", esp_err_to_name(ret));
+        nvs_close(handle);
+        return ret;
+    }
+    
+    nvs_commit(handle);
+    nvs_close(handle);
+    
+    ESP_LOGI(TAG, "Session #%lu marked as synced", (unsigned long)session_id);
+    return ESP_OK;
+}
+
+/**
+ * Get current session Unix start time in milliseconds
+ */
+int64_t session_manager_get_current_start_unix_ms(void) {
+    if (s_current_session_id == 0) {
+        return 0;
+    }
+    return s_session_start_unix_ms;
 }

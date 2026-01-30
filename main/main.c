@@ -265,6 +265,8 @@ static esp_err_t init_subsystems(void) {
         ESP_LOGI(TAG, "  Also available at: http://rower.local");
         if (sta_connected) {
             ESP_LOGI(TAG, "  Mode: Station (connected to %s)", g_config.sta_ssid);
+            // Initialize SNTP for time sync when connected to a network with internet
+            utils_init_sntp();
         } else {
             ESP_LOGI(TAG, "  Mode: Access Point (Captive Portal)");
             ESP_LOGI(TAG, "  WiFi SSID: %s", g_config.wifi_ssid);

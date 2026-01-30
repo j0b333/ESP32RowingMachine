@@ -82,4 +82,22 @@ void utils_restart(void);
  */
 uint32_t utils_get_uptime_seconds(void);
 
+/**
+ * Initialize SNTP for time synchronization
+ * Should be called after WiFi is connected (STA mode)
+ */
+void utils_init_sntp(void);
+
+/**
+ * Check if time has been synchronized via SNTP
+ * @return true if time is valid (synced), false otherwise
+ */
+bool utils_time_is_synced(void);
+
+/**
+ * Get current Unix timestamp in milliseconds
+ * @return Unix timestamp in ms, or 0 if time not synced
+ */
+int64_t utils_get_unix_time_ms(void);
+
 #endif // UTILS_H

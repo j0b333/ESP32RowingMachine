@@ -96,4 +96,17 @@ uint32_t session_manager_get_current_sample_count(void);
  */
 esp_err_t session_manager_check_activity(rowing_metrics_t *metrics, const config_t *config);
 
+/**
+ * Mark a session as synced to Health Connect
+ * @param session_id Session ID to mark as synced
+ * @return ESP_OK on success, ESP_ERR_NOT_FOUND if session doesn't exist
+ */
+esp_err_t session_manager_set_synced(uint32_t session_id);
+
+/**
+ * Get current session Unix start time in milliseconds
+ * @return Unix timestamp in ms, or 0 if no active session or time not synced
+ */
+int64_t session_manager_get_current_start_unix_ms(void);
+
 #endif // SESSION_MANAGER_H

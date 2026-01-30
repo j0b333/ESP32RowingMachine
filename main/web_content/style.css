@@ -691,6 +691,17 @@ footer {
     font-weight: bold;
     font-size: 1.1em;
     color: var(--accent-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.synced-badge {
+    font-size: 0.75em;
+    color: var(--success);
+    font-weight: normal;
+    opacity: 0.8;
 }
 
 .btn-delete-history {

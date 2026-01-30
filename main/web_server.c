@@ -623,6 +623,9 @@ static esp_err_t api_sessions_list_handler(httpd_req_t *req) {
             cJSON_AddNumberToObject(session, "avgPower", record.average_power_watts);
             cJSON_AddNumberToObject(session, "avgPace", record.average_pace_sec_500m);
             cJSON_AddNumberToObject(session, "dragFactor", record.drag_factor);
+            cJSON_AddNumberToObject(session, "avgHeartRate", record.average_heart_rate);
+            cJSON_AddNumberToObject(session, "maxHeartRate", record.max_heart_rate);
+            cJSON_AddBoolToObject(session, "synced", record.synced);
             cJSON_AddItemToArray(sessions, session);
         }
     }
@@ -647,7 +650,7 @@ static esp_err_t api_sessions_list_handler(httpd_req_t *req) {
 
 /**
  * GET /api/sessions/{id} - Get session details
- * Note: Currently HR samples are stored in RAM during session and not persisted
+ * Returns data in Health Connect compatible format with timestamped samples
  */
 static esp_err_t api_session_detail_handler(httpd_req_t *req) {
     // Parse session ID from URI: /api/sessions/123
@@ -682,18 +685,31 @@ static esp_err_t api_session_detail_handler(httpd_req_t *req) {
     }
     
     cJSON *root = cJSON_CreateObject();
+    // Health Connect required fields
     cJSON_AddNumberToObject(root, "id", record.session_id);
     cJSON_AddNumberToObject(root, "startTime", (double)record.start_timestamp);
     cJSON_AddNumberToObject(root, "duration", record.duration_seconds);
     cJSON_AddNumberToObject(root, "distance", record.total_distance_meters);
-    cJSON_AddNumberToObject(root, "strokes", record.stroke_count);
     cJSON_AddNumberToObject(root, "calories", record.total_calories);
+    
+    // Additional fields for display (not used by Health Connect directly)
+    cJSON_AddNumberToObject(root, "strokes", record.stroke_count);
     cJSON_AddNumberToObject(root, "avgPower", record.average_power_watts);
     cJSON_AddNumberToObject(root, "avgPace", record.average_pace_sec_500m);
     cJSON_AddNumberToObject(root, "dragFactor", record.drag_factor);
     cJSON_AddNumberToObject(root, "avgHeartRate", record.average_heart_rate);
+    cJSON_AddNumberToObject(root, "maxHeartRate", record.max_heart_rate);
     cJSON_AddNumberToObject(root, "avgStrokeRate", record.average_stroke_rate);
     cJSON_AddNumberToObject(root, "sampleCount", record.sample_count);
+    cJSON_AddBoolToObject(root, "synced", record.synced);
+    
+    // Create Health Connect compatible sample arrays (always present, may be empty)
+    cJSON *heartRateSamples = cJSON_CreateArray();
+    cJSON *powerSamples = cJSON_CreateArray();
+    cJSON *speedSamples = cJSON_CreateArray();
+    
+    // Also create pace samples for UI display (converted from speed)
+    cJSON *paceSamples = cJSON_CreateArray();
     
     // Load per-second sample data if available
     if (record.sample_count > 0) {
@@ -705,27 +721,54 @@ static esp_err_t api_session_detail_handler(httpd_req_t *req) {
         if (samples != NULL) {
             uint32_t actual_count = 0;
             if (session_manager_get_samples(session_id, samples, max_samples, &actual_count) == ESP_OK && actual_count > 0) {
-                // Add sample arrays
-                cJSON *powerArr = cJSON_CreateArray();
-                cJSON *paceArr = cJSON_CreateArray();
-                cJSON *hrArr = cJSON_CreateArray();
-                cJSON *spmArr = cJSON_CreateArray();
+                int64_t start_time_ms = record.start_timestamp;
                 
                 for (uint32_t i = 0; i < actual_count; i++) {
-                    cJSON_AddItemToArray(powerArr, cJSON_CreateNumber(samples[i].power_watts));
-                    cJSON_AddItemToArray(paceArr, cJSON_CreateNumber(samples[i].pace_tenths / 10.0));
-                    cJSON_AddItemToArray(hrArr, cJSON_CreateNumber(samples[i].heart_rate));
-                    cJSON_AddItemToArray(spmArr, cJSON_CreateNumber(samples[i].stroke_rate_tenths / 10.0));
+                    // Calculate timestamp for this sample (1 sample per second)
+                    int64_t sample_time_ms = start_time_ms + (i * 1000);
+                    
+                    // Heart rate samples (with timestamp for Health Connect)
+                    if (samples[i].heart_rate > 0) {
+                        cJSON *hrSample = cJSON_CreateObject();
+                        cJSON_AddNumberToObject(hrSample, "time", (double)sample_time_ms);
+                        cJSON_AddNumberToObject(hrSample, "bpm", samples[i].heart_rate);
+                        cJSON_AddItemToArray(heartRateSamples, hrSample);
+                    }
+                    
+                    // Power samples (with timestamp for Health Connect)
+                    cJSON *powerSample = cJSON_CreateObject();
+                    cJSON_AddNumberToObject(powerSample, "time", (double)sample_time_ms);
+                    cJSON_AddNumberToObject(powerSample, "watts", samples[i].power_watts);
+                    cJSON_AddItemToArray(powerSamples, powerSample);
+                    
+                    // Speed samples (with timestamp for Health Connect)
+                    // Convert from cm/s to m/s
+                    float speed_m_s = (float)samples[i].speed_cm_per_sec / 100.0f;
+                    cJSON *speedSample = cJSON_CreateObject();
+                    cJSON_AddNumberToObject(speedSample, "time", (double)sample_time_ms);
+                    cJSON_AddNumberToObject(speedSample, "metersPerSecond", speed_m_s);
+                    cJSON_AddItemToArray(speedSamples, speedSample);
+                    
+                    // Pace for UI display (converted from speed)
+                    // pace (sec/500m) = 500 / speed (m/s)
+                    float pace = 0;
+                    if (speed_m_s > 0) {
+                        pace = 500.0f / speed_m_s;
+                    }
+                    cJSON_AddItemToArray(paceSamples, cJSON_CreateNumber(pace));
                 }
-                
-                cJSON_AddItemToObject(root, "powerSamples", powerArr);
-                cJSON_AddItemToObject(root, "paceSamples", paceArr);
-                cJSON_AddItemToObject(root, "hrSamples", hrArr);
-                cJSON_AddItemToObject(root, "spmSamples", spmArr);
             }
             free(samples);
         }
     }
+    
+    // Add Health Connect compatible arrays
+    cJSON_AddItemToObject(root, "heartRateSamples", heartRateSamples);
+    cJSON_AddItemToObject(root, "powerSamples", powerSamples);
+    cJSON_AddItemToObject(root, "speedSamples", speedSamples);
+    
+    // Add UI display arrays (for graphs on the web interface)
+    cJSON_AddItemToObject(root, "paceSamples", paceSamples);
     
     char *json_string = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
@@ -797,6 +840,80 @@ static esp_err_t api_session_delete_handler(httpd_req_t *req) {
     free(json_string);
     
     ESP_LOGI(TAG, "Session #%lu deleted via API", (unsigned long)session_id);
+    return ESP_OK;
+}
+
+/**
+ * POST /api/sessions/{id}/synced - Mark a session as synced to Health Connect
+ */
+static esp_err_t api_session_synced_handler(httpd_req_t *req) {
+    // Parse session ID from URI: /api/sessions/123/synced
+    const char *uri = req->uri;
+    
+    // Find the session ID between the slashes
+    const char *sessions_start = strstr(uri, "/api/sessions/");
+    if (sessions_start == NULL) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid URI");
+        return ESP_FAIL;
+    }
+    
+    const char *id_start = sessions_start + strlen("/api/sessions/");
+    const char *id_end = strchr(id_start, '/');
+    if (id_end == NULL) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid session ID");
+        return ESP_FAIL;
+    }
+    
+    // Extract session ID
+    char id_str[16] = {0};
+    size_t id_len = (size_t)(id_end - id_start);
+    if (id_len >= sizeof(id_str)) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Session ID too long");
+        return ESP_FAIL;
+    }
+    strncpy(id_str, id_start, id_len);
+    
+    // Validate session ID is numeric
+    for (const char *p = id_str; *p != '\0'; p++) {
+        if (*p < '0' || *p > '9') {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid session ID format");
+            return ESP_FAIL;
+        }
+    }
+    
+    long session_id_long = strtol(id_str, NULL, 10);
+    if (session_id_long <= 0 || session_id_long > UINT32_MAX) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid session ID");
+        return ESP_FAIL;
+    }
+    uint32_t session_id = (uint32_t)session_id_long;
+    
+    esp_err_t result = session_manager_set_synced(session_id);
+    if (result != ESP_OK) {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Session not found");
+        return ESP_FAIL;
+    }
+    
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "success", true);
+    cJSON_AddNumberToObject(root, "id", session_id);
+    cJSON_AddBoolToObject(root, "synced", true);
+    
+    char *json_string = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    
+    if (json_string == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, json_string);
+    
+    free(json_string);
+    
+    ESP_LOGI(TAG, "Session #%lu marked as synced via API", (unsigned long)session_id);
     return ESP_OK;
 }
 
@@ -1650,6 +1767,13 @@ static const httpd_uri_t uri_api_session_delete = {
     .user_ctx = NULL
 };
 
+static const httpd_uri_t uri_api_session_synced = {
+    .uri = "/api/sessions/*/synced",
+    .method = HTTP_POST,
+    .handler = api_session_synced_handler,
+    .user_ctx = NULL
+};
+
 // Workout control endpoints
 static const httpd_uri_t uri_workout_start = {
     .uri = "/workout/start",
@@ -1828,6 +1952,7 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     
     // Session management endpoints
     REGISTER_URI(uri_api_sessions);
+    REGISTER_URI(uri_api_session_synced);  // Must be registered before uri_api_session_detail
     REGISTER_URI(uri_api_session_detail);
     REGISTER_URI(uri_api_session_delete);
     
