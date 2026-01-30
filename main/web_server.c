@@ -304,19 +304,12 @@ static esp_err_t api_calibrate_inertia_start_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
     
-    // Check if drag coefficient is calibrated
+    // Use default drag coefficient if not yet calibrated
+    // This allows inertia calibration before rowing
     if (g_metrics->drag_calibration_samples < 10) {
-        cJSON *root = cJSON_CreateObject();
-        cJSON_AddBoolToObject(root, "success", false);
-        cJSON_AddStringToObject(root, "error", "Please row for a few strokes first to calibrate drag coefficient");
-        
-        char *json_string = cJSON_PrintUnformatted(root);
-        cJSON_Delete(root);
-        
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_sendstr(req, json_string);
-        free(json_string);
-        return ESP_OK;
+        g_metrics->drag_coefficient = g_config->initial_drag_coefficient;
+        ESP_LOGI(TAG, "Using default drag coefficient %.6f for inertia calibration", 
+                 g_metrics->drag_coefficient);
     }
     
     rowing_physics_start_inertia_calibration(&g_inertia_calibration, g_metrics);
