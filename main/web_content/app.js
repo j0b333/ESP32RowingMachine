@@ -7,6 +7,11 @@ let ws = null;
 let reconnectTimeout = null;
 let isConnected = false;
 
+// Global config object for settings like max heart rate
+let config = {
+    maxHR: 190  // Default max heart rate, will be loaded from server
+};
+
 // Screen Wake Lock to keep the screen awake
 let wakeLock = null;
 
@@ -544,6 +549,9 @@ async function loadSettings() {
         elements.showPower.checked = data.showPower !== false;
         elements.showCalories.checked = data.showCalories !== false;
         elements.autoPause.value = data.autoPauseSeconds !== undefined ? data.autoPauseSeconds : 5;
+        
+        // Update global config for HR chart zones
+        config.maxHR = data.maxHeartRate || 190;
     } catch (e) {
         console.error('Failed to load settings:', e);
     }
@@ -593,6 +601,9 @@ async function saveSettings(event) {
         if (data.success) {
             console.log('Settings saved');
             showSettingsFeedback('Settings saved successfully!', true);
+            
+            // Update global config for HR chart zones
+            config.maxHR = settings.maxHeartRate;
         }
     } catch (e) {
         console.error('Failed to save settings:', e);

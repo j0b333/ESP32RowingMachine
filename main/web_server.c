@@ -710,16 +710,12 @@ static esp_err_t api_session_detail_handler(httpd_req_t *req) {
     cJSON_AddNumberToObject(root, "dragFactor", record.drag_factor);
     cJSON_AddNumberToObject(root, "avgHeartRate", record.average_heart_rate);
     cJSON_AddNumberToObject(root, "maxHeartRate", record.max_heart_rate);
-    cJSON_AddNumberToObject(root, "avgStrokeRate", record.average_stroke_rate);
-    cJSON_AddNumberToObject(root, "sampleCount", record.sample_count);
     cJSON_AddBoolToObject(root, "synced", record.synced);
     
-    // Health Connect compatible sample arrays (always present, may be empty)
+    // Heart rate samples for Health Connect (companion app)
     cJSON *heartRateSamples = cJSON_CreateArray();
-    cJSON *powerSamplesHC = cJSON_CreateArray();
-    cJSON *speedSamples = cJSON_CreateArray();
     
-    // Legacy format arrays for internal UI
+    // Legacy format arrays for internal web UI
     cJSON *powerArr = cJSON_CreateArray();
     cJSON *paceArr = cJSON_CreateArray();
     cJSON *hrArr = cJSON_CreateArray();
@@ -753,7 +749,7 @@ static esp_err_t api_session_detail_handler(httpd_req_t *req) {
                         pace_sec_500m = 500.0f / velocity_m_s;
                     }
                     
-                    // Health Connect format: {time: ms, value}
+                    // Heart rate samples for companion app (Health Connect format)
                     if (samples[i].heart_rate > 0) {
                         cJSON *hrSample = cJSON_CreateObject();
                         cJSON_AddNumberToObject(hrSample, "time", (double)sample_time_ms);
@@ -761,21 +757,7 @@ static esp_err_t api_session_detail_handler(httpd_req_t *req) {
                         cJSON_AddItemToArray(heartRateSamples, hrSample);
                     }
                     
-                    if (samples[i].power_watts > 0) {
-                        cJSON *powerSample = cJSON_CreateObject();
-                        cJSON_AddNumberToObject(powerSample, "time", (double)sample_time_ms);
-                        cJSON_AddNumberToObject(powerSample, "watts", samples[i].power_watts);
-                        cJSON_AddItemToArray(powerSamplesHC, powerSample);
-                    }
-                    
-                    if (velocity_m_s > 0) {
-                        cJSON *speedSample = cJSON_CreateObject();
-                        cJSON_AddNumberToObject(speedSample, "time", (double)sample_time_ms);
-                        cJSON_AddNumberToObject(speedSample, "metersPerSecond", velocity_m_s);
-                        cJSON_AddItemToArray(speedSamples, speedSample);
-                    }
-                    
-                    // Legacy arrays for internal UI
+                    // Legacy arrays for internal web UI
                     cJSON_AddItemToArray(powerArr, cJSON_CreateNumber(samples[i].power_watts));
                     cJSON_AddItemToArray(paceArr, cJSON_CreateNumber(pace_sec_500m));
                     cJSON_AddItemToArray(hrArr, cJSON_CreateNumber(samples[i].heart_rate));
@@ -785,12 +767,10 @@ static esp_err_t api_session_detail_handler(httpd_req_t *req) {
         }
     }
     
-    // Add Health Connect compatible arrays
+    // Add heart rate samples for companion app
     cJSON_AddItemToObject(root, "heartRateSamples", heartRateSamples);
-    cJSON_AddItemToObject(root, "powerSamples", powerSamplesHC);
-    cJSON_AddItemToObject(root, "speedSamples", speedSamples);
     
-    // Add legacy arrays for internal UI (pace converted on-the-fly from velocity)
+    // Add legacy arrays for internal web UI
     cJSON_AddItemToObject(root, "powerSamplesArray", powerArr);
     cJSON_AddItemToObject(root, "paceSamples", paceArr);
     cJSON_AddItemToObject(root, "hrSamples", hrArr);
