@@ -752,7 +752,7 @@ async function showWorkoutCharts(session) {
     modal.classList.remove('hidden');
     
     // Draw a chart with actual sample data
-    const drawSampleChart = (canvasId, samples, avgValue, label, color, formatFn) => {
+    const drawSampleChart = (canvasId, samples, avgValue, label, color, formatFn, isHRChart = false) => {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return;
         
@@ -774,6 +774,57 @@ async function showWorkoutCharts(session) {
         ctx.fillStyle = 'rgba(15, 52, 96, 0.5)';
         ctx.fillRect(0, 0, width, height);
         
+        // Find min/max for scaling (needed for HR zones too)
+        let minVal = 0, maxVal = 100;
+        if (samples && samples.length > 0) {
+            minVal = Infinity;
+            maxVal = -Infinity;
+            for (const val of samples) {
+                if (val > 0) {
+                    if (val < minVal) minVal = val;
+                    if (val > maxVal) maxVal = val;
+                }
+            }
+            if (minVal === Infinity) minVal = 0;
+            if (maxVal === -Infinity) maxVal = 100;
+        } else if (avgValue > 0) {
+            minVal = avgValue * 0.5;
+            maxVal = avgValue * 1.5;
+        }
+        
+        // For HR charts, ensure zones are visible
+        if (isHRChart) {
+            const maxHR = config.maxHR || 200;
+            minVal = Math.min(minVal, maxHR * 0.5);  // Show from zone 1
+            maxVal = Math.max(maxVal, maxHR);
+            
+            // Draw HR zone bands
+            const hrZones = [
+                { min: 0.50, max: 0.60, color: 'rgba(128, 128, 128, 0.3)', label: 'Z1' },
+                { min: 0.60, max: 0.70, color: 'rgba(52, 152, 219, 0.3)', label: 'Z2' },
+                { min: 0.70, max: 0.80, color: 'rgba(46, 204, 113, 0.3)', label: 'Z3' },
+                { min: 0.80, max: 0.90, color: 'rgba(243, 156, 18, 0.3)', label: 'Z4' },
+                { min: 0.90, max: 1.00, color: 'rgba(231, 76, 60, 0.3)', label: 'Z5' }
+            ];
+            
+            hrZones.forEach(zone => {
+                const zoneMinBPM = maxHR * zone.min;
+                const zoneMaxBPM = maxHR * zone.max;
+                
+                if (zoneMaxBPM >= minVal && zoneMinBPM <= maxVal) {
+                    const clampedMin = Math.max(zoneMinBPM, minVal);
+                    const clampedMax = Math.min(zoneMaxBPM, maxVal);
+                    const range = maxVal - minVal || 1;
+                    
+                    const yTop = height - padding - ((clampedMax - minVal) / range) * (height - 2 * padding);
+                    const yBottom = height - padding - ((clampedMin - minVal) / range) * (height - 2 * padding);
+                    
+                    ctx.fillStyle = zone.color;
+                    ctx.fillRect(padding, yTop, width - 2 * padding, yBottom - yTop);
+                }
+            });
+        }
+        
         if (!samples || samples.length === 0) {
             // No data - show average only
             ctx.strokeStyle = color;
@@ -790,16 +841,7 @@ async function showWorkoutCharts(session) {
             return;
         }
         
-        // Find min/max for scaling
-        let minVal = Infinity, maxVal = -Infinity;
-        for (const val of samples) {
-            if (val > 0) {
-                if (val < minVal) minVal = val;
-                if (val > maxVal) maxVal = val;
-            }
-        }
-        if (minVal === Infinity) minVal = 0;
-        if (maxVal === -Infinity) maxVal = 100;
+        // Use pre-calculated min/max
         const range = maxVal - minVal || 1;
         
         // Draw the line chart
@@ -848,7 +890,7 @@ async function showWorkoutCharts(session) {
             setTimeout(() => {
                 drawSampleChart('modal-chart-pace', data.paceSamples, data.avgPace, 'Pace', '#16d9e3', formatPace);
                 drawSampleChart('modal-chart-power', data.powerSamples, data.avgPower, 'Power', '#96fbc4', v => Math.round(v) + ' W');
-                drawSampleChart('modal-chart-hr', data.hrSamples, data.avgHeartRate || 0, 'HR', '#e94560', v => v > 0 ? Math.round(v) + ' bpm' : '-- bpm');
+                drawSampleChart('modal-chart-hr', data.hrSamples, data.avgHeartRate || 0, 'HR', '#e94560', v => v > 0 ? Math.round(v) + ' bpm' : '-- bpm', true);
                 drawSampleChart('modal-chart-spm', data.spmSamples, data.avgStrokeRate || 0, 'SPM', '#fbbf24', v => v > 0 ? v.toFixed(1) + ' spm' : '-- spm');
             }, 50);
         } else {
@@ -860,7 +902,7 @@ async function showWorkoutCharts(session) {
         setTimeout(() => {
             drawSampleChart('modal-chart-pace', null, session.avgPace, 'Pace', '#16d9e3', formatPace);
             drawSampleChart('modal-chart-power', null, session.avgPower, 'Power', '#96fbc4', v => Math.round(v) + ' W');
-            drawSampleChart('modal-chart-hr', null, session.avgHeartRate || 0, 'HR', '#e94560', v => v > 0 ? Math.round(v) + ' bpm' : '-- bpm');
+            drawSampleChart('modal-chart-hr', null, session.avgHeartRate || 0, 'HR', '#e94560', v => v > 0 ? Math.round(v) + ' bpm' : '-- bpm', true);
             drawSampleChart('modal-chart-spm', null, session.avgStrokeRate || 0, 'SPM', '#fbbf24', v => v > 0 ? v.toFixed(1) + ' spm' : '-- spm');
         }, 50);
     }
@@ -1140,14 +1182,14 @@ function renderAllCharts() {
     
     renderChart('chart-pace', chartData.pace, chartData.timestamps, '#16d9e3', targetPace, true);
     renderChart('chart-power', chartData.power, chartData.timestamps, '#96fbc4', targetPower);
-    renderChart('chart-hr', chartData.hr, chartData.timestamps, '#e94560', targetHr);
+    renderChart('chart-hr', chartData.hr, chartData.timestamps, '#e94560', targetHr, false, true);
     renderChart('chart-spm', chartData.spm, chartData.timestamps, '#fbbf24', targetSpm);
 }
 
 /**
  * Render a single chart
  */
-function renderChart(canvasId, dataArray, timestamps, color, target = null, invertY = false) {
+function renderChart(canvasId, dataArray, timestamps, color, target = null, invertY = false, isHRChart = false) {
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
     
@@ -1192,6 +1234,44 @@ function renderChart(canvasId, dataArray, timestamps, color, target = null, inve
     const padding = { left: 45, right: 10, top: 10, bottom: 25 };
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
+    
+    // Draw HR zone bands if this is an HR chart
+    if (isHRChart) {
+        const maxHR = config.maxHR || 200;
+        // HR Zones (% of max HR) with colors
+        const hrZones = [
+            { min: 0.50, max: 0.60, color: 'rgba(128, 128, 128, 0.3)', label: 'Z1' },  // Gray - Recovery
+            { min: 0.60, max: 0.70, color: 'rgba(52, 152, 219, 0.3)', label: 'Z2' },   // Blue - Fat Burn
+            { min: 0.70, max: 0.80, color: 'rgba(46, 204, 113, 0.3)', label: 'Z3' },   // Green - Aerobic
+            { min: 0.80, max: 0.90, color: 'rgba(243, 156, 18, 0.3)', label: 'Z4' },   // Orange - Anaerobic
+            { min: 0.90, max: 1.00, color: 'rgba(231, 76, 60, 0.3)', label: 'Z5' }     // Red - Maximum
+        ];
+        
+        hrZones.forEach(zone => {
+            const zoneMinBPM = maxHR * zone.min;
+            const zoneMaxBPM = maxHR * zone.max;
+            
+            // Only draw if zone is visible in current Y range
+            if (zoneMaxBPM >= minVal && zoneMinBPM <= maxVal) {
+                const clampedMin = Math.max(zoneMinBPM, minVal);
+                const clampedMax = Math.min(zoneMaxBPM, maxVal);
+                
+                const yTop = height - padding.bottom - ((clampedMax - minVal) / (maxVal - minVal)) * chartHeight;
+                const yBottom = height - padding.bottom - ((clampedMin - minVal) / (maxVal - minVal)) * chartHeight;
+                
+                ctx.fillStyle = zone.color;
+                ctx.fillRect(padding.left, yTop, chartWidth, yBottom - yTop);
+                
+                // Draw zone label on left edge if zone is large enough
+                if (yBottom - yTop > 15) {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+                    ctx.font = 'bold 10px sans-serif';
+                    ctx.textAlign = 'left';
+                    ctx.fillText(zone.label, padding.left + 3, (yTop + yBottom) / 2 + 3);
+                }
+            }
+        });
+    }
     
     // Draw grid lines and time labels
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
