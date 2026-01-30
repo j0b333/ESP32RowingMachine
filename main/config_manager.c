@@ -77,6 +77,9 @@ void config_manager_get_defaults(config_t *config) {
     
     // Auto-pause settings (default 5 seconds)
     config->auto_pause_seconds = 5;
+    
+    // Heart rate settings (default max HR = 190)
+    config->max_heart_rate = 190;
 }
 
 /**
@@ -164,6 +167,9 @@ esp_err_t config_manager_load(config_t *config) {
     // Auto-pause settings
     nvs_get_u8(handle, "auto_pause", &config->auto_pause_seconds);
     
+    // Heart rate settings
+    nvs_get_u8(handle, "max_hr", &config->max_heart_rate);
+    
     nvs_close(handle);
     
     ESP_LOGI(TAG, "Configuration loaded from NVS (STA configured: %s)", 
@@ -221,6 +227,9 @@ esp_err_t config_manager_save(const config_t *config) {
     
     // Save auto-pause settings
     nvs_set_u8(handle, "auto_pause", config->auto_pause_seconds);
+    
+    // Save heart rate settings
+    nvs_set_u8(handle, "max_hr", config->max_heart_rate);
     
     // Commit changes
     ret = nvs_commit(handle);

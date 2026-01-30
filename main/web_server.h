@@ -41,4 +41,19 @@ bool web_server_has_ws_clients(void);
  */
 int web_server_get_connection_count(void);
 
+/**
+ * Update inertia calibration with flywheel data
+ * Call this from sensor task when processing flywheel pulses
+ * @param angular_velocity Current angular velocity in rad/s
+ * @param current_time_us Current timestamp in microseconds
+ * @return true if calibration is active and was updated
+ */
+bool web_server_update_inertia_calibration(float angular_velocity, int64_t current_time_us);
+
+/**
+ * Check if inertia calibration is currently active
+ * @return true if calibration is in progress
+ */
+bool web_server_is_calibrating_inertia(void);
+
 #endif // WEB_SERVER_H

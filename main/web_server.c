@@ -48,6 +48,9 @@ static SemaphoreHandle_t g_ws_mutex = NULL;
 static rowing_metrics_t *g_metrics = NULL;
 static config_t *g_config = NULL;
 
+// Inertia calibration state
+static inertia_calibration_t g_inertia_calibration = {0};
+
 // Mutex helper macros
 #define WS_MUTEX_TAKE() \
     do { \
@@ -287,6 +290,150 @@ static esp_err_t api_reset_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// ============================================================================
+// Inertia Calibration Endpoints
+// ============================================================================
+
+/**
+ * API endpoint: Start inertia calibration
+ * POST /api/calibrate/inertia/start
+ */
+static esp_err_t api_calibrate_inertia_start_handler(httpd_req_t *req) {
+    if (g_metrics == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    // Use default drag coefficient if not yet calibrated
+    // This allows inertia calibration before rowing
+    if (g_metrics->drag_calibration_samples < 10) {
+        g_metrics->drag_coefficient = g_config->initial_drag_coefficient;
+        ESP_LOGI(TAG, "Using default drag coefficient %.6f for inertia calibration", 
+                 g_metrics->drag_coefficient);
+    }
+    
+    rowing_physics_start_inertia_calibration(&g_inertia_calibration, g_metrics);
+    
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "success", true);
+    cJSON_AddStringToObject(root, "message", g_inertia_calibration.status_message);
+    cJSON_AddStringToObject(root, "state", "waiting");
+    
+    char *json_string = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, json_string);
+    free(json_string);
+    
+    ESP_LOGI(TAG, "Inertia calibration started via API");
+    return ESP_OK;
+}
+
+/**
+ * API endpoint: Get inertia calibration status
+ * GET /api/calibrate/inertia/status
+ */
+static esp_err_t api_calibrate_inertia_status_handler(httpd_req_t *req) {
+    cJSON *root = cJSON_CreateObject();
+    
+    const char *state_str;
+    switch (g_inertia_calibration.state) {
+        case CALIBRATION_WAITING:   state_str = "waiting"; break;
+        case CALIBRATION_SPINUP:    state_str = "spinup"; break;
+        case CALIBRATION_SPINDOWN:  state_str = "spindown"; break;
+        case CALIBRATION_COMPLETE:  state_str = "complete"; break;
+        case CALIBRATION_FAILED:    state_str = "failed"; break;
+        default:                    state_str = "idle"; break;
+    }
+    
+    cJSON_AddStringToObject(root, "state", state_str);
+    cJSON_AddStringToObject(root, "message", g_inertia_calibration.status_message);
+    cJSON_AddNumberToObject(root, "peakVelocity", g_inertia_calibration.peak_velocity_rad_s);
+    cJSON_AddNumberToObject(root, "sampleCount", g_inertia_calibration.sample_count);
+    
+    if (g_inertia_calibration.state == CALIBRATION_COMPLETE) {
+        cJSON_AddNumberToObject(root, "calculatedInertia", g_inertia_calibration.calculated_inertia);
+    }
+    
+    char *json_string = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, json_string);
+    free(json_string);
+    
+    return ESP_OK;
+}
+
+/**
+ * API endpoint: Cancel inertia calibration
+ * POST /api/calibrate/inertia/cancel
+ */
+static esp_err_t api_calibrate_inertia_cancel_handler(httpd_req_t *req) {
+    rowing_physics_cancel_inertia_calibration(&g_inertia_calibration);
+    
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "success", true);
+    cJSON_AddStringToObject(root, "message", "Calibration cancelled");
+    
+    char *json_string = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, json_string);
+    free(json_string);
+    
+    ESP_LOGI(TAG, "Inertia calibration cancelled via API");
+    return ESP_OK;
+}
+
+/**
+ * API endpoint: Apply calibrated inertia value
+ * POST /api/calibrate/inertia/apply
+ */
+static esp_err_t api_calibrate_inertia_apply_handler(httpd_req_t *req) {
+    if (g_inertia_calibration.state != CALIBRATION_COMPLETE) {
+        cJSON *root = cJSON_CreateObject();
+        cJSON_AddBoolToObject(root, "success", false);
+        cJSON_AddStringToObject(root, "error", "No calibration result to apply");
+        
+        char *json_string = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, json_string);
+        free(json_string);
+        return ESP_OK;
+    }
+    
+    // Apply the calibrated value
+    float new_inertia = g_inertia_calibration.calculated_inertia;
+    g_config->moment_of_inertia = new_inertia;
+    g_metrics->moment_of_inertia = new_inertia;
+    
+    // Save to NVS
+    config_manager_save(g_config);
+    
+    // Reset calibration state
+    g_inertia_calibration.state = CALIBRATION_IDLE;
+    
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "success", true);
+    cJSON_AddNumberToObject(root, "momentOfInertia", new_inertia);
+    cJSON_AddStringToObject(root, "message", "Calibrated inertia value saved");
+    
+    char *json_string = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, json_string);
+    free(json_string);
+    
+    ESP_LOGI(TAG, "Calibrated inertia %.4f applied and saved", new_inertia);
+    return ESP_OK;
+}
+
 /**
  * API endpoint: Get/Set configuration
  */
@@ -306,6 +453,7 @@ static esp_err_t api_config_handler(httpd_req_t *req) {
         cJSON_AddBoolToObject(root, "showPower", g_config->show_power);
         cJSON_AddBoolToObject(root, "showCalories", g_config->show_calories);
         cJSON_AddNumberToObject(root, "autoPauseSeconds", g_config->auto_pause_seconds);
+        cJSON_AddNumberToObject(root, "maxHeartRate", g_config->max_heart_rate);
         
         char *json_string = cJSON_PrintUnformatted(root);
         cJSON_Delete(root);
@@ -337,6 +485,10 @@ static esp_err_t api_config_handler(httpd_req_t *req) {
     if ((item = cJSON_GetObjectItem(root, "userWeight")) != NULL) {
         g_config->user_weight_kg = (float)cJSON_GetNumberValue(item);
     }
+    if ((item = cJSON_GetObjectItem(root, "momentOfInertia")) != NULL) {
+        float val = (float)cJSON_GetNumberValue(item);
+        g_config->moment_of_inertia = (val >= 0.01f && val <= 1.0f) ? val : 0.101f;
+    }
     if ((item = cJSON_GetObjectItem(root, "units")) != NULL) {
         strncpy(g_config->units, cJSON_GetStringValue(item), sizeof(g_config->units) - 1);
     }
@@ -349,6 +501,10 @@ static esp_err_t api_config_handler(httpd_req_t *req) {
     if ((item = cJSON_GetObjectItem(root, "autoPauseSeconds")) != NULL) {
         int val = (int)cJSON_GetNumberValue(item);
         g_config->auto_pause_seconds = (val >= 0 && val <= 60) ? (uint8_t)val : 5;
+    }
+    if ((item = cJSON_GetObjectItem(root, "maxHeartRate")) != NULL) {
+        int val = (int)cJSON_GetNumberValue(item);
+        g_config->max_heart_rate = (val >= 100 && val <= 220) ? (uint8_t)val : 190;
     }
     
     cJSON_Delete(root);
@@ -1405,6 +1561,35 @@ static const httpd_uri_t uri_api_reset = {
     .user_ctx = NULL
 };
 
+// Inertia calibration endpoints
+static const httpd_uri_t uri_api_calibrate_inertia_start = {
+    .uri = "/api/calibrate/inertia/start",
+    .method = HTTP_POST,
+    .handler = api_calibrate_inertia_start_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_api_calibrate_inertia_status = {
+    .uri = "/api/calibrate/inertia/status",
+    .method = HTTP_GET,
+    .handler = api_calibrate_inertia_status_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_api_calibrate_inertia_cancel = {
+    .uri = "/api/calibrate/inertia/cancel",
+    .method = HTTP_POST,
+    .handler = api_calibrate_inertia_cancel_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_api_calibrate_inertia_apply = {
+    .uri = "/api/calibrate/inertia/apply",
+    .method = HTTP_POST,
+    .handler = api_calibrate_inertia_apply_handler,
+    .user_ctx = NULL
+};
+
 static const httpd_uri_t uri_api_config_get = {
     .uri = "/api/config",
     .method = HTTP_GET,
@@ -1629,6 +1814,10 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     REGISTER_URI(uri_api_metrics);
     REGISTER_URI(uri_api_status);
     REGISTER_URI(uri_api_reset);
+    REGISTER_URI(uri_api_calibrate_inertia_start);
+    REGISTER_URI(uri_api_calibrate_inertia_status);
+    REGISTER_URI(uri_api_calibrate_inertia_cancel);
+    REGISTER_URI(uri_api_calibrate_inertia_apply);
     REGISTER_URI(uri_api_config_get);
     REGISTER_URI(uri_api_config_post);
     REGISTER_URI(uri_ws);
@@ -1825,4 +2014,26 @@ int web_server_get_connection_count(void) {
     }
     WS_MUTEX_GIVE();
     return count;
+}
+
+/**
+ * Update inertia calibration with flywheel data
+ */
+bool web_server_update_inertia_calibration(float angular_velocity, int64_t current_time_us) {
+    if (g_inertia_calibration.state == CALIBRATION_IDLE ||
+        g_inertia_calibration.state == CALIBRATION_COMPLETE ||
+        g_inertia_calibration.state == CALIBRATION_FAILED) {
+        return false;
+    }
+    
+    return rowing_physics_update_inertia_calibration(&g_inertia_calibration, angular_velocity, current_time_us);
+}
+
+/**
+ * Check if inertia calibration is currently active
+ */
+bool web_server_is_calibrating_inertia(void) {
+    return (g_inertia_calibration.state == CALIBRATION_WAITING ||
+            g_inertia_calibration.state == CALIBRATION_SPINUP ||
+            g_inertia_calibration.state == CALIBRATION_SPINDOWN);
 }

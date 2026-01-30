@@ -952,3 +952,113 @@ footer {
     font-size: 0.9em;
     color: var(--text-secondary);
 }
+
+/* ============================================================================
+   Inertia Calibration Styles
+   ============================================================================ */
+
+.input-with-button {
+    display: flex;
+    gap: 10px;
+}
+
+.input-with-button input {
+    flex: 1;
+}
+
+.btn-calibrate {
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+    padding: 8px 16px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.btn-calibrate:hover {
+    background: var(--accent-secondary);
+}
+
+.calibration-dialog {
+    max-width: 400px;
+}
+
+.calibration-dialog h2 {
+    text-align: center;
+    margin-bottom: 20px;
+    color: var(--accent-primary);
+}
+
+.calibration-step {
+    margin: 10px 0;
+    padding-left: 20px;
+    color: var(--text-secondary);
+}
+
+.calibration-status {
+    text-align: center;
+    padding: 20px;
+    margin: 20px 0;
+    background: var(--bg-secondary);
+    border-radius: 10px;
+}
+
+.calibration-icon {
+    font-size: 3em;
+    margin-bottom: 10px;
+}
+
+.calibration-status.waiting .calibration-icon { color: var(--text-secondary); }
+.calibration-status.spinup .calibration-icon { color: var(--warning); }
+.calibration-status.spindown .calibration-icon { color: var(--accent-primary); }
+.calibration-status.complete .calibration-icon { color: var(--success); }
+.calibration-status.failed .calibration-icon { color: var(--danger); }
+
+#calibration-state-text {
+    font-size: 1.1em;
+    margin: 0;
+}
+
+.calibration-progress {
+    margin-top: 15px;
+    height: 8px;
+    background: var(--bg-card);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.calibration-progress-bar {
+    height: 100%;
+    width: 0%;
+    background: var(--accent-primary);
+    transition: width 0.3s ease;
+}
+
+.calibration-result {
+    text-align: center;
+    padding: 15px;
+    background: rgba(74, 222, 128, 0.1);
+    border-radius: 10px;
+    margin-bottom: 15px;
+}
+
+.calibration-result strong {
+    color: var(--success);
+    font-size: 1.2em;
+}
+
+/* ============================================================================
+   Settings Section Header Styles
+   ============================================================================ */
+
+.settings-section-header {
+    margin-top: 25px;
+    margin-bottom: 15px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.settings-section-header h3 {
+    font-size: 1em;
+    color: var(--accent-primary);
+    margin: 0;
+}

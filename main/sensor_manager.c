@@ -14,6 +14,7 @@
 #include "sensor_manager.h"
 #include "app_config.h"
 #include "stroke_detector.h"
+#include "web_server.h"
 #include "driver/gpio.h"
 #include "esp_timer.h"
 #include "esp_log.h"
@@ -123,6 +124,11 @@ static void sensor_processing_task(void *arg) {
             // Flywheel pulse detected - process physics
             int64_t pulse_time = g_last_flywheel_time_us;
             rowing_physics_process_flywheel_pulse(metrics, pulse_time);
+            
+            // Update inertia calibration if active
+            if (web_server_is_calibrating_inertia()) {
+                web_server_update_inertia_calibration(metrics->angular_velocity_rad_s, pulse_time);
+            }
             
             // Update stroke detection
             stroke_detector_update(metrics);

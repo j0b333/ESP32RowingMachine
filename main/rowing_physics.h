@@ -24,6 +24,33 @@ typedef enum {
 } stroke_phase_t;
 
 /**
+ * Inertia calibration state enumeration
+ */
+typedef enum {
+    CALIBRATION_IDLE = 0,       // Not calibrating
+    CALIBRATION_WAITING,        // Waiting for user to spin up flywheel
+    CALIBRATION_SPINUP,         // Detecting peak velocity
+    CALIBRATION_SPINDOWN,       // Tracking spindown deceleration
+    CALIBRATION_COMPLETE,       // Calibration finished successfully
+    CALIBRATION_FAILED          // Calibration failed (timeout, etc.)
+} calibration_state_t;
+
+/**
+ * Inertia calibration data structure
+ */
+typedef struct {
+    calibration_state_t state;          // Current calibration state
+    int64_t start_time_us;              // When calibration started
+    int64_t peak_time_us;               // When peak velocity was detected
+    int64_t stop_time_us;               // When flywheel stopped
+    float peak_velocity_rad_s;          // Peak angular velocity
+    float calculated_inertia;           // Calculated moment of inertia
+    float drag_coefficient_used;        // Drag coefficient used in calculation
+    uint32_t sample_count;              // Number of samples collected
+    char status_message[64];            // Human-readable status
+} inertia_calibration_t;
+
+/**
  * Main rowing metrics structure
  * All fields should be protected by metrics_mutex when accessed from multiple tasks
  */
@@ -134,6 +161,9 @@ typedef struct {
     // ============ Auto-pause Settings ============
     uint8_t auto_pause_seconds;         // Seconds of inactivity before auto-pause (0 = disabled)
     
+    // ============ Heart Rate Settings ============
+    uint8_t max_heart_rate;             // User's maximum heart rate (for HR zone calculations)
+    
 } config_t;
 
 /**
@@ -240,5 +270,41 @@ void rowing_physics_reset(rowing_metrics_t *metrics);
  * @param metrics Pointer to metrics structure
  */
 void rowing_physics_update_elapsed_time(rowing_metrics_t *metrics);
+
+// ============================================================================
+// Inertia Calibration Functions
+// ============================================================================
+
+/**
+ * Start inertia calibration process
+ * @param calibration Pointer to calibration structure
+ * @param metrics Pointer to metrics for drag coefficient
+ */
+void rowing_physics_start_inertia_calibration(inertia_calibration_t *calibration, rowing_metrics_t *metrics);
+
+/**
+ * Cancel inertia calibration
+ * @param calibration Pointer to calibration structure
+ */
+void rowing_physics_cancel_inertia_calibration(inertia_calibration_t *calibration);
+
+/**
+ * Update inertia calibration with new flywheel pulse
+ * Called from sensor processing when calibration is active
+ * @param calibration Pointer to calibration structure
+ * @param angular_velocity Current angular velocity in rad/s
+ * @param current_time_us Current timestamp
+ * @return true if calibration state changed
+ */
+bool rowing_physics_update_inertia_calibration(inertia_calibration_t *calibration, 
+                                                float angular_velocity, 
+                                                int64_t current_time_us);
+
+/**
+ * Get inertia calibration status
+ * @param calibration Pointer to calibration structure
+ * @return Current calibration state
+ */
+calibration_state_t rowing_physics_get_calibration_state(inertia_calibration_t *calibration);
 
 #endif // ROWING_PHYSICS_H
