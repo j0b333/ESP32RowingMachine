@@ -288,6 +288,33 @@ static esp_err_t api_reset_handler(httpd_req_t *req) {
 }
 
 /**
+ * API endpoint: Reset calibration
+ */
+static esp_err_t api_calibrate_handler(httpd_req_t *req) {
+    if (g_metrics == NULL || g_config == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    rowing_physics_reset_calibration(g_metrics, g_config);
+    
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddBoolToObject(root, "success", true);
+    cJSON_AddStringToObject(root, "message", "Calibration reset - will recalibrate on next session");
+    
+    char *json_string = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, json_string);
+    
+    free(json_string);
+    
+    ESP_LOGI(TAG, "Calibration reset via API");
+    return ESP_OK;
+}
+
+/**
  * API endpoint: Get/Set configuration
  */
 static esp_err_t api_config_handler(httpd_req_t *req) {
@@ -306,6 +333,7 @@ static esp_err_t api_config_handler(httpd_req_t *req) {
         cJSON_AddBoolToObject(root, "showPower", g_config->show_power);
         cJSON_AddBoolToObject(root, "showCalories", g_config->show_calories);
         cJSON_AddNumberToObject(root, "autoPauseSeconds", g_config->auto_pause_seconds);
+        cJSON_AddNumberToObject(root, "maxHeartRate", g_config->max_heart_rate);
         
         char *json_string = cJSON_PrintUnformatted(root);
         cJSON_Delete(root);
@@ -349,6 +377,10 @@ static esp_err_t api_config_handler(httpd_req_t *req) {
     if ((item = cJSON_GetObjectItem(root, "autoPauseSeconds")) != NULL) {
         int val = (int)cJSON_GetNumberValue(item);
         g_config->auto_pause_seconds = (val >= 0 && val <= 60) ? (uint8_t)val : 5;
+    }
+    if ((item = cJSON_GetObjectItem(root, "maxHeartRate")) != NULL) {
+        int val = (int)cJSON_GetNumberValue(item);
+        g_config->max_heart_rate = (val >= 100 && val <= 220) ? (uint8_t)val : 190;
     }
     
     cJSON_Delete(root);
@@ -1405,6 +1437,13 @@ static const httpd_uri_t uri_api_reset = {
     .user_ctx = NULL
 };
 
+static const httpd_uri_t uri_api_calibrate = {
+    .uri = "/api/calibrate",
+    .method = HTTP_POST,
+    .handler = api_calibrate_handler,
+    .user_ctx = NULL
+};
+
 static const httpd_uri_t uri_api_config_get = {
     .uri = "/api/config",
     .method = HTTP_GET,
@@ -1629,6 +1668,7 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     REGISTER_URI(uri_api_metrics);
     REGISTER_URI(uri_api_status);
     REGISTER_URI(uri_api_reset);
+    REGISTER_URI(uri_api_calibrate);
     REGISTER_URI(uri_api_config_get);
     REGISTER_URI(uri_api_config_post);
     REGISTER_URI(uri_ws);

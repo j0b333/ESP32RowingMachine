@@ -134,6 +134,9 @@ typedef struct {
     // ============ Auto-pause Settings ============
     uint8_t auto_pause_seconds;         // Seconds of inactivity before auto-pause (0 = disabled)
     
+    // ============ Heart Rate Settings ============
+    uint8_t max_heart_rate;             // User's maximum heart rate (for HR zone calculations)
+    
 } config_t;
 
 /**
@@ -234,6 +237,13 @@ void rowing_physics_format_pace(float pace_seconds, char *buffer, size_t buf_len
  * @param metrics Pointer to metrics structure
  */
 void rowing_physics_reset(rowing_metrics_t *metrics);
+
+/**
+ * Reset drag calibration to re-calibrate on next session
+ * @param metrics Pointer to metrics structure
+ * @param config Pointer to configuration for initial values
+ */
+void rowing_physics_reset_calibration(rowing_metrics_t *metrics, const config_t *config);
 
 /**
  * Update elapsed time
