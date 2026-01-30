@@ -764,3 +764,148 @@ footer {
         grid-template-columns: 1fr;
     }
 }
+
+/* ============================================================================
+   Chart Tab Styles
+   ============================================================================ */
+
+.chart-content {
+    padding: 10px;
+}
+
+.chart-content h2 {
+    color: var(--accent-primary);
+    text-align: center;
+    margin-bottom: 15px;
+    font-size: 1.3em;
+}
+
+.chart-container {
+    background: var(--bg-card);
+    border-radius: 10px;
+    margin-bottom: 10px;
+    overflow: hidden;
+}
+
+.chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.chart-title {
+    font-size: 0.85em;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.chart-value {
+    font-size: 1.1em;
+    font-weight: bold;
+    color: var(--text-primary);
+}
+
+.chart-canvas {
+    width: 100%;
+    height: 120px;
+    display: block;
+}
+
+.chart-targets {
+    background: var(--bg-card);
+    border-radius: 10px;
+    padding: 15px;
+    margin-top: 15px;
+}
+
+.chart-targets h3 {
+    font-size: 0.9em;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+    text-align: center;
+}
+
+.targets-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+}
+
+.target-input {
+    display: flex;
+    flex-direction: column;
+}
+
+.target-input label {
+    font-size: 0.75em;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+
+.target-input input {
+    padding: 8px;
+    border: 1px solid var(--text-secondary);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-size: 0.9em;
+}
+
+.target-input input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+@media (max-width: 480px) {
+    .targets-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+    }
+    
+    .chart-canvas {
+        height: 100px;
+    }
+}
+
+/* ============================================================================
+   Storage Info Styles
+   ============================================================================ */
+
+.storage-info {
+    margin-top: 25px;
+    padding: 15px;
+    background: var(--bg-card);
+    border-radius: 10px;
+}
+
+.storage-info h3 {
+    font-size: 0.9em;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+    text-align: center;
+}
+
+.storage-bar-container {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    height: 20px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.storage-bar {
+    height: 100%;
+    width: 0%;
+    background: var(--accent-primary);
+    border-radius: 8px;
+    transition: width 0.3s ease, background 0.3s ease;
+}
+
+.storage-text {
+    text-align: center;
+    font-size: 0.9em;
+    color: var(--text-secondary);
+}

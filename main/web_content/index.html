@@ -52,12 +52,12 @@
                     </div>
                 </section>
 
-                <!-- Row 3: Peak Power | Stroke Rate | Strokes | Calories -->
+                <!-- Row 3: Drag Factor | Stroke Rate | Strokes | Calories -->
                 <section class="metrics-grid row-4">
                     <div class="metric-card">
-                        <div class="metric-label">Peak Power</div>
-                        <div class="metric-value" id="peak-power">0</div>
-                        <div class="metric-unit">watts</div>
+                        <div class="metric-label">Drag Factor</div>
+                        <div class="metric-value" id="drag-factor">--</div>
+                        <div class="metric-unit">factor</div>
                     </div>
 
                     <div class="metric-card">
@@ -103,11 +103,69 @@
                 </section>
             </div>
 
-            <!-- Tab Content: Chart (placeholder) -->
+            <!-- Tab Content: Graph -->
             <div id="tab-chart" class="tab-content">
-                <div class="placeholder-content">
-                    <h2>📊 Chart</h2>
-                    <p>Charts coming soon...</p>
+                <div class="chart-content">
+                    <h2>📊 Live Graphs</h2>
+                    
+                    <!-- Chart: Pace -->
+                    <div class="chart-container">
+                        <div class="chart-header">
+                            <span class="chart-title">Pace /500m</span>
+                            <span class="chart-value" id="chart-pace-value">--:--</span>
+                        </div>
+                        <canvas id="chart-pace" class="chart-canvas" aria-label="Pace over time chart"></canvas>
+                    </div>
+                    
+                    <!-- Chart: Power -->
+                    <div class="chart-container">
+                        <div class="chart-header">
+                            <span class="chart-title">Power</span>
+                            <span class="chart-value" id="chart-power-value">0 W</span>
+                        </div>
+                        <canvas id="chart-power" class="chart-canvas" aria-label="Power over time chart"></canvas>
+                    </div>
+                    
+                    <!-- Chart: Heart Rate -->
+                    <div class="chart-container">
+                        <div class="chart-header">
+                            <span class="chart-title">Heart Rate</span>
+                            <span class="chart-value" id="chart-hr-value">-- bpm</span>
+                        </div>
+                        <canvas id="chart-hr" class="chart-canvas" aria-label="Heart rate over time chart"></canvas>
+                    </div>
+                    
+                    <!-- Chart: Strokes Per Minute -->
+                    <div class="chart-container">
+                        <div class="chart-header">
+                            <span class="chart-title">Strokes/min</span>
+                            <span class="chart-value" id="chart-spm-value">0 spm</span>
+                        </div>
+                        <canvas id="chart-spm" class="chart-canvas" aria-label="Strokes per minute over time chart"></canvas>
+                    </div>
+                    
+                    <!-- Target Settings -->
+                    <div class="chart-targets">
+                        <h3>Targets (shown as dotted line)</h3>
+                        <div class="targets-grid">
+                            <div class="target-input">
+                                <label for="target-pace">Pace (sec/500m)</label>
+                                <input type="number" id="target-pace" min="60" max="300" step="1" placeholder="e.g. 120">
+                            </div>
+                            <div class="target-input">
+                                <label for="target-power">Power (W)</label>
+                                <input type="number" id="target-power" min="0" max="500" step="5" placeholder="e.g. 150">
+                            </div>
+                            <div class="target-input">
+                                <label for="target-hr">Heart Rate (bpm)</label>
+                                <input type="number" id="target-hr" min="60" max="220" step="1" placeholder="e.g. 140">
+                            </div>
+                            <div class="target-input">
+                                <label for="target-spm">Strokes/min</label>
+                                <input type="number" id="target-spm" min="10" max="50" step="1" placeholder="e.g. 24">
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -200,6 +258,17 @@
                             <span id="settings-feedback" class="settings-feedback"></span>
                         </div>
                     </form>
+                    
+                    <!-- Storage Counter -->
+                    <div class="storage-info">
+                        <h3>📦 Storage</h3>
+                        <div class="storage-bar-container">
+                            <div class="storage-bar" id="storage-bar"></div>
+                        </div>
+                        <div class="storage-text">
+                            <span id="storage-used">0.0</span> / 30.0 hours saved
+                        </div>
+                    </div>
                 </div>
             </div>
         </main>
@@ -213,7 +282,7 @@
             </div>
             <div class="nav-tabs">
                 <button class="btn btn-tab active" data-tab="row">Row</button>
-                <button class="btn btn-tab disabled" data-tab="chart">Chart</button>
+                <button class="btn btn-tab" data-tab="chart">Graph</button>
                 <button class="btn btn-tab" data-tab="history">History</button>
                 <button class="btn btn-tab" data-tab="settings">Settings</button>
             </div>

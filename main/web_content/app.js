@@ -15,7 +15,7 @@ const elements = {
     elapsedTime: document.getElementById('elapsed-time'),
     pace: document.getElementById('pace'),
     power: document.getElementById('power'),
-    peakPower: document.getElementById('peak-power'),
+    dragFactor: document.getElementById('drag-factor'),
     strokeRate: document.getElementById('stroke-rate'),
     strokeCount: document.getElementById('stroke-count'),
     calories: document.getElementById('calories'),
@@ -106,8 +106,9 @@ function updateMetrics(data) {
     // Update power
     elements.power.textContent = Math.round(data.power);
     elements.avgPower.textContent = Math.round(data.avgPower);
-    if (elements.peakPower) {
-        elements.peakPower.textContent = Math.round(data.peakPower || 0);
+    if (elements.dragFactor) {
+        const df = data.dragFactor || 0;
+        elements.dragFactor.textContent = df > 0 ? df.toFixed(1) : '--';
     }
     
     // Update stroke data
@@ -148,6 +149,9 @@ function updateMetrics(data) {
             paceCard.classList.remove('active-pulse');
         }
     }
+    
+    // Add data point to charts
+    addChartDataPoint(data);
 }
 
 /**
@@ -352,6 +356,9 @@ function resetWorkout() {
                 elements.btnStartPause.setAttribute('aria-label', 'Start workout');
                 elements.btnStartPause.classList.remove('running', 'paused');
                 
+                // Clear chart data
+                clearChartData();
+                
                 // Clear local display immediately
                 updateMetrics({
                     distance: 0,
@@ -359,7 +366,7 @@ function resetWorkout() {
                     avgPace: 0,
                     power: 0,
                     avgPower: 0,
-                    peakPower: 0,
+                    dragFactor: 0,
                     strokeRate: 0,
                     avgStrokeRate: 0,
                     strokeCount: 0,
@@ -481,11 +488,6 @@ async function saveSettings(event) {
  * Switch to a tab (non-destructive - does not affect workout state)
  */
 function switchTab(tabName) {
-    // Don't switch to disabled tabs (only chart is disabled now)
-    if (tabName === 'chart') {
-        return;
-    }
-    
     // Hide all tab content
     document.querySelectorAll('.tab-content').forEach(tab => {
         tab.classList.remove('active');
@@ -513,11 +515,17 @@ function switchTab(tabName) {
     // Load settings when switching to settings tab
     if (tabName === 'settings') {
         loadSettings();
+        loadStorageInfo();
     }
     
     // Load history when switching to history tab
     if (tabName === 'history') {
         loadWorkoutHistory();
+    }
+    
+    // Initialize charts when switching to chart tab
+    if (tabName === 'chart') {
+        initCharts();
     }
 }
 
@@ -693,6 +701,402 @@ function deleteSelectedWorkout() {
             alert('Failed to delete workout. Please check connection.');
         }
     });
+}
+
+// ============================================================================
+// Storage Info Functions
+// ============================================================================
+
+/**
+ * Load storage info and update display
+ */
+async function loadStorageInfo() {
+    try {
+        const response = await fetch('/api/sessions');
+        if (!response.ok) return;
+        
+        const data = await response.json();
+        
+        let totalSeconds = 0;
+        if (data.sessions && data.sessions.length > 0) {
+            data.sessions.forEach(session => {
+                totalSeconds += session.duration || 0;
+            });
+        }
+        
+        const totalHours = totalSeconds / 3600;
+        const maxHours = 30;
+        const percentage = Math.min((totalHours / maxHours) * 100, 100);
+        
+        const storageUsedEl = document.getElementById('storage-used');
+        const storageBarEl = document.getElementById('storage-bar');
+        
+        if (storageUsedEl) {
+            storageUsedEl.textContent = totalHours.toFixed(1);
+        }
+        if (storageBarEl) {
+            storageBarEl.style.width = percentage + '%';
+            // Change color based on usage
+            if (percentage > 80) {
+                storageBarEl.style.background = 'var(--danger)';
+            } else if (percentage > 60) {
+                storageBarEl.style.background = 'var(--warning)';
+            } else {
+                storageBarEl.style.background = 'var(--accent-primary)';
+            }
+        }
+    } catch (e) {
+        console.error('Failed to load storage info:', e);
+    }
+}
+
+// ============================================================================
+// Chart Functions
+// ============================================================================
+
+// Chart data storage
+const chartData = {
+    pace: [],
+    power: [],
+    hr: [],
+    spm: [],
+    timestamps: []
+};
+
+// Chart contexts
+let charts = {
+    pace: null,
+    power: null,
+    hr: null,
+    spm: null
+};
+
+// Chart initialized flag
+let chartsInitialized = false;
+
+// Chart resize listener added flag
+let chartResizeListenerAdded = false;
+
+/**
+ * Initialize chart canvases
+ */
+function initCharts() {
+    if (chartsInitialized) {
+        renderAllCharts();
+        return;
+    }
+    
+    // Get canvas elements
+    const paceCanvas = document.getElementById('chart-pace');
+    const powerCanvas = document.getElementById('chart-power');
+    const hrCanvas = document.getElementById('chart-hr');
+    const spmCanvas = document.getElementById('chart-spm');
+    
+    if (paceCanvas && powerCanvas && hrCanvas && spmCanvas) {
+        charts.pace = paceCanvas.getContext('2d');
+        charts.power = powerCanvas.getContext('2d');
+        charts.hr = hrCanvas.getContext('2d');
+        charts.spm = spmCanvas.getContext('2d');
+        chartsInitialized = true;
+        
+        // Set up canvas sizing
+        resizeCharts();
+        
+        // Only add resize listener once
+        if (!chartResizeListenerAdded) {
+            window.addEventListener('resize', resizeCharts);
+            chartResizeListenerAdded = true;
+        }
+        
+        // Add target input listeners for immediate visual feedback
+        const targetInputs = ['target-pace', 'target-power', 'target-hr', 'target-spm'];
+        targetInputs.forEach(id => {
+            const input = document.getElementById(id);
+            if (input) {
+                input.addEventListener('input', () => {
+                    if (chartsInitialized) {
+                        renderAllCharts();
+                    }
+                });
+            }
+        });
+        
+        renderAllCharts();
+    }
+}
+
+/**
+ * Resize charts to fit container
+ */
+function resizeCharts() {
+    const canvases = document.querySelectorAll('.chart-canvas');
+    canvases.forEach(canvas => {
+        const container = canvas.parentElement;
+        const dpr = window.devicePixelRatio || 1;
+        const rect = container.getBoundingClientRect();
+        
+        canvas.width = rect.width * dpr;
+        canvas.height = 120 * dpr;
+        canvas.style.width = rect.width + 'px';
+        canvas.style.height = '120px';
+        
+        const ctx = canvas.getContext('2d');
+        ctx.scale(dpr, dpr);
+    });
+    
+    if (chartsInitialized) {
+        renderAllCharts();
+    }
+}
+
+/**
+ * Add data point to charts
+ */
+function addChartDataPoint(data) {
+    const elapsedTime = data.elapsedTime || 0;
+    
+    // Only add data if we have elapsed time
+    if (elapsedTime > 0) {
+        chartData.timestamps.push(elapsedTime);
+        chartData.pace.push(data.pace || 0);
+        chartData.power.push(data.power || 0);
+        chartData.hr.push(data.heartRate || 0);
+        chartData.spm.push(data.strokeRate || 0);
+        
+        // Limit data points to prevent memory issues (keep last 2 hours of seconds)
+        const maxPoints = 7200;
+        if (chartData.timestamps.length > maxPoints) {
+            chartData.timestamps.shift();
+            chartData.pace.shift();
+            chartData.power.shift();
+            chartData.hr.shift();
+            chartData.spm.shift();
+        }
+    }
+    
+    // Update current value displays
+    const paceValue = document.getElementById('chart-pace-value');
+    const powerValue = document.getElementById('chart-power-value');
+    const hrValue = document.getElementById('chart-hr-value');
+    const spmValue = document.getElementById('chart-spm-value');
+    
+    if (paceValue) paceValue.textContent = formatPace(data.pace || 0);
+    if (powerValue) powerValue.textContent = Math.round(data.power || 0) + ' W';
+    if (hrValue) hrValue.textContent = (data.heartRate || '--') + ' bpm';
+    if (spmValue) spmValue.textContent = (data.strokeRate || 0).toFixed(1) + ' spm';
+    
+    // Render charts if on chart tab
+    if (currentTab === 'chart' && chartsInitialized) {
+        renderAllCharts();
+    }
+}
+
+/**
+ * Clear chart data
+ */
+function clearChartData() {
+    chartData.pace = [];
+    chartData.power = [];
+    chartData.hr = [];
+    chartData.spm = [];
+    chartData.timestamps = [];
+    
+    if (chartsInitialized) {
+        renderAllCharts();
+    }
+}
+
+/**
+ * Render all charts
+ */
+function renderAllCharts() {
+    const targetPace = parseFloat(document.getElementById('target-pace')?.value) || null;
+    const targetPower = parseFloat(document.getElementById('target-power')?.value) || null;
+    const targetHr = parseFloat(document.getElementById('target-hr')?.value) || null;
+    const targetSpm = parseFloat(document.getElementById('target-spm')?.value) || null;
+    
+    renderChart('chart-pace', chartData.pace, chartData.timestamps, '#16d9e3', targetPace, true);
+    renderChart('chart-power', chartData.power, chartData.timestamps, '#96fbc4', targetPower);
+    renderChart('chart-hr', chartData.hr, chartData.timestamps, '#e94560', targetHr);
+    renderChart('chart-spm', chartData.spm, chartData.timestamps, '#fbbf24', targetSpm);
+}
+
+/**
+ * Render a single chart
+ */
+function renderChart(canvasId, dataArray, timestamps, color, target = null, invertY = false) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width / (window.devicePixelRatio || 1);
+    const height = canvas.height / (window.devicePixelRatio || 1);
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, width, height);
+    
+    // Background
+    ctx.fillStyle = 'rgba(15, 52, 96, 0.5)';
+    ctx.fillRect(0, 0, width, height);
+    
+    // Calculate time range (5-minute intervals)
+    const maxTime = timestamps.length > 0 ? Math.max(...timestamps) : 0;
+    const timeRange = Math.max(300, Math.ceil(maxTime / 300) * 300); // At least 5 minutes, round up to 5-min intervals
+    
+    // Calculate Y-axis range
+    let minVal = 0;
+    let maxVal = 100;
+    
+    if (dataArray.length > 0) {
+        const validData = dataArray.filter(v => v > 0);
+        if (validData.length > 0) {
+            minVal = Math.min(...validData) * 0.8;
+            maxVal = Math.max(...validData) * 1.2;
+        }
+    }
+    
+    // Apply target to range if set
+    if (target !== null) {
+        minVal = Math.min(minVal, target * 0.8);
+        maxVal = Math.max(maxVal, target * 1.2);
+    }
+    
+    // Ensure reasonable range
+    if (maxVal - minVal < 10) {
+        maxVal = minVal + 20;
+    }
+    
+    const padding = { left: 45, right: 10, top: 10, bottom: 25 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
+    
+    // Draw grid lines and time labels
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 1;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center';
+    
+    // Time grid (every 5 minutes)
+    const intervalSeconds = 300;
+    for (let t = 0; t <= timeRange; t += intervalSeconds) {
+        const x = padding.left + (t / timeRange) * chartWidth;
+        
+        ctx.beginPath();
+        ctx.moveTo(x, padding.top);
+        ctx.lineTo(x, height - padding.bottom);
+        ctx.stroke();
+        
+        // Time label
+        const minutes = Math.floor(t / 60);
+        ctx.fillText(minutes + 'm', x, height - 5);
+    }
+    
+    // Draw Y-axis labels
+    ctx.textAlign = 'right';
+    const ySteps = 4;
+    for (let i = 0; i <= ySteps; i++) {
+        const val = minVal + ((maxVal - minVal) * i / ySteps);
+        const y = invertY 
+            ? padding.top + (i / ySteps) * chartHeight
+            : height - padding.bottom - (i / ySteps) * chartHeight;
+        
+        ctx.fillText(Math.round(val), padding.left - 5, y + 3);
+        
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(width - padding.right, y);
+        ctx.stroke();
+    }
+    
+    // Draw target line (dotted)
+    if (target !== null && target > 0) {
+        const targetY = invertY
+            ? padding.top + ((target - minVal) / (maxVal - minVal)) * chartHeight
+            : height - padding.bottom - ((target - minVal) / (maxVal - minVal)) * chartHeight;
+        
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(padding.left, targetY);
+        ctx.lineTo(width - padding.right, targetY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+    
+    // Draw data line
+    if (dataArray.length > 1) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        
+        let firstPoint = true;
+        for (let i = 0; i < dataArray.length; i++) {
+            const val = dataArray[i];
+            if (val <= 0) continue;
+            
+            const x = padding.left + (timestamps[i] / timeRange) * chartWidth;
+            const normalizedVal = (val - minVal) / (maxVal - minVal);
+            const y = invertY
+                ? padding.top + normalizedVal * chartHeight
+                : height - padding.bottom - normalizedVal * chartHeight;
+            
+            if (firstPoint) {
+                ctx.moveTo(x, y);
+                firstPoint = false;
+            } else {
+                ctx.lineTo(x, y);
+            }
+        }
+        ctx.stroke();
+        
+        // Fill area under the line - convert hex color to rgba
+        let fillColor;
+        if (color.startsWith('#')) {
+            const r = parseInt(color.slice(1, 3), 16);
+            const g = parseInt(color.slice(3, 5), 16);
+            const b = parseInt(color.slice(5, 7), 16);
+            fillColor = `rgba(${r}, ${g}, ${b}, 0.2)`;
+        } else {
+            fillColor = color.replace(')', ', 0.2)').replace('rgb', 'rgba');
+        }
+        ctx.fillStyle = fillColor;
+        
+        // Redraw path for fill
+        ctx.beginPath();
+        firstPoint = true;
+        for (let i = 0; i < dataArray.length; i++) {
+            const val = dataArray[i];
+            if (val <= 0) continue;
+            
+            const x = padding.left + (timestamps[i] / timeRange) * chartWidth;
+            const normalizedVal = (val - minVal) / (maxVal - minVal);
+            const y = invertY
+                ? padding.top + normalizedVal * chartHeight
+                : height - padding.bottom - normalizedVal * chartHeight;
+            
+            if (firstPoint) {
+                ctx.moveTo(x, y);
+                firstPoint = false;
+            } else {
+                ctx.lineTo(x, y);
+            }
+        }
+        ctx.lineTo(padding.left + (timestamps[timestamps.length - 1] / timeRange) * chartWidth, 
+                   invertY ? padding.top : height - padding.bottom);
+        ctx.lineTo(padding.left, invertY ? padding.top : height - padding.bottom);
+        ctx.closePath();
+        ctx.fill();
+    }
+    
+    // Draw "No data" message if empty
+    if (dataArray.length === 0) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.font = '14px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Start rowing to see data', width / 2, height / 2);
+    }
 }
 
 /**
