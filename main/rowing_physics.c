@@ -303,10 +303,11 @@ void rowing_physics_calculate_distance(rowing_metrics_t *metrics, float calibrat
  * Calculate pace (time per 500m)
  */
 void rowing_physics_calculate_pace(rowing_metrics_t *metrics) {
-    int64_t elapsed_us = esp_timer_get_time() - metrics->session_start_time_us;
-    float elapsed_s = (float)elapsed_us / 1000000.0f;
+    // Use elapsed_time_ms which already accounts for pause time
+    // This ensures pace freezes when paused
+    float elapsed_s = (float)metrics->elapsed_time_ms / 1000.0f;
     
-    if (metrics->total_distance_meters < 1.0f) {
+    if (metrics->total_distance_meters < 1.0f || elapsed_s < 0.1f) {
         metrics->instantaneous_pace_sec_500m = 999999.0f;
         metrics->average_pace_sec_500m = 999999.0f;
         return;
@@ -334,8 +335,8 @@ void rowing_physics_calculate_calories(rowing_metrics_t *metrics, float user_wei
     // Rowing efficiency is approximately 20-25%
     // 1 watt = 0.01433 kcal/min (approximately)
     
-    int64_t elapsed_us = esp_timer_get_time() - metrics->session_start_time_us;
-    float elapsed_min = (float)elapsed_us / 60000000.0f;
+    // Use elapsed_time_ms which already accounts for pause time
+    float elapsed_min = (float)metrics->elapsed_time_ms / 60000.0f;
     
     if (elapsed_min < 0.1f) {
         return;  // Too early to calculate

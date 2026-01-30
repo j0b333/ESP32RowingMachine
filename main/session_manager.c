@@ -443,12 +443,22 @@ esp_err_t session_manager_check_activity(rowing_metrics_t *metrics, const config
     }
     
     int64_t now = esp_timer_get_time();
-    int64_t time_since_last_pulse_ms = (now - metrics->last_flywheel_time_us) / 1000;
     int32_t auto_pause_timeout_ms = (int32_t)config->auto_pause_seconds * 1000;
     
-    // Check if there's recent flywheel activity
-    bool has_activity = (time_since_last_pulse_ms < auto_pause_timeout_ms) && 
-                        (metrics->last_flywheel_time_us > 0);
+    // Use last drive phase detection (last_stroke_start_time_us) instead of flywheel pulse
+    // This is more meaningful for detecting actual rowing activity vs just wheel spinning
+    int64_t last_activity_time = metrics->last_stroke_start_time_us;
+    
+    // If no stroke yet but flywheel is moving, use flywheel time for initial detection
+    if (last_activity_time == 0 && metrics->last_flywheel_time_us > 0) {
+        last_activity_time = metrics->last_flywheel_time_us;
+    }
+    
+    int64_t time_since_activity_ms = (now - last_activity_time) / 1000;
+    
+    // Check if there's recent rowing activity
+    bool has_activity = (time_since_activity_ms < auto_pause_timeout_ms) && 
+                        (last_activity_time > 0);
     
     // Current state
     bool session_active = (s_current_session_id > 0);
@@ -458,12 +468,12 @@ esp_err_t session_manager_check_activity(rowing_metrics_t *metrics, const config
         // Flywheel is active
         if (!session_active) {
             // No session yet - auto-start a new session
-            ESP_LOGI(TAG, "Auto-starting session (flywheel activity detected)");
+            ESP_LOGI(TAG, "Auto-starting session (drive phase detected)");
             session_manager_start_session(metrics);
             metrics->is_paused = false;
         } else if (is_paused) {
             // Session exists but is paused - auto-resume
-            ESP_LOGI(TAG, "Auto-resuming session (flywheel activity detected)");
+            ESP_LOGI(TAG, "Auto-resuming session (drive phase detected)");
             
             // Calculate pause duration and add to total
             if (metrics->pause_start_time_us > 0) {
@@ -482,10 +492,10 @@ esp_err_t session_manager_check_activity(rowing_metrics_t *metrics, const config
             metrics->pause_start_time_us = 0;
         }
     } else {
-        // No flywheel activity
+        // No rowing activity
         if (session_active && !is_paused) {
             // Session is running but no activity - auto-pause
-            ESP_LOGI(TAG, "Auto-pausing session (no flywheel activity for %d ms)", auto_pause_timeout_ms);
+            ESP_LOGI(TAG, "Auto-pausing session (no drive phase for %ld ms)", (long)auto_pause_timeout_ms);
             metrics->is_paused = true;
             metrics->pause_start_time_us = now;
         }

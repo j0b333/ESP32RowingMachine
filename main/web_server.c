@@ -649,12 +649,52 @@ static esp_err_t api_session_delete_handler(httpd_req_t *req) {
 // ============================================================================
 
 /**
- * POST /workout/start - Start a new workout
+ * POST /workout/start - Start a new workout or resume if paused
  */
 static esp_err_t workout_start_handler(httpd_req_t *req) {
     if (g_metrics == NULL) {
         httpd_resp_send_500(req);
         return ESP_FAIL;
+    }
+    
+    uint32_t session_id = session_manager_get_current_session_id();
+    
+    // Check if we have an existing session that's paused - resume it instead of starting new
+    if (session_id > 0 && g_metrics->is_paused) {
+        // Resume existing paused session
+        int64_t now = esp_timer_get_time();
+        
+        // Calculate pause duration and add to total
+        if (g_metrics->pause_start_time_us > 0) {
+            int64_t paused_duration_us = now - g_metrics->pause_start_time_us;
+            if (paused_duration_us > 0) {
+                g_metrics->total_paused_time_ms += (uint32_t)(paused_duration_us / 1000);
+            }
+        }
+        
+        // If session_start_time was 0 (reset state), set it now
+        if (g_metrics->session_start_time_us == 0) {
+            g_metrics->session_start_time_us = now;
+        }
+        
+        g_metrics->is_paused = false;
+        g_metrics->pause_start_time_us = 0;
+        
+        cJSON *root = cJSON_CreateObject();
+        cJSON_AddStringToObject(root, "status", "resumed");
+        cJSON_AddNumberToObject(root, "sessionId", session_id);
+        
+        char *json_string = cJSON_PrintUnformatted(root);
+        cJSON_Delete(root);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+        httpd_resp_sendstr(req, json_string);
+        
+        free(json_string);
+        
+        ESP_LOGI(TAG, "Workout resumed via API, session #%lu", (unsigned long)session_id);
+        return ESP_OK;
     }
     
     // Start HR recording
@@ -666,7 +706,7 @@ static esp_err_t workout_start_handler(httpd_req_t *req) {
     // Start a new session
     session_manager_start_session(g_metrics);
     
-    uint32_t session_id = session_manager_get_current_session_id();
+    session_id = session_manager_get_current_session_id();
     
     cJSON *root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "status", "started");
