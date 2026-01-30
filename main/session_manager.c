@@ -174,16 +174,16 @@ esp_err_t session_manager_end_session(rowing_metrics_t *metrics) {
         char samples_key[16];
         snprintf(samples_key, sizeof(samples_key), "d%lu", (unsigned long)(s_current_session_id % MAX_STORED_SESSIONS));
         
-        // Save samples (limit to first 3600 samples = 1 hour to fit in NVS)
-        uint32_t samples_to_save = s_sample_count;
-        if (samples_to_save > 3600) samples_to_save = 3600;
-        
-        ret = nvs_set_blob(handle, samples_key, s_sample_buffer, samples_to_save * sizeof(sample_data_t));
+        // Save all samples - NVS will return error if storage is full
+        // With 8 bytes per sample, a 2-hour session is ~57KB
+        ret = nvs_set_blob(handle, samples_key, s_sample_buffer, s_sample_count * sizeof(sample_data_t));
         if (ret != ESP_OK) {
             ESP_LOGW(TAG, "Failed to save samples: %s", esp_err_to_name(ret));
             // Continue anyway - session record is saved
         } else {
-            ESP_LOGI(TAG, "Saved %lu samples for session", (unsigned long)samples_to_save);
+            ESP_LOGI(TAG, "Saved %lu samples for session (%lu bytes)", 
+                     (unsigned long)s_sample_count,
+                     (unsigned long)(s_sample_count * sizeof(sample_data_t)));
         }
     }
     
