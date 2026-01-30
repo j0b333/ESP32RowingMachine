@@ -64,7 +64,7 @@
 #define DEFAULT_MOMENT_OF_INERTIA   0.101f      // kg⋅m² (typical rowing machine)
 #define DEFAULT_DRAG_COEFFICIENT    0.0001f     // Initial estimate
 #define DEFAULT_DISTANCE_PER_REV    2.8f        // meters per flywheel revolution
-#define DEFAULT_MAGNETS_PER_REV     1           // Number of magnets on flywheel (1-16)
+#define DEFAULT_MAGNETS_PER_REV     4           // Number of magnets on flywheel (1-16)
 
 // ============================================================================
 // STROKE DETECTION THRESHOLDS
@@ -89,7 +89,7 @@
 //   - CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
 //   - CONFIG_BT_NIMBLE_GATT_CLIENT=y
 // See README.md for detailed instructions
-#define BLE_HR_CLIENT_ENABLED           0       // Set to 1 to enable BLE HR client
+#define BLE_HR_CLIENT_ENABLED           1       // Set to 1 to enable BLE HR client
 #define BLE_HR_SCAN_TIMEOUT_SEC         120     // Scan timeout (matches Heart for Bluetooth pairing window)
 #define BLE_HR_CONNECT_TIMEOUT_MS       30000   // Connection timeout (30 seconds)
 
