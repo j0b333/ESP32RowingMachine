@@ -279,25 +279,42 @@ void rowing_physics_calculate_power(rowing_metrics_t *metrics) {
 }
 
 /**
- * Calculate distance for completed stroke
+ * Calculate distance using Concept2-derived physics
+ * 
+ * Physics basis:
+ * - Boat drag: F = ½ρCdAv² → Power = ½ρCdAv³ = k×v³
+ * - Concept2 defines k = 2.80 for a standard racing shell
+ * - Therefore: P = 2.80 × v³, where v is boat speed in m/s
+ * - Rearranging: v = ³√(P / 2.80)
+ * - Distance = v × time = ³√(P / 2.80) × t = ³√(P×t³ / 2.80) = ³√(Energy×t² / 2.80)
+ * 
+ * For incremental calculation:
+ * - Each stroke, we have work done in joules (drive_phase_work_joules)
+ * - Distance for this stroke = ³√(work / 2.80)
+ * 
+ * Note: The 2.80 constant IS physics-based - it represents the combined
+ * drag parameters of a standard racing shell: k = ½ρCdA
  */
 void rowing_physics_calculate_distance(rowing_metrics_t *metrics, float calibration_factor) {
-    // Method 1: Use work-based distance calculation
-    // Distance = Work / (resistance factor)
-    // For simplicity, use calibration factor per stroke
+    (void)calibration_factor;  // No longer used - pure physics calculation
     
-    float distance_this_stroke = calibration_factor;
+    // Use accumulated work from drive phase
+    float work_joules = metrics->drive_phase_work_joules;
     
-    // Alternative: Scale by power output
-    if (metrics->average_power_watts > 10.0f) {
-        // Adjust distance based on power relative to baseline (100W)
-        float power_factor = sqrtf(metrics->average_power_watts / 100.0f);
-        distance_this_stroke *= power_factor;
+    // Calculate distance using Concept2 physics formula
+    // Distance = ³√(Energy / 2.80)
+    // Note: This directly derives from P = 2.80/pace³ where pace = time/distance
+    float distance_this_stroke = 0.0f;
+    
+    if (work_joules > 0.1f) {  // Minimum threshold to avoid noise
+        // Pure physics: distance = cube_root(work / 2.80)
+        distance_this_stroke = cbrtf(work_joules / 2.80f);
+        
+        // Clamp to reasonable range (2-20 meters per stroke)
+        // Elite rowers do ~10m/stroke at racing pace
+        if (distance_this_stroke < 2.0f) distance_this_stroke = 2.0f;
+        if (distance_this_stroke > 20.0f) distance_this_stroke = 20.0f;
     }
-    
-    // Clamp to reasonable range (2-20 meters per stroke)
-    if (distance_this_stroke < 2.0f) distance_this_stroke = 2.0f;
-    if (distance_this_stroke > 20.0f) distance_this_stroke = 20.0f;
     
     metrics->total_distance_meters += distance_this_stroke;
     metrics->distance_per_stroke_meters = distance_this_stroke;

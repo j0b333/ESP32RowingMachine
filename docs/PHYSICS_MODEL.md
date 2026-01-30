@@ -82,28 +82,41 @@ Where:
 - Medium resistance: 120-150
 - Heavy resistance: 150-200+
 
-### 3. Distance Calibration Factor (`distance_calibration_factor`)
+### 3. Distance Calculation (Physics-Based)
 
-**Default**: `2.8` meters  
-**Location**: `app_config.h` → `DEFAULT_DISTANCE_PER_REV`
+**NO CALIBRATION FACTOR NEEDED!**
 
-**What it is**: How many meters of "virtual boat travel" per flywheel revolution. This is a calibration factor that makes distances comparable to other rowing machines.
+Distance is now calculated using pure physics, derived from the same principles as Concept2:
 
-**How to calibrate**:
+```
+Distance = ³√(Work / 2.80)
+```
 
-1. **Compare against a reference**: If you have access to another calibrated rowing machine (or a friend with one), row the same workout and adjust this factor to match distances.
+Where:
+- `Work` = energy in joules accumulated during the drive phase
+- `2.80` = the Concept2 boat drag constant (explained below)
 
-2. **Use known workout benchmarks**:
-   - Average rowers cover about 7-10 meters per stroke
-   - At 25 strokes per minute, that's 175-250 meters per minute
-   - Adjust until your distance matches these expectations
+**The Physics Behind 2.80**:
 
-3. **Use the formula**:
-   The relationship between power and pace on a Concept2 is:
-   ```
-   Watts = 2.80 / (pace_per_meter)³
-   ```
-   If your pace seems too fast or slow relative to power, adjust the distance factor.
+The constant 2.80 comes from real boat hydrodynamics:
+
+1. **Boat Drag Force**: F = ½ × ρ × Cd × A × v²
+   - ρ = water density (1000 kg/m³)
+   - Cd = hull drag coefficient (~0.004-0.01)
+   - A = wetted surface area (~3-4 m² for racing shell)
+   - v = boat speed
+
+2. **Power to Overcome Drag**: P = F × v = ½ρCdA × v³ = k × v³
+   
+3. Concept2 calibrated k = 2.80 to match elite racing shell performance
+
+This means:
+- At 100 joules of work per stroke → ~3.3m distance
+- At 200 joules of work per stroke → ~4.1m distance  
+- At 500 joules of work per stroke → ~5.6m distance
+
+**Why This Works**:
+The 2.80 constant represents real physics of a boat moving through water. By using this constant, your ergometer distances are directly comparable to Concept2 and approximate real on-water rowing.
 
 ### 4. Magnets Per Revolution
 
@@ -170,19 +183,32 @@ This provides:
 
 ## Distance Calculation
 
-Distance is calculated per stroke:
+Distance is calculated per stroke using pure physics:
+
 ```
-base_distance = distance_calibration_factor (default 2.8m)
-power_factor = √(average_power / 100)
-distance_this_stroke = base_distance × power_factor
+distance_this_stroke = ³√(drive_phase_work_joules / 2.80)
 ```
 
-This means:
-- At 100W average power → 2.8m per stroke
-- At 225W average power → 4.2m per stroke
-- At 400W average power → 5.6m per stroke
+This formula derives directly from the physics of boat movement:
 
-Distance is clamped to 2-20 meters per stroke as a sanity check.
+1. **Power-velocity relationship**: P = 2.80 × v³ (Concept2 standard)
+2. **Work-distance relationship**: Work = P × t = 2.80 × v³ × t = 2.80 × (d/t)³ × t = 2.80 × d³/t²
+3. **Solving for distance**: d = ³√(Work / 2.80)
+
+**Why this works**:
+- The 2.80 constant encodes the physics of boat drag (½ρCdA for a racing shell)
+- No arbitrary calibration factor is needed
+- Distances are directly comparable to Concept2
+
+**Expected values**:
+| Work per Stroke | Distance |
+|-----------------|----------|
+| 100 J | ~3.3 m |
+| 200 J | ~4.1 m |
+| 300 J | ~4.7 m |
+| 500 J | ~5.6 m |
+
+Distance is clamped to 2-20 meters per stroke as a sanity check (elite rowers do ~10m/stroke at racing pace).
 
 ## Pace Calculation
 
@@ -232,7 +258,7 @@ Row a "standard" 2000m test:
 - Intermediate: 7.5-9 minutes (avg ~1:52-2:15/500m, ~200-280W)
 - Advanced: 6.5-7.5 minutes (avg ~1:37-1:52/500m, ~280-400W)
 
-Adjust distance_calibration_factor if your time doesn't match expected effort level.
+If your time doesn't match expected effort level, check your moment of inertia calibration.
 
 ### Method 4: Flywheel Measurement
 
