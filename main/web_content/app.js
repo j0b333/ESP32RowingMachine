@@ -819,7 +819,7 @@ async function loadWorkoutHistory() {
         listEl.innerHTML = '';
         data.sessions.forEach(session => {
             const item = document.createElement('div');
-            item.className = 'history-item';
+            item.className = 'history-item' + (session.synced ? ' synced' : '');
             item.dataset.id = session.id;
             
             const distanceStr = session.distance >= 1000 
@@ -827,10 +827,12 @@ async function loadWorkoutHistory() {
                 : Math.round(session.distance) + ' m';
             
             const avgHr = session.avgHeartRate ? Math.round(session.avgHeartRate) + ' bpm' : '-- bpm';
+            const maxHr = session.maxHeartRate ? Math.round(session.maxHeartRate) + ' bpm' : '-- bpm';
+            const syncBadge = session.synced ? '<span class="sync-badge">✓ Synced</span>' : '';
             
             item.innerHTML = `
                 <div class="history-item-header">
-                    <div class="history-item-title">${formatDate(session.startTime)}</div>
+                    <div class="history-item-title">${formatDate(session.startTime)}${syncBadge}</div>
                     <button class="btn-delete-history" data-id="${session.id}" aria-label="Delete workout">🗑</button>
                 </div>
                 <div class="history-item-stats-grid">
@@ -862,6 +864,10 @@ async function loadWorkoutHistory() {
                         <span class="stat-label">Avg HR</span>
                         <span class="stat-value">${avgHr}</span>
                     </div>
+                    <div class="history-stat">
+                        <span class="stat-label">Max HR</span>
+                        <span class="stat-value">${maxHr}</span>
+                    </div>
                 </div>
                 <div class="history-item-action">
                     <span class="view-charts-link">Tap to view charts →</span>
@@ -887,12 +893,59 @@ async function loadWorkoutHistory() {
         
         listEl.classList.remove('hidden');
         
+        // Check if there are any synced sessions and show delete synced button
+        const hasSyncedSessions = data.sessions.some(s => s.synced);
+        updateDeleteSyncedButton(hasSyncedSessions);
+        
     } catch (e) {
         console.error('Failed to load workout history:', e);
         loadingEl.classList.add('hidden');
         emptyEl.innerHTML = '<p>Failed to load history</p><p>Check your connection</p>';
         emptyEl.classList.remove('hidden');
     }
+}
+
+/**
+ * Update delete synced button visibility
+ */
+function updateDeleteSyncedButton(show) {
+    let btn = document.getElementById('btn-delete-synced');
+    if (show && !btn) {
+        // Create button if it doesn't exist
+        const historyContent = document.querySelector('.history-content');
+        if (historyContent) {
+            btn = document.createElement('button');
+            btn.id = 'btn-delete-synced';
+            btn.className = 'btn btn-secondary btn-delete-synced';
+            btn.textContent = '🗑 Remove Synced';
+            btn.addEventListener('click', deleteSyncedSessions);
+            historyContent.insertBefore(btn, historyContent.querySelector('.history-list'));
+        }
+    } else if (btn) {
+        btn.style.display = show ? 'block' : 'none';
+    }
+}
+
+/**
+ * Delete all synced sessions
+ */
+function deleteSyncedSessions() {
+    showConfirmDialog('Delete Synced Workouts', 'Are you sure you want to delete all synced workouts? This cannot be undone.', async () => {
+        try {
+            const response = await fetch('/api/sessions/synced', { method: 'DELETE' });
+            const data = await response.json();
+            
+            if (data.success) {
+                console.log('Synced sessions deleted');
+                loadWorkoutHistory(); // Refresh the list
+            } else {
+                alert('Failed to delete synced workouts');
+            }
+        } catch (e) {
+            console.error('Failed to delete synced sessions:', e);
+            alert('Failed to delete synced workouts. Please check connection.');
+        }
+    });
 }
 
 /**
@@ -1048,12 +1101,11 @@ async function showWorkoutCharts(session) {
         if (response.ok) {
             const data = await response.json();
             
-            // Draw charts with actual sample data
+            // Draw charts with actual sample data (SPM removed - not stored per-second)
             setTimeout(() => {
                 drawSampleChart('modal-chart-pace', data.paceSamples, data.avgPace, 'Pace', '#16d9e3', formatPace);
-                drawSampleChart('modal-chart-power', data.powerSamples, data.avgPower, 'Power', '#96fbc4', v => Math.round(v) + ' W');
+                drawSampleChart('modal-chart-power', data.powerSamplesArray, data.avgPower, 'Power', '#96fbc4', v => Math.round(v) + ' W');
                 drawSampleChart('modal-chart-hr', data.hrSamples, data.avgHeartRate || 0, 'HR', '#e94560', v => v > 0 ? Math.round(v) + ' bpm' : '-- bpm', true);
-                drawSampleChart('modal-chart-spm', data.spmSamples, data.avgStrokeRate || 0, 'SPM', '#fbbf24', v => v > 0 ? v.toFixed(1) + ' spm' : '-- spm');
             }, 50);
         } else {
             throw new Error('Failed to fetch session');
@@ -1065,7 +1117,6 @@ async function showWorkoutCharts(session) {
             drawSampleChart('modal-chart-pace', null, session.avgPace, 'Pace', '#16d9e3', formatPace);
             drawSampleChart('modal-chart-power', null, session.avgPower, 'Power', '#96fbc4', v => Math.round(v) + ' W');
             drawSampleChart('modal-chart-hr', null, session.avgHeartRate || 0, 'HR', '#e94560', v => v > 0 ? Math.round(v) + ' bpm' : '-- bpm', true);
-            drawSampleChart('modal-chart-spm', null, session.avgStrokeRate || 0, 'SPM', '#fbbf24', v => v > 0 ? v.toFixed(1) + ' spm' : '-- spm');
         }, 50);
     }
 }
@@ -1181,12 +1232,11 @@ async function loadStorageInfo() {
 // Chart Functions
 // ============================================================================
 
-// Chart data storage
+// Chart data storage (SPM removed - not stored per-second)
 const chartData = {
     pace: [],
     power: [],
     hr: [],
-    spm: [],
     timestamps: []
 };
 
@@ -1194,8 +1244,7 @@ const chartData = {
 let charts = {
     pace: null,
     power: null,
-    hr: null,
-    spm: null
+    hr: null
 };
 
 // Chart initialized flag
@@ -1213,17 +1262,15 @@ function initCharts() {
         return;
     }
     
-    // Get canvas elements
+    // Get canvas elements (SPM chart removed)
     const paceCanvas = document.getElementById('chart-pace');
     const powerCanvas = document.getElementById('chart-power');
     const hrCanvas = document.getElementById('chart-hr');
-    const spmCanvas = document.getElementById('chart-spm');
     
-    if (paceCanvas && powerCanvas && hrCanvas && spmCanvas) {
+    if (paceCanvas && powerCanvas && hrCanvas) {
         charts.pace = paceCanvas.getContext('2d');
         charts.power = powerCanvas.getContext('2d');
         charts.hr = hrCanvas.getContext('2d');
-        charts.spm = spmCanvas.getContext('2d');
         chartsInitialized = true;
         
         // Set up canvas sizing
@@ -1236,7 +1283,7 @@ function initCharts() {
         }
         
         // Add target input listeners for immediate visual feedback
-        const targetInputs = ['target-pace', 'target-power', 'target-hr', 'target-spm'];
+        const targetInputs = ['target-pace', 'target-power', 'target-hr'];
         targetInputs.forEach(id => {
             const input = document.getElementById(id);
             if (input) {
@@ -1288,7 +1335,6 @@ function addChartDataPoint(data) {
         chartData.pace.push(data.pace || 0);
         chartData.power.push(data.power || 0);
         chartData.hr.push(data.heartRate || 0);
-        chartData.spm.push(data.strokeRate || 0);
         
         // Limit data points to prevent memory issues (keep last 2 hours of seconds)
         const maxPoints = 7200;
@@ -1297,7 +1343,6 @@ function addChartDataPoint(data) {
             chartData.pace.shift();
             chartData.power.shift();
             chartData.hr.shift();
-            chartData.spm.shift();
         }
     }
     
@@ -1305,12 +1350,10 @@ function addChartDataPoint(data) {
     const paceValue = document.getElementById('chart-pace-value');
     const powerValue = document.getElementById('chart-power-value');
     const hrValue = document.getElementById('chart-hr-value');
-    const spmValue = document.getElementById('chart-spm-value');
     
     if (paceValue) paceValue.textContent = formatPace(data.pace || 0);
     if (powerValue) powerValue.textContent = Math.round(data.power || 0) + ' W';
     if (hrValue) hrValue.textContent = (data.heartRate || '--') + ' bpm';
-    if (spmValue) spmValue.textContent = (data.strokeRate || 0).toFixed(1) + ' spm';
     
     // Render charts if on chart tab
     if (currentTab === 'chart' && chartsInitialized) {
@@ -1325,7 +1368,6 @@ function clearChartData() {
     chartData.pace = [];
     chartData.power = [];
     chartData.hr = [];
-    chartData.spm = [];
     chartData.timestamps = [];
     
     if (chartsInitialized) {
@@ -1334,18 +1376,16 @@ function clearChartData() {
 }
 
 /**
- * Render all charts
+ * Render all charts (SPM chart removed)
  */
 function renderAllCharts() {
     const targetPace = parseFloat(document.getElementById('target-pace')?.value) || null;
     const targetPower = parseFloat(document.getElementById('target-power')?.value) || null;
     const targetHr = parseFloat(document.getElementById('target-hr')?.value) || null;
-    const targetSpm = parseFloat(document.getElementById('target-spm')?.value) || null;
     
     renderChart('chart-pace', chartData.pace, chartData.timestamps, '#16d9e3', targetPace, true);
     renderChart('chart-power', chartData.power, chartData.timestamps, '#96fbc4', targetPower);
     renderChart('chart-hr', chartData.hr, chartData.timestamps, '#e94560', targetHr, false, true);
-    renderChart('chart-spm', chartData.spm, chartData.timestamps, '#fbbf24', targetSpm);
 }
 
 /**

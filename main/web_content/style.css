@@ -748,6 +748,42 @@ footer {
     color: var(--text-secondary);
 }
 
+/* Sync badge for synced sessions */
+.sync-badge {
+    display: inline-block;
+    background: var(--success);
+    color: var(--bg-primary);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.7em;
+    margin-left: 8px;
+    font-weight: bold;
+}
+
+/* Synced session styling */
+.history-item.synced {
+    border-left: 3px solid var(--success);
+}
+
+/* Delete synced button */
+.btn-delete-synced {
+    display: block;
+    width: 100%;
+    margin-bottom: 15px;
+    background: var(--bg-card);
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    padding: 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.9em;
+}
+
+.btn-delete-synced:hover {
+    background: var(--danger);
+    color: white;
+}
+
 @media (max-width: 600px) {
     .history-item-stats-grid {
         grid-template-columns: repeat(2, 1fr);

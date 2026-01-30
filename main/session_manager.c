@@ -38,6 +38,7 @@ static uint32_t s_sample_count = 0;
 static float s_last_distance = 0;
 static uint32_t s_heart_rate_sum = 0;
 static uint32_t s_heart_rate_count = 0;
+static uint8_t s_max_heart_rate = 0;
 static float s_stroke_rate_sum = 0;
 static uint32_t s_stroke_rate_samples = 0;
 
@@ -93,6 +94,7 @@ esp_err_t session_manager_start_session(rowing_metrics_t *metrics) {
     s_last_distance = 0;
     s_heart_rate_sum = 0;
     s_heart_rate_count = 0;
+    s_max_heart_rate = 0;
     s_stroke_rate_sum = 0;
     s_stroke_rate_samples = 0;
     
@@ -138,6 +140,8 @@ esp_err_t session_manager_end_session(rowing_metrics_t *metrics) {
     record.total_calories = metrics->total_calories;
     record.drag_factor = metrics->drag_factor;
     record.sample_count = s_sample_count;
+    record.max_heart_rate = s_max_heart_rate;
+    record.synced = 0;  // Not synced initially
     
     // Calculate average heart rate from samples
     if (s_heart_rate_count > 0) {
@@ -326,7 +330,89 @@ esp_err_t session_manager_delete_session(uint32_t session_id) {
 }
 
 /**
+ * Mark a session as synced
+ */
+esp_err_t session_manager_set_synced(uint32_t session_id) {
+    if (session_id == 0 || session_id > s_session_count) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    
+    // First get the session
+    session_record_t record;
+    esp_err_t ret = session_manager_get_session(session_id, &record);
+    if (ret != ESP_OK) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    
+    // Update synced flag
+    record.synced = 1;
+    
+    // Save back to NVS
+    nvs_handle_t handle;
+    ret = nvs_open(SESSION_NVS_NAMESPACE, NVS_READWRITE, &handle);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open NVS for sync update: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    
+    char key[16];
+    snprintf(key, sizeof(key), "s%lu", (unsigned long)(session_id % MAX_STORED_SESSIONS));
+    
+    ret = nvs_set_blob(handle, key, &record, sizeof(record));
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to update session sync status: %s", esp_err_to_name(ret));
+        nvs_close(handle);
+        return ret;
+    }
+    
+    nvs_commit(handle);
+    nvs_close(handle);
+    
+    ESP_LOGI(TAG, "Session #%lu marked as synced", (unsigned long)session_id);
+    
+    return ESP_OK;
+}
+
+/**
+ * Delete all sessions that have been synced
+ * Iterates through all possible session slots since sessions use modulo storage
+ */
+esp_err_t session_manager_delete_synced(void) {
+    uint32_t deleted_count = 0;
+    
+    // Iterate through all possible session slots
+    // Sessions are stored at slot = session_id % MAX_STORED_SESSIONS
+    // So we need to check each slot, not just session IDs up to count
+    for (uint32_t slot = 0; slot < MAX_STORED_SESSIONS; slot++) {
+        nvs_handle_t handle;
+        esp_err_t ret = nvs_open(SESSION_NVS_NAMESPACE, NVS_READONLY, &handle);
+        if (ret != ESP_OK) {
+            continue;
+        }
+        
+        char key[16];
+        snprintf(key, sizeof(key), "s%lu", (unsigned long)slot);
+        
+        session_record_t record;
+        size_t len = sizeof(session_record_t);
+        ret = nvs_get_blob(handle, key, &record, &len);
+        nvs_close(handle);
+        
+        if (ret == ESP_OK && record.synced) {
+            if (session_manager_delete_session(record.session_id) == ESP_OK) {
+                deleted_count++;
+            }
+        }
+    }
+    
+    ESP_LOGI(TAG, "Deleted %lu synced sessions", (unsigned long)deleted_count);
+    
+    return ESP_OK;
+}
+
+/**
  * Record a per-second sample during active workout
+ * Stores velocity (m/s) instead of pace for Health Connect compatibility
  */
 esp_err_t session_manager_record_sample(rowing_metrics_t *metrics, uint8_t heart_rate) {
     if (s_current_session_id == 0 || s_sample_buffer == NULL) {
@@ -346,17 +432,19 @@ esp_err_t session_manager_record_sample(rowing_metrics_t *metrics, uint8_t heart
     if (power > 65535) power = 65535;
     sample->power_watts = (uint16_t)power;
     
-    float pace = metrics->instantaneous_pace_sec_500m * 10.0f;
-    if (pace < 0) pace = 0;
-    if (pace > 65535) pace = 65535;
-    sample->pace_tenths = (uint16_t)pace;
+    // Store velocity in cm/s (convert from pace sec/500m)
+    // velocity (m/s) = 500 / pace (sec/500m)
+    // velocity (cm/s) = 50000 / pace (sec/500m)
+    float pace = metrics->instantaneous_pace_sec_500m;
+    float velocity_cm_s = 0;
+    if (pace > 0 && pace < 9999) {
+        velocity_cm_s = 50000.0f / pace;
+    }
+    if (velocity_cm_s > 65535) velocity_cm_s = 65535;
+    sample->velocity_cm_s = (uint16_t)velocity_cm_s;
     
     sample->heart_rate = heart_rate;
-    
-    float spm = metrics->stroke_rate_spm * 10.0f;
-    if (spm < 0) spm = 0;
-    if (spm > 255) spm = 255;
-    sample->stroke_rate_tenths = (uint8_t)spm;
+    sample->reserved = 0;  // Reserved field (was stroke_rate)
     
     // Calculate distance delta since last sample
     float distance_delta = metrics->total_distance_meters - s_last_distance;
@@ -368,10 +456,13 @@ esp_err_t session_manager_record_sample(rowing_metrics_t *metrics, uint8_t heart
     
     s_sample_count++;
     
-    // Accumulate for averages
+    // Accumulate for averages and track max
     if (heart_rate > 0) {
         s_heart_rate_sum += heart_rate;
         s_heart_rate_count++;
+        if (heart_rate > s_max_heart_rate) {
+            s_max_heart_rate = heart_rate;
+        }
     }
     if (metrics->stroke_rate_spm > 0) {
         s_stroke_rate_sum += metrics->stroke_rate_spm;

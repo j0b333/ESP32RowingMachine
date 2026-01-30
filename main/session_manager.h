@@ -63,6 +63,19 @@ uint32_t session_manager_get_current_session_id(void);
 esp_err_t session_manager_delete_session(uint32_t session_id);
 
 /**
+ * Mark a session as synced
+ * @param session_id Session ID to mark as synced
+ * @return ESP_OK if updated, ESP_ERR_NOT_FOUND if session doesn't exist
+ */
+esp_err_t session_manager_set_synced(uint32_t session_id);
+
+/**
+ * Delete all sessions that have been synced
+ * @return ESP_OK on success
+ */
+esp_err_t session_manager_delete_synced(void);
+
+/**
  * Record a per-second sample during active workout
  * @param metrics Pointer to current metrics
  * @param heart_rate Current heart rate (0 if not available)

@@ -168,12 +168,14 @@ typedef struct {
 
 /**
  * Per-second sample data for graphs (8 bytes per sample)
+ * Stores velocity (m/s) instead of pace for Health Connect compatibility
+ * Stroke rate removed - not needed per-second for Health Connect
  */
 typedef struct __attribute__((packed)) {
     uint16_t power_watts;           // 0-65535 W
-    uint16_t pace_tenths;           // Pace in 0.1s units (0-6553.5 sec/500m)
+    uint16_t velocity_cm_s;         // Velocity in cm/s (0-655.35 m/s)
     uint8_t  heart_rate;            // 0-255 bpm
-    uint8_t  stroke_rate_tenths;    // Stroke rate * 10 (0-25.5 spm)
+    uint8_t  reserved;              // Reserved for alignment (was stroke_rate)
     uint16_t distance_dm;           // Distance delta in decimeters (0-6553.5m)
 } sample_data_t;
 
@@ -186,7 +188,7 @@ typedef struct __attribute__((packed)) {
  */
 typedef struct {
     uint32_t session_id;                // Unique session identifier
-    int64_t start_timestamp;            // Unix timestamp of session start
+    int64_t start_timestamp;            // Microseconds since boot (from esp_timer_get_time), NOT Unix time
     uint32_t duration_seconds;          // Total session duration
     float total_distance_meters;        // Total distance rowed
     float average_pace_sec_500m;        // Average pace (seconds per 500m)
@@ -197,6 +199,9 @@ typedef struct {
     float average_heart_rate;           // Average heart rate
     float average_stroke_rate;          // Average stroke rate
     uint32_t sample_count;              // Number of per-second samples
+    uint8_t max_heart_rate;             // Maximum heart rate during session
+    uint8_t synced;                     // Whether session has been synced to companion app
+    uint8_t reserved[2];                // Reserved for future use (alignment)
 } session_record_t;
 
 // ============================================================================
