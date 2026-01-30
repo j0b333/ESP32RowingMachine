@@ -14,14 +14,20 @@ let wakeLock = null;
  * Request a screen wake lock to prevent the device from sleeping
  */
 async function requestWakeLock() {
+    // Check if wake lock is already active
+    if (wakeLock !== null) {
+        return;
+    }
+    
     if ('wakeLock' in navigator) {
         try {
             wakeLock = await navigator.wakeLock.request('screen');
             console.log('Screen wake lock acquired');
             
-            // Re-acquire wake lock when the page becomes visible again
+            // Set wakeLock to null when released so it can be re-acquired
             wakeLock.addEventListener('release', () => {
                 console.log('Screen wake lock released');
+                wakeLock = null;
             });
         } catch (err) {
             console.warn('Failed to acquire wake lock:', err.message);

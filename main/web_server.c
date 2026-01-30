@@ -1967,9 +1967,6 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     http_config.send_wait_timeout = 3;   // Reduced from 5 for faster cleanup
     http_config.backlog_conn = 3;        // Reduced from 5 to limit pending connections
     http_config.keep_alive_enable = false; // Disable keep-alive to free sockets faster
-    http_config.keep_alive_idle = 5;     // If keep-alive re-enabled, 5s idle timeout
-    http_config.keep_alive_interval = 5; // Probe interval for keep-alive
-    http_config.keep_alive_count = 2;    // Close after 2 failed probes
     
     ESP_LOGI(TAG, "Starting web server on port %d (max %d URI handlers)", 
              http_config.server_port, http_config.max_uri_handlers);
