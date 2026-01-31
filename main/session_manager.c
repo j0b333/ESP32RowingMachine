@@ -6,6 +6,7 @@
 #include "session_manager.h"
 #include "app_config.h"
 #include "web_server.h"
+#include "wifi_manager.h"
 
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -30,7 +31,8 @@ static const char *TAG = "SESSION";
 
 // Current session state
 static uint32_t s_current_session_id = 0;
-static int64_t s_session_start_time = 0;
+static int64_t s_session_start_time = 0;         // esp_timer value for elapsed time calculation
+static int64_t s_session_start_unix_ms = 0;      // Unix epoch timestamp in milliseconds
 static uint32_t s_session_count = 0;
 
 // Sample buffer for current session
@@ -90,6 +92,15 @@ esp_err_t session_manager_start_session(rowing_metrics_t *metrics) {
     s_current_session_id = s_session_count + 1;
     s_session_start_time = esp_timer_get_time();
     
+    // Capture Unix epoch time in milliseconds for companion app compatibility
+    // If SNTP time is not synced, this will be 0 and will be populated later or default to uptime
+    s_session_start_unix_ms = wifi_manager_get_unix_time_ms();
+    if (s_session_start_unix_ms > 0) {
+        ESP_LOGI(TAG, "Session start time: Unix epoch %lld ms", (long long)s_session_start_unix_ms);
+    } else {
+        ESP_LOGW(TAG, "SNTP time not synced, session will use uptime-based timestamp");
+    }
+    
     // Reset sample buffer for new session
     s_sample_count = 0;
     s_last_distance = 0;
@@ -132,7 +143,17 @@ esp_err_t session_manager_end_session(rowing_metrics_t *metrics) {
     memset(&record, 0, sizeof(record));
     
     record.session_id = s_current_session_id;
-    record.start_timestamp = s_session_start_time;
+    // Use Unix epoch milliseconds if available, otherwise fall back to esp_timer value
+    // The companion app expects Unix epoch milliseconds for startTime
+    if (s_session_start_unix_ms > 0) {
+        record.start_timestamp = s_session_start_unix_ms;
+        ESP_LOGI(TAG, "Saving session with Unix timestamp: %lld ms", (long long)s_session_start_unix_ms);
+    } else {
+        // Fallback: use microseconds since boot / 1000 to get ms (for legacy compatibility)
+        // This will result in a small timestamp that the app can detect as invalid
+        record.start_timestamp = s_session_start_time / 1000;
+        ESP_LOGW(TAG, "Saving session with uptime-based timestamp (SNTP not synced)");
+    }
     record.duration_seconds = metrics->elapsed_time_ms / 1000;
     record.total_distance_meters = metrics->total_distance_meters;
     record.average_pace_sec_500m = metrics->average_pace_sec_500m;

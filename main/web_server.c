@@ -1,15 +1,16 @@
 /**
  * @file web_server.c
- * @brief HTTP server with WebSocket for real-time metrics streaming
+ * @brief HTTP server with SSE and WebSocket for real-time metrics streaming
  * 
  * Features:
  * - Serves embedded HTML/CSS/JS files
- * - WebSocket for real-time metrics streaming
+ * - Server-Sent Events (SSE) for real-time metrics streaming (preferred)
+ * - WebSocket as fallback for real-time metrics
  * - REST API for configuration
  * - Session control endpoints
  * 
  * Compatible with ESP-IDF 6.0+
- * Thread-safe WebSocket client management with mutex
+ * Thread-safe client management with mutex
  */
 
 #include "web_server.h"
@@ -31,6 +32,7 @@
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <errno.h>
 
 static const char *TAG = "WEB_SERVER";
 
@@ -727,12 +729,10 @@ static esp_err_t api_session_detail_handler(httpd_req_t *req) {
         if (samples != NULL) {
             uint32_t actual_count = 0;
             if (session_manager_get_samples(session_id, samples, max_samples, &actual_count) == ESP_OK && actual_count > 0) {
-                // Calculate base timestamp in milliseconds
-                // NOTE: start_timestamp is microseconds since boot (esp_timer_get_time), NOT Unix time.
-                // The companion app should add a time offset if it knows when the ESP32 booted.
-                // For Health Connect, the companion app may need to calculate: 
-                //   unix_time_ms = boot_time_unix_ms + (start_timestamp / 1000)
-                int64_t base_time_ms = record.start_timestamp / 1000;  // Convert us to ms
+                // start_timestamp is now Unix epoch milliseconds (when SNTP is synced)
+                // or milliseconds since boot (fallback when SNTP not available)
+                // The companion app receives this directly as the base time
+                int64_t base_time_ms = record.start_timestamp;  // Already in milliseconds
                 
                 for (uint32_t i = 0; i < actual_count; i++) {
                     int64_t sample_time_ms = base_time_ms + (i * 1000);  // 1 second per sample
@@ -1492,6 +1492,103 @@ static esp_err_t api_reboot_handler(httpd_req_t *req) {
     return ESP_OK;  // Won't reach here
 }
 
+// ============================================================================
+// Server-Sent Events (SSE) Support
+// ============================================================================
+
+// SSE client file descriptors
+#define MAX_SSE_CLIENTS 8
+static int g_sse_fds[MAX_SSE_CLIENTS] = {-1, -1, -1, -1, -1, -1, -1, -1};
+static SemaphoreHandle_t g_sse_mutex = NULL;
+
+// SSE mutex macros
+#define SSE_MUTEX_TAKE() \
+    do { \
+        if (g_sse_mutex != NULL) { \
+            xSemaphoreTake(g_sse_mutex, portMAX_DELAY); \
+        } \
+    } while(0)
+
+#define SSE_MUTEX_GIVE() \
+    do { \
+        if (g_sse_mutex != NULL) { \
+            xSemaphoreGive(g_sse_mutex); \
+        } \
+    } while(0)
+
+/**
+ * Add SSE client to list (thread-safe)
+ */
+static void sse_add_client(int fd) {
+    SSE_MUTEX_TAKE();
+    for (int i = 0; i < MAX_SSE_CLIENTS; i++) {
+        if (g_sse_fds[i] < 0) {
+            g_sse_fds[i] = fd;
+            ESP_LOGI(TAG, "SSE client added: fd=%d", fd);
+            SSE_MUTEX_GIVE();
+            return;
+        }
+    }
+    SSE_MUTEX_GIVE();
+    ESP_LOGW(TAG, "SSE client list full");
+}
+
+/**
+ * Remove SSE client from list (thread-safe)
+ */
+static void sse_remove_client(int fd) {
+    SSE_MUTEX_TAKE();
+    for (int i = 0; i < MAX_SSE_CLIENTS; i++) {
+        if (g_sse_fds[i] == fd) {
+            g_sse_fds[i] = -1;
+            ESP_LOGI(TAG, "SSE client removed: fd=%d", fd);
+            SSE_MUTEX_GIVE();
+            return;
+        }
+    }
+    SSE_MUTEX_GIVE();
+}
+
+/**
+ * SSE events endpoint handler
+ * Sets up a persistent connection for server-sent events
+ */
+static esp_err_t sse_handler(httpd_req_t *req) {
+    int fd = httpd_req_to_sockfd(req);
+    if (fd < 0) {
+        ESP_LOGE(TAG, "Failed to get socket fd for SSE");
+        return ESP_FAIL;
+    }
+    
+    // Set SSE headers
+    httpd_resp_set_type(req, "text/event-stream");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    httpd_resp_set_hdr(req, "Connection", "keep-alive");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    
+    // Send initial response to establish connection
+    // Note: We send an empty response to establish headers, then track the fd
+    const char *init_msg = "event: connected\ndata: {\"status\":\"connected\"}\n\n";
+    esp_err_t ret = httpd_resp_send_chunk(req, init_msg, strlen(init_msg));
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to send SSE init: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    
+    // Add to SSE client list for broadcast
+    sse_add_client(fd);
+    
+    ESP_LOGI(TAG, "SSE connection established: fd=%d", fd);
+    
+    // Return ESP_OK - the connection stays open and we'll send data via broadcast
+    // The httpd will not close the connection because we used chunked encoding
+    return ESP_OK;
+}
+
+// ============================================================================
+// WebSocket Support (kept as fallback)
+// ============================================================================
+
 /**
  * Add WebSocket client to list (thread-safe)
  */
@@ -1750,6 +1847,14 @@ static const httpd_uri_t uri_api_config_post = {
     .user_ctx = NULL
 };
 
+// SSE endpoint for real-time metrics streaming
+static const httpd_uri_t uri_events = {
+    .uri = "/events",
+    .method = HTTP_GET,
+    .handler = sse_handler,
+    .user_ctx = NULL
+};
+
 static const httpd_uri_t uri_ws = {
     .uri = "/ws",
     .method = HTTP_GET,
@@ -1897,11 +2002,12 @@ static esp_err_t ws_open_callback(httpd_handle_t hd, int sockfd) {
 
 /**
  * Called when any connection closes
- * Clean up WebSocket client if it was one
+ * Clean up WebSocket and SSE clients
  */
 static void ws_close_callback(httpd_handle_t hd, int sockfd) {
     ESP_LOGD(TAG, "Connection closed on fd %d", sockfd);
-    ws_remove_client(sockfd);  // Safe to call even if not a WS client
+    ws_remove_client(sockfd);   // Safe to call even if not a WS client
+    sse_remove_client(sockfd);  // Safe to call even if not an SSE client
 }
 
 // ============================================================================
@@ -1926,12 +2032,26 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
         }
     }
     
+    // Create mutex for SSE client list
+    if (g_sse_mutex == NULL) {
+        g_sse_mutex = xSemaphoreCreateMutex();
+        if (g_sse_mutex == NULL) {
+            ESP_LOGE(TAG, "Failed to create SSE mutex");
+            return ESP_FAIL;
+        }
+    }
+    
     g_metrics = metrics;
     g_config = config;
     
     // Reset WebSocket client list
     for (int i = 0; i < MAX_WS_CLIENTS; i++) {
         g_ws_fds[i] = -1;
+    }
+    
+    // Reset SSE client list
+    for (int i = 0; i < MAX_SSE_CLIENTS; i++) {
+        g_sse_fds[i] = -1;
     }
     
     httpd_config_t http_config = HTTPD_DEFAULT_CONFIG();
@@ -1981,7 +2101,8 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     REGISTER_URI(uri_api_calibrate_inertia_apply);
     REGISTER_URI(uri_api_config_get);
     REGISTER_URI(uri_api_config_post);
-    REGISTER_URI(uri_ws);
+    REGISTER_URI(uri_events);  // SSE endpoint for real-time metrics
+    REGISTER_URI(uri_ws);      // WebSocket fallback
     
     // Heart rate endpoints (HeartRateToWeb compatible)
     REGISTER_URI(uri_hr_post);
@@ -2042,10 +2163,21 @@ void web_server_stop(void) {
     }
     WS_MUTEX_GIVE();
     
-    // Delete mutex
+    // Clean up SSE client list
+    SSE_MUTEX_TAKE();
+    for (int i = 0; i < MAX_SSE_CLIENTS; i++) {
+        g_sse_fds[i] = -1;
+    }
+    SSE_MUTEX_GIVE();
+    
+    // Delete mutexes
     if (g_ws_mutex != NULL) {
         vSemaphoreDelete(g_ws_mutex);
         g_ws_mutex = NULL;
+    }
+    if (g_sse_mutex != NULL) {
+        vSemaphoreDelete(g_sse_mutex);
+        g_sse_mutex = NULL;
     }
 }
 
@@ -2146,14 +2278,71 @@ esp_err_t web_server_broadcast_metrics(const rowing_metrics_t *metrics) {
         WS_MUTEX_GIVE();
     }
     
+    // Also broadcast to SSE clients
+    // SSE format: "data: <json>\n\n"
+    char sse_buffer[JSON_BUFFER_SIZE + 16];
+    int sse_len = snprintf(sse_buffer, sizeof(sse_buffer), "data: %s\n\n", buffer);
+    
+    // Take a snapshot of SSE clients
+    int sse_fds_to_send[MAX_SSE_CLIENTS];
+    SSE_MUTEX_TAKE();
+    for (int i = 0; i < MAX_SSE_CLIENTS; i++) {
+        sse_fds_to_send[i] = g_sse_fds[i];
+    }
+    SSE_MUTEX_GIVE();
+    
+    // Send to all SSE clients
+    int sse_dead_fds[MAX_SSE_CLIENTS];
+    int sse_dead_count = 0;
+    
+    for (int i = 0; i < MAX_SSE_CLIENTS; i++) {
+        int fd = sse_fds_to_send[i];
+        if (fd >= 0) {
+            // Check if socket is still valid
+            if (!is_socket_valid(g_server, fd)) {
+                ESP_LOGD(TAG, "SSE socket fd %d is no longer valid", fd);
+                sse_dead_fds[sse_dead_count++] = fd;
+                continue;
+            }
+            
+            // Send SSE data directly via socket
+            int written = send(fd, sse_buffer, sse_len, MSG_DONTWAIT);
+            if (written < 0) {
+                if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                    ESP_LOGD(TAG, "SSE send failed for fd %d: errno %d", fd, errno);
+                    sse_dead_fds[sse_dead_count++] = fd;
+                }
+            } else {
+                sent_count++;
+            }
+        }
+    }
+    
+    // Remove dead SSE clients
+    if (sse_dead_count > 0) {
+        SSE_MUTEX_TAKE();
+        for (int d = 0; d < sse_dead_count; d++) {
+            for (int i = 0; i < MAX_SSE_CLIENTS; i++) {
+                if (g_sse_fds[i] == sse_dead_fds[d]) {
+                    g_sse_fds[i] = -1;
+                    ESP_LOGI(TAG, "Removed dead SSE client: fd=%d", sse_dead_fds[d]);
+                    break;
+                }
+            }
+        }
+        SSE_MUTEX_GIVE();
+    }
+    
     return (sent_count > 0) ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
 
 /**
- * Check if any WebSocket clients are connected (thread-safe)
+ * Check if any WebSocket or SSE clients are connected (thread-safe)
  */
 bool web_server_has_ws_clients(void) {
     bool has_clients = false;
+    
+    // Check WebSocket clients
     WS_MUTEX_TAKE();
     for (int i = 0; i < MAX_WS_CLIENTS; i++) {
         if (g_ws_fds[i] >= 0) {
@@ -2162,6 +2351,21 @@ bool web_server_has_ws_clients(void) {
         }
     }
     WS_MUTEX_GIVE();
+    
+    if (has_clients) {
+        return true;
+    }
+    
+    // Check SSE clients
+    SSE_MUTEX_TAKE();
+    for (int i = 0; i < MAX_SSE_CLIENTS; i++) {
+        if (g_sse_fds[i] >= 0) {
+            has_clients = true;
+            break;
+        }
+    }
+    SSE_MUTEX_GIVE();
+    
     return has_clients;
 }
 
@@ -2170,6 +2374,7 @@ bool web_server_has_ws_clients(void) {
  */
 int web_server_get_connection_count(void) {
     int count = 0;
+    
     WS_MUTEX_TAKE();
     for (int i = 0; i < MAX_WS_CLIENTS; i++) {
         if (g_ws_fds[i] >= 0) {
@@ -2177,6 +2382,15 @@ int web_server_get_connection_count(void) {
         }
     }
     WS_MUTEX_GIVE();
+    
+    SSE_MUTEX_TAKE();
+    for (int i = 0; i < MAX_SSE_CLIENTS; i++) {
+        if (g_sse_fds[i] >= 0) {
+            count++;
+        }
+    }
+    SSE_MUTEX_GIVE();
+    
     return count;
 }
 

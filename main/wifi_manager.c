@@ -13,6 +13,7 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_sntp.h"
 #include "mdns.h"
 #include "lwip/inet.h"
 
@@ -22,6 +23,8 @@
 
 #include <string.h>
 #include <inttypes.h>
+#include <time.h>
+#include <sys/time.h>
 
 static const char *TAG = "WIFI";
 
@@ -47,6 +50,8 @@ static esp_netif_t *s_netif_sta = NULL;
 static wifi_operating_mode_t s_current_mode = WIFI_OPERATING_MODE_AP;
 static bool s_wifi_initialized = false;
 static bool s_mdns_initialized = false;
+static bool s_sntp_initialized = false;
+static bool s_time_synced = false;
 static int s_retry_count = 0;
 static const int MAX_RETRY = 5;
 
@@ -135,6 +140,9 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                 ESP_LOGI(TAG, "Got IP: %d.%d.%d.%d", 
                          IP2STR(&event->ip_info.ip));
                 xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+                
+                // Initialize SNTP time synchronization now that we have network access
+                wifi_manager_init_sntp();
                 break;
             }
             
@@ -922,4 +930,71 @@ int wifi_manager_scan(wifi_ap_record_t *ap_records, uint16_t max_records) {
  */
 wifi_operating_mode_t wifi_manager_get_mode(void) {
     return s_current_mode;
+}
+
+/**
+ * SNTP time sync callback
+ */
+static void sntp_sync_callback(struct timeval *tv) {
+    ESP_LOGI(TAG, "SNTP time synchronized: %lld.%06ld", (long long)tv->tv_sec, (long)tv->tv_usec);
+    s_time_synced = true;
+}
+
+/**
+ * Initialize SNTP time synchronization
+ * Call this after successful WiFi STA connection to synchronize time
+ */
+void wifi_manager_init_sntp(void) {
+    if (s_sntp_initialized) {
+        ESP_LOGD(TAG, "SNTP already initialized");
+        return;
+    }
+    
+    ESP_LOGI(TAG, "Initializing SNTP time synchronization");
+    
+    // Set timezone to UTC (the app handles timezone conversion)
+    setenv("TZ", "UTC0", 1);
+    tzset();
+    
+    // Configure SNTP
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_setservername(1, "time.google.com");
+    esp_sntp_set_time_sync_notification_cb(sntp_sync_callback);
+    
+    // Initialize SNTP
+    esp_sntp_init();
+    
+    s_sntp_initialized = true;
+    
+    ESP_LOGI(TAG, "SNTP initialized, waiting for time sync...");
+}
+
+/**
+ * Check if time has been synchronized via SNTP
+ * @return true if time is synchronized and valid
+ */
+bool wifi_manager_is_time_synced(void) {
+    // Also verify that time() returns a reasonable value (after year 2020)
+    if (s_time_synced) {
+        time_t now = time(NULL);
+        // Year 2020 in Unix timestamp is approximately 1577836800
+        return now > 1577836800;
+    }
+    return false;
+}
+
+/**
+ * Get current Unix time in milliseconds
+ * @return Unix timestamp in milliseconds, or 0 if time not synced
+ */
+int64_t wifi_manager_get_unix_time_ms(void) {
+    if (!wifi_manager_is_time_synced()) {
+        return 0;
+    }
+    
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    
+    return (int64_t)tv.tv_sec * 1000LL + (int64_t)tv.tv_usec / 1000LL;
 }
