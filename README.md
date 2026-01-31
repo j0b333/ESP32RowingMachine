@@ -2,28 +2,6 @@
 
 A smart rowing machine monitor firmware for ESP32-S3 that transforms a rowing machine into a connected fitness device with Bluetooth FTMS support and a real-time web interface.
 
-## Screenshots
-
-### Row Tab
-Real-time rowing metrics display with power, distance, pace, and heart rate.
-
-![Row Tab](https://github.com/user-attachments/assets/f5dab6b6-4639-4986-96d3-d330575e7e29)
-
-### Graph Tab
-Live graphs showing pace, power, and heart rate over time.
-
-![Graph Tab](https://github.com/user-attachments/assets/6b46884a-85c8-4afe-8d42-0f5970f2de42)
-
-### History Tab
-View and manage your saved workout sessions.
-
-![History Tab](https://github.com/user-attachments/assets/e47ae13f-2b65-4416-a2aa-e57ef38419a4)
-
-### Settings Tab
-Configure weight, heart rate zones, units, and advanced options.
-
-![Settings Tab](https://github.com/user-attachments/assets/6a428dea-120d-4bbf-8cef-06b5670e8122)
-
 ## Features
 
 -  **Bluetooth FTMS** - Works with Kinomap, EXR, MyHomeFit, and other fitness apps
@@ -63,7 +41,7 @@ idf.py -p /dev/ttyUSB0 flash monitor
 
 ## Documentation
 
-📚 **[Full Documentation](docs/README.md)** - Complete guides and references
+**[Full Documentation](docs/README.md)** - Complete guides and references
 
 | Guide | Description |
 |-------|-------------|
@@ -71,6 +49,28 @@ idf.py -p /dev/ttyUSB0 flash monitor
 | [API Reference](docs/API.md) | REST endpoints and WebSocket interface |
 | [Architecture](docs/ARCHITECTURE.md) | System design and modules |
 | [Physics Model](docs/PHYSICS_MODEL.md) | How metrics are calculated |
+
+## Screenshots
+
+### Row Tab
+Real-time rowing metrics display with power, distance, pace, and heart rate.
+
+![Row Tab](https://github.com/user-attachments/assets/f5dab6b6-4639-4986-96d3-d330575e7e29)
+
+### Graph Tab
+Live graphs showing pace, power, and heart rate over time.
+
+![Graph Tab](https://github.com/user-attachments/assets/6b46884a-85c8-4afe-8d42-0f5970f2de42)
+
+### History Tab
+View and manage your saved workout sessions.
+
+![History Tab](https://github.com/user-attachments/assets/e47ae13f-2b65-4416-a2aa-e57ef38419a4)
+
+### Settings Tab
+Configure weight, heart rate zones, units, and advanced options.
+
+![Settings Tab](https://github.com/user-attachments/assets/6a428dea-120d-4bbf-8cef-06b5670e8122)
 
 ## Companion App
 
@@ -90,4 +90,6 @@ This project is inspired by and builds upon the work of the open source communit
 - [NimBLE](https://github.com/apache/mynewt-nimble) - Bluetooth stack
 
 
-NB: This was done purely as a hobby project for my own usage. Therefore it was also almost completly vibe coded. You are free to use or add on to it as you see fit but I cannot guarantee great code.
+## AI Disclaimer 
+
+This was done purely as a hobby project for my own usage. Therefore it was also almost completly vibe coded. You are free to use or add on to it as you see fit but I cannot guarantee great code.
