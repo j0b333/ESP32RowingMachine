@@ -1499,9 +1499,15 @@ static esp_err_t api_reboot_handler(httpd_req_t *req) {
 // Server-Sent Events (SSE) Support
 // ============================================================================
 
-// SSE client file descriptors (uses same limit as WebSocket)
+// SSE client structure to store both fd and async request handle
+typedef struct {
+    int fd;
+    httpd_req_t *async_req;
+} sse_client_t;
+
+// SSE client list
 #define MAX_SSE_CLIENTS MAX_STREAMING_CLIENTS
-static int g_sse_fds[MAX_SSE_CLIENTS] = {-1, -1, -1, -1, -1, -1, -1, -1};
+static sse_client_t g_sse_clients[MAX_SSE_CLIENTS];
 static SemaphoreHandle_t g_sse_mutex = NULL;
 
 // SSE mutex macros
@@ -1520,41 +1526,62 @@ static SemaphoreHandle_t g_sse_mutex = NULL;
     } while(0)
 
 /**
- * Add SSE client to list (thread-safe)
+ * Initialize SSE client list
  */
-static void sse_add_client(int fd) {
+static void sse_init_clients(void) {
+    for (int i = 0; i < MAX_SSE_CLIENTS; i++) {
+        g_sse_clients[i].fd = -1;
+        g_sse_clients[i].async_req = NULL;
+    }
+}
+
+/**
+ * Add SSE client to list (thread-safe)
+ * Stores both the fd and async request handle to keep connection alive
+ */
+static bool sse_add_client(int fd, httpd_req_t *async_req) {
     SSE_MUTEX_TAKE();
     for (int i = 0; i < MAX_SSE_CLIENTS; i++) {
-        if (g_sse_fds[i] < 0) {
-            g_sse_fds[i] = fd;
-            ESP_LOGI(TAG, "SSE client added: fd=%d", fd);
+        if (g_sse_clients[i].fd < 0) {
+            g_sse_clients[i].fd = fd;
+            g_sse_clients[i].async_req = async_req;
+            ESP_LOGI(TAG, "SSE client added: fd=%d, slot=%d", fd, i);
             SSE_MUTEX_GIVE();
-            return;
+            return true;
         }
     }
     SSE_MUTEX_GIVE();
     ESP_LOGW(TAG, "SSE client list full");
+    return false;
 }
 
 /**
- * Remove SSE client from list (thread-safe)
+ * Remove SSE client from list and complete async request (thread-safe)
  */
 static void sse_remove_client(int fd) {
+    httpd_req_t *async_req = NULL;
+    
     SSE_MUTEX_TAKE();
     for (int i = 0; i < MAX_SSE_CLIENTS; i++) {
-        if (g_sse_fds[i] == fd) {
-            g_sse_fds[i] = -1;
+        if (g_sse_clients[i].fd == fd) {
+            async_req = g_sse_clients[i].async_req;
+            g_sse_clients[i].fd = -1;
+            g_sse_clients[i].async_req = NULL;
             ESP_LOGI(TAG, "SSE client removed: fd=%d", fd);
-            SSE_MUTEX_GIVE();
-            return;
+            break;
         }
     }
     SSE_MUTEX_GIVE();
+    
+    // Complete the async request outside of mutex to avoid deadlock
+    if (async_req != NULL) {
+        httpd_req_async_handler_complete(async_req);
+    }
 }
 
 /**
  * SSE events endpoint handler
- * Sets up a persistent connection for server-sent events
+ * Uses async request handling to keep the connection alive for streaming
  */
 static esp_err_t sse_handler(httpd_req_t *req) {
     int fd = httpd_req_to_sockfd(req);
@@ -1563,28 +1590,40 @@ static esp_err_t sse_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
     
-    // Set SSE headers
+    // Create async copy of the request to keep connection alive
+    httpd_req_t *async_req = NULL;
+    esp_err_t ret = httpd_req_async_handler_begin(req, &async_req);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start async SSE handler: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    
+    // Set SSE headers and send initial response
     httpd_resp_set_type(req, "text/event-stream");
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
     httpd_resp_set_hdr(req, "Connection", "keep-alive");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     
-    // Send initial response to establish connection
-    // Note: We send an empty response to establish headers, then track the fd
+    // Send initial connection event
     const char *init_msg = "event: connected\ndata: {\"status\":\"connected\"}\n\n";
-    esp_err_t ret = httpd_resp_send_chunk(req, init_msg, strlen(init_msg));
+    ret = httpd_resp_send_chunk(req, init_msg, strlen(init_msg));
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to send SSE init: %s", esp_err_to_name(ret));
+        httpd_req_async_handler_complete(async_req);
         return ret;
     }
     
     // Add to SSE client list for broadcast
-    sse_add_client(fd);
+    if (!sse_add_client(fd, async_req)) {
+        // Client list full - complete the async request to close connection
+        httpd_req_async_handler_complete(async_req);
+        return ESP_FAIL;
+    }
     
     ESP_LOGI(TAG, "SSE connection established: fd=%d", fd);
     
-    // Return ESP_OK - httpd_resp_send_chunk() establishes a persistent connection
-    // with chunked transfer encoding, keeping the connection open for future data
+    // Return ESP_OK - the async request keeps the connection open
+    // The connection will be closed when sse_remove_client() is called
     return ESP_OK;
 }
 
@@ -2053,22 +2092,20 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     }
     
     // Reset SSE client list
-    for (int i = 0; i < MAX_SSE_CLIENTS; i++) {
-        g_sse_fds[i] = -1;
-    }
+    sse_init_clients();
     
     httpd_config_t http_config = HTTPD_DEFAULT_CONFIG();
     http_config.server_port = WEB_SERVER_PORT;
-    http_config.max_open_sockets = 8;    // Reduced from 12 to limit socket usage
+    http_config.max_open_sockets = 12;   // Increased for SSE async connections
     http_config.max_uri_handlers = 40;   // We have 30+ handlers, ensure enough slots
     http_config.lru_purge_enable = true; // Enable LRU purging of stale connections
     http_config.uri_match_fn = httpd_uri_match_wildcard;
     http_config.open_fn = ws_open_callback;
     http_config.close_fn = ws_close_callback;
-    http_config.recv_wait_timeout = 3;   // Reduced from 5 for faster cleanup
-    http_config.send_wait_timeout = 3;   // Reduced from 5 for faster cleanup
-    http_config.backlog_conn = 3;        // Reduced from 5 to limit pending connections
-    http_config.keep_alive_enable = false; // Disable keep-alive to free sockets faster
+    http_config.recv_wait_timeout = 5;   // Timeout for receiving data
+    http_config.send_wait_timeout = 5;   // Timeout for sending data
+    http_config.backlog_conn = 5;        // Pending connections in backlog
+    http_config.keep_alive_enable = true; // Enable keep-alive for SSE connections
     
     ESP_LOGI(TAG, "Starting web server on port %d (max %d URI handlers)", 
              http_config.server_port, http_config.max_uri_handlers);
@@ -2166,10 +2203,14 @@ void web_server_stop(void) {
     }
     WS_MUTEX_GIVE();
     
-    // Clean up SSE client list
+    // Clean up SSE client list (complete async requests)
     SSE_MUTEX_TAKE();
     for (int i = 0; i < MAX_SSE_CLIENTS; i++) {
-        g_sse_fds[i] = -1;
+        if (g_sse_clients[i].async_req != NULL) {
+            httpd_req_async_handler_complete(g_sse_clients[i].async_req);
+        }
+        g_sse_clients[i].fd = -1;
+        g_sse_clients[i].async_req = NULL;
     }
     SSE_MUTEX_GIVE();
     
@@ -2286,11 +2327,11 @@ esp_err_t web_server_broadcast_metrics(const rowing_metrics_t *metrics) {
     char sse_buffer[JSON_BUFFER_SIZE + 16];
     int sse_len = snprintf(sse_buffer, sizeof(sse_buffer), "data: %s\n\n", buffer);
     
-    // Take a snapshot of SSE clients
+    // Take a snapshot of SSE client fds
     int sse_fds_to_send[MAX_SSE_CLIENTS];
     SSE_MUTEX_TAKE();
     for (int i = 0; i < MAX_SSE_CLIENTS; i++) {
-        sse_fds_to_send[i] = g_sse_fds[i];
+        sse_fds_to_send[i] = g_sse_clients[i].fd;
     }
     SSE_MUTEX_GIVE();
     
@@ -2321,19 +2362,9 @@ esp_err_t web_server_broadcast_metrics(const rowing_metrics_t *metrics) {
         }
     }
     
-    // Remove dead SSE clients
-    if (sse_dead_count > 0) {
-        SSE_MUTEX_TAKE();
-        for (int d = 0; d < sse_dead_count; d++) {
-            for (int i = 0; i < MAX_SSE_CLIENTS; i++) {
-                if (g_sse_fds[i] == sse_dead_fds[d]) {
-                    g_sse_fds[i] = -1;
-                    ESP_LOGI(TAG, "Removed dead SSE client: fd=%d", sse_dead_fds[d]);
-                    break;
-                }
-            }
-        }
-        SSE_MUTEX_GIVE();
+    // Remove dead SSE clients (this also completes async requests)
+    for (int d = 0; d < sse_dead_count; d++) {
+        sse_remove_client(sse_dead_fds[d]);
     }
     
     return (sent_count > 0) ? ESP_OK : ESP_ERR_NOT_FOUND;
@@ -2362,7 +2393,7 @@ bool web_server_has_ws_clients(void) {
     // Check SSE clients
     SSE_MUTEX_TAKE();
     for (int i = 0; i < MAX_SSE_CLIENTS; i++) {
-        if (g_sse_fds[i] >= 0) {
+        if (g_sse_clients[i].fd >= 0) {
             has_clients = true;
             break;
         }
@@ -2388,7 +2419,7 @@ int web_server_get_connection_count(void) {
     
     SSE_MUTEX_TAKE();
     for (int i = 0; i < MAX_SSE_CLIENTS; i++) {
-        if (g_sse_fds[i] >= 0) {
+        if (g_sse_clients[i].fd >= 0) {
             count++;
         }
     }

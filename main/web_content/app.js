@@ -317,7 +317,7 @@ let eventSource = null;
 
 /**
  * Connect to Server-Sent Events (SSE) for real-time metrics
- * SSE is more stable on ESP32 than WebSocket
+ * Uses async request handling on ESP32 to keep connection alive
  */
 function connectSSE() {
     if (eventSource && eventSource.readyState !== EventSource.CLOSED) {
@@ -380,7 +380,7 @@ function connectSSE() {
 }
 
 /**
- * Connect to WebSocket (fallback if SSE not available)
+ * Connect to WebSocket for real-time metrics (fallback)
  */
 function connectWebSocket() {
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -1800,8 +1800,7 @@ function init() {
         }
     });
     
-    // Connect to SSE (preferred) for real-time metrics
-    // SSE is more stable on ESP32 than WebSocket
+    // Connect to SSE for real-time metrics (preferred over WebSocket)
     connectSSE();
     
     // Start polling as fallback (every 2 seconds)
