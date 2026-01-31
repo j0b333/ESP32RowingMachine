@@ -5,6 +5,7 @@
 
 #include "session_manager.h"
 #include "app_config.h"
+#include "web_server.h"
 
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -527,6 +528,12 @@ uint32_t session_manager_get_current_sample_count(void) {
 esp_err_t session_manager_check_activity(rowing_metrics_t *metrics, const config_t *config) {
     if (metrics == NULL || config == NULL) {
         return ESP_ERR_INVALID_ARG;
+    }
+    
+    // Skip auto-start/pause during inertia calibration
+    // Calibration requires flywheel activity but should not start a session
+    if (web_server_is_calibrating_inertia()) {
+        return ESP_OK;
     }
     
     // If auto-pause is disabled (0 seconds), don't do anything

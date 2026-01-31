@@ -120,40 +120,47 @@ static void sensor_processing_task(void *arg) {
             pdMS_TO_TICKS(100)  // 100ms timeout for idle check
         );
         
+        // Check calibration state once per iteration
+        bool is_calibrating = web_server_is_calibrating_inertia();
+        
         if (bits & FLYWHEEL_EVENT_BIT) {
             // Flywheel pulse detected - process physics
             int64_t pulse_time = g_last_flywheel_time_us;
             rowing_physics_process_flywheel_pulse(metrics, pulse_time);
             
             // Update inertia calibration if active
-            if (web_server_is_calibrating_inertia()) {
+            if (is_calibrating) {
                 web_server_update_inertia_calibration(metrics->angular_velocity_rad_s, pulse_time);
+            } else {
+                // Update stroke detection (skip during calibration)
+                stroke_detector_update(metrics);
             }
-            
-            // Update stroke detection
-            stroke_detector_update(metrics);
         }
         
         if (bits & SEAT_EVENT_BIT) {
-            // Seat trigger detected
-            stroke_detector_process_seat_trigger(metrics);
+            // Seat trigger detected (skip during calibration)
+            if (!is_calibrating) {
+                stroke_detector_process_seat_trigger(metrics);
+            }
         }
         
-        // Check for idle timeout
-        int64_t now = esp_timer_get_time();
-        int64_t time_since_last_pulse = now - g_last_flywheel_time_us;
-        
-        if (time_since_last_pulse > (IDLE_TIMEOUT_MS * 1000LL)) {
-            // Mark as idle
-            if (metrics->is_active) {
-                metrics->is_active = false;
-                metrics->current_phase = STROKE_PHASE_IDLE;
-                ESP_LOGI(TAG, "Rowing stopped (idle timeout)");
-            }
-        } else if (g_flywheel_pulse_count > 0) {
-            if (!metrics->is_active) {
-                metrics->is_active = true;
-                ESP_LOGI(TAG, "Rowing started");
+        // Check for idle timeout (skip during calibration)
+        if (!is_calibrating) {
+            int64_t now = esp_timer_get_time();
+            int64_t time_since_last_pulse = now - g_last_flywheel_time_us;
+            
+            if (time_since_last_pulse > (IDLE_TIMEOUT_MS * 1000LL)) {
+                // Mark as idle
+                if (metrics->is_active) {
+                    metrics->is_active = false;
+                    metrics->current_phase = STROKE_PHASE_IDLE;
+                    ESP_LOGI(TAG, "Rowing stopped (idle timeout)");
+                }
+            } else if (g_flywheel_pulse_count > 0) {
+                if (!metrics->is_active) {
+                    metrics->is_active = true;
+                    ESP_LOGI(TAG, "Rowing started");
+                }
             }
         }
         
