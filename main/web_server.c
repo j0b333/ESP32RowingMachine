@@ -39,8 +39,11 @@ static const char *TAG = "WEB_SERVER";
 // HTTP server handle
 static httpd_handle_t g_server = NULL;
 
+// Maximum number of streaming clients (shared for both WebSocket and SSE)
+#define MAX_STREAMING_CLIENTS 8
+
 // WebSocket file descriptors for connected clients
-#define MAX_WS_CLIENTS 8
+#define MAX_WS_CLIENTS MAX_STREAMING_CLIENTS
 static int g_ws_fds[MAX_WS_CLIENTS] = {-1, -1, -1, -1, -1, -1, -1, -1};
 
 // Mutex for thread-safe WebSocket client list access
@@ -1496,8 +1499,8 @@ static esp_err_t api_reboot_handler(httpd_req_t *req) {
 // Server-Sent Events (SSE) Support
 // ============================================================================
 
-// SSE client file descriptors
-#define MAX_SSE_CLIENTS 8
+// SSE client file descriptors (uses same limit as WebSocket)
+#define MAX_SSE_CLIENTS MAX_STREAMING_CLIENTS
 static int g_sse_fds[MAX_SSE_CLIENTS] = {-1, -1, -1, -1, -1, -1, -1, -1};
 static SemaphoreHandle_t g_sse_mutex = NULL;
 

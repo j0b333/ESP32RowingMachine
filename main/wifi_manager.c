@@ -970,6 +970,10 @@ void wifi_manager_init_sntp(void) {
     ESP_LOGI(TAG, "SNTP initialized, waiting for time sync...");
 }
 
+// Unix timestamp for January 1, 2020 00:00:00 UTC
+// Used to validate that SNTP time sync has completed successfully
+#define UNIX_TIMESTAMP_YEAR_2020 1577836800
+
 /**
  * Check if time has been synchronized via SNTP
  * @return true if time is synchronized and valid
@@ -978,8 +982,7 @@ bool wifi_manager_is_time_synced(void) {
     // Also verify that time() returns a reasonable value (after year 2020)
     if (s_time_synced) {
         time_t now = time(NULL);
-        // Year 2020 in Unix timestamp is approximately 1577836800
-        return now > 1577836800;
+        return now > UNIX_TIMESTAMP_YEAR_2020;
     }
     return false;
 }
