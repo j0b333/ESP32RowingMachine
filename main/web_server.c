@@ -32,6 +32,7 @@
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <errno.h>
 
 static const char *TAG = "WEB_SERVER";
@@ -1581,7 +1582,7 @@ static void sse_remove_client(int fd) {
 
 /**
  * SSE events endpoint handler
- * Uses async request handling to keep the connection alive for streaming
+ * Uses raw socket writes for proper SSE streaming
  */
 static esp_err_t sse_handler(httpd_req_t *req) {
     int fd = httpd_req_to_sockfd(req);
@@ -1598,19 +1599,45 @@ static esp_err_t sse_handler(httpd_req_t *req) {
         return ret;
     }
     
-    // Set SSE headers and send initial response
-    httpd_resp_set_type(req, "text/event-stream");
-    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
-    httpd_resp_set_hdr(req, "Connection", "keep-alive");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    // Set socket options to keep the connection alive
+    int keep_alive = 1;
+    int keep_idle = 60;     // Start keepalive after 60 seconds of idle
+    int keep_interval = 10; // Send keepalive every 10 seconds
+    int keep_count = 5;     // Close after 5 failed keepalives
+    
+    setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keep_alive, sizeof(keep_alive));
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &keep_idle, sizeof(keep_idle));
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &keep_interval, sizeof(keep_interval));
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &keep_count, sizeof(keep_count));
+    
+    // Disable Nagle's algorithm for lower latency SSE
+    int nodelay = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+    
+    // Send raw HTTP response headers for SSE
+    // This bypasses httpd's response handling which would close the connection
+    const char *http_headers = 
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/event-stream\r\n"
+        "Cache-Control: no-cache\r\n"
+        "Connection: keep-alive\r\n"
+        "Access-Control-Allow-Origin: *\r\n"
+        "\r\n";
+    
+    int written = send(fd, http_headers, strlen(http_headers), 0);
+    if (written < 0) {
+        ESP_LOGE(TAG, "Failed to send SSE headers for fd=%d: errno %d", fd, errno);
+        httpd_req_async_handler_complete(async_req);
+        return ESP_FAIL;
+    }
     
     // Send initial connection event
     const char *init_msg = "event: connected\ndata: {\"status\":\"connected\"}\n\n";
-    ret = httpd_resp_send_chunk(req, init_msg, strlen(init_msg));
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to send SSE init for fd=%d: %s", fd, esp_err_to_name(ret));
+    written = send(fd, init_msg, strlen(init_msg), 0);
+    if (written < 0) {
+        ESP_LOGE(TAG, "Failed to send SSE init for fd=%d: errno %d", fd, errno);
         httpd_req_async_handler_complete(async_req);
-        return ret;
+        return ESP_FAIL;
     }
     
     // Add to SSE client list for broadcast
@@ -2097,14 +2124,14 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     
     httpd_config_t http_config = HTTPD_DEFAULT_CONFIG();
     http_config.server_port = WEB_SERVER_PORT;
-    http_config.max_open_sockets = 12;   // Increased for SSE async connections
+    http_config.max_open_sockets = 16;   // Increased for SSE persistent connections
     http_config.max_uri_handlers = 40;   // We have 30+ handlers, ensure enough slots
-    http_config.lru_purge_enable = true; // Enable LRU purging of stale connections
+    http_config.lru_purge_enable = false; // Disable LRU purging - SSE connections must stay open
     http_config.uri_match_fn = httpd_uri_match_wildcard;
     http_config.open_fn = ws_open_callback;
     http_config.close_fn = ws_close_callback;
-    http_config.recv_wait_timeout = 5;   // Timeout for receiving data
-    http_config.send_wait_timeout = 5;   // Timeout for sending data
+    http_config.recv_wait_timeout = 30;  // Increased timeout for SSE (30 seconds)
+    http_config.send_wait_timeout = 30;  // Increased timeout for SSE (30 seconds)
     http_config.backlog_conn = 5;        // Pending connections in backlog
     http_config.keep_alive_enable = true; // Enable keep-alive for SSE connections
     
