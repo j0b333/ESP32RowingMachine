@@ -2144,7 +2144,9 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     http_config.server_port = WEB_SERVER_PORT;
     http_config.max_open_sockets = 10;   // Max allowed is 13 minus 3 internal = 10 for app use
     http_config.max_uri_handlers = 41;   // We have 30+ handlers + 1 for PUT synced, ensure enough slots
-    http_config.lru_purge_enable = true; // Enable LRU purging to clean up stale connections
+    // Enable LRU purging to clean up stale connections when socket limit is reached.
+    // Active SSE/WebSocket connections with recent activity are protected from purging.
+    http_config.lru_purge_enable = true;
     http_config.uri_match_fn = httpd_uri_match_wildcard;
     http_config.open_fn = ws_open_callback;
     http_config.close_fn = ws_close_callback;
