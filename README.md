@@ -4,11 +4,11 @@ A smart rowing machine monitor firmware for ESP32-S3 that transforms a rowing ma
 
 ## Features
 
-- 📱 **Bluetooth FTMS** - Works with Kinomap, EXR, MyHomeFit, and other fitness apps
-- 🌐 **Web Interface** - Real-time metrics via WiFi on any browser
-- ❤️ **Heart Rate Support** - Connects to BLE heart rate monitors
-- 📊 **Accurate Metrics** - Physics-based power, pace, and distance calculations
-- 💾 **Session Storage** - Saves workouts with full data for later sync
+-  **Bluetooth FTMS** - Works with Kinomap, EXR, MyHomeFit, and other fitness apps
+-  **Web Interface** - Real-time metrics via WiFi on any browser
+-  **Heart Rate Support** - Connects to BLE heart rate monitors
+-  **Accurate Metrics** - Physics-based power, pace, and distance calculations
+-  **Session Storage** - Saves workouts with full data for later sync
 
 ## Quick Start
 
@@ -36,6 +36,7 @@ idf.py -p /dev/ttyUSB0 flash monitor
 
 1. Connect to WiFi: **CrivitRower** (password: `rowing123`)
 2. Open browser: **http://192.168.4.1**
+3. Connect it to your local wireless network or use it directly using http://rower.local
 3. Start rowing!
 
 ## Documentation
@@ -65,3 +66,6 @@ This project is inspired by and builds upon the work of the open source communit
 - [OpenRowingMonitor](https://github.com/JaapvanEkwortel/openrowingmonitor) - Physics algorithms
 - [ESP-IDF](https://github.com/espressif/esp-idf) - Espressif IoT Development Framework
 - [NimBLE](https://github.com/apache/mynewt-nimble) - Bluetooth stack
+
+
+NB: This was done purely as a hobby project for my own usage. Therefore it was also almost completly vibe coded. You are free to use or add on to it as you see fit but I cannot guarantee great code.
