@@ -1982,7 +1982,7 @@ static const httpd_uri_t uri_api_session_delete = {
 };
 
 static const httpd_uri_t uri_api_session_synced = {
-    .uri = "/api/sessions/*/synced",
+    .uri = "/api/sessions/*",  // Wildcard must be at end for httpd_uri_match_wildcard
     .method = HTTP_POST,
     .handler = api_session_synced_handler,
     .user_ctx = NULL
@@ -1990,7 +1990,7 @@ static const httpd_uri_t uri_api_session_synced = {
 
 // PUT handler for synced - companion app uses PUT instead of POST
 static const httpd_uri_t uri_api_session_synced_put = {
-    .uri = "/api/sessions/*/synced",
+    .uri = "/api/sessions/*",  // Wildcard must be at end for httpd_uri_match_wildcard
     .method = HTTP_PUT,
     .handler = api_session_synced_handler,
     .user_ctx = NULL
@@ -2200,8 +2200,8 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     // NOTE: Order matters! More specific routes must come before wildcards
     REGISTER_URI(uri_api_sessions);                  // GET /api/sessions (exact)
     REGISTER_URI(uri_api_sessions_delete_synced);    // DELETE /api/sessions/synced (specific)
-    REGISTER_URI(uri_api_session_synced);            // POST /api/sessions/*/synced (specific with ID)
-    REGISTER_URI(uri_api_session_synced_put);        // PUT /api/sessions/*/synced (companion app compatibility)
+    REGISTER_URI(uri_api_session_synced);            // POST /api/sessions/* - handler validates /synced suffix
+    REGISTER_URI(uri_api_session_synced_put);        // PUT /api/sessions/* - handler validates /synced suffix
     REGISTER_URI(uri_api_session_detail);            // GET /api/sessions/* (wildcard)
     REGISTER_URI(uri_api_session_delete);            // DELETE /api/sessions/* (wildcard)
     
