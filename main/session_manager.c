@@ -34,6 +34,7 @@ static uint32_t s_current_session_id = 0;
 static int64_t s_session_start_time = 0;         // esp_timer value for elapsed time calculation
 static int64_t s_session_start_unix_ms = 0;      // Unix epoch timestamp in milliseconds
 static uint32_t s_session_count = 0;
+static uint32_t s_stroke_count_at_resume = 0;    // Stroke count when session started/resumed (for auto-pause)
 
 // Sample buffer for current session
 static sample_data_t *s_sample_buffer = NULL;
@@ -109,6 +110,9 @@ esp_err_t session_manager_start_session(rowing_metrics_t *metrics) {
     s_max_heart_rate = 0;
     s_stroke_rate_sum = 0;
     s_stroke_rate_samples = 0;
+    
+    // Track stroke count at session start for auto-pause logic
+    s_stroke_count_at_resume = metrics->stroke_count;
     
     // Set session start time and un-pause
     metrics->session_start_time_us = s_session_start_time;
@@ -545,6 +549,11 @@ uint32_t session_manager_get_current_sample_count(void) {
 /**
  * Handle auto-start and auto-pause based on flywheel activity
  * Call this periodically from the metrics update task
+ * 
+ * Robustness improvements:
+ * - Require at least one completed stroke before auto-starting (not just flywheel pulses)
+ * - Track stroke count at session start/resume to detect genuine activity
+ * - Auto-pause if no new strokes have occurred since resume
  */
 esp_err_t session_manager_check_activity(rowing_metrics_t *metrics, const config_t *config) {
     if (metrics == NULL || config == NULL) {
@@ -565,35 +574,38 @@ esp_err_t session_manager_check_activity(rowing_metrics_t *metrics, const config
     int64_t now = esp_timer_get_time();
     int32_t auto_pause_timeout_ms = (int32_t)config->auto_pause_seconds * 1000;
     
-    // Use last drive phase detection (last_stroke_start_time_us) instead of flywheel pulse
-    // This is more meaningful for detecting actual rowing activity vs just wheel spinning
+    // Use last stroke start time for detecting activity
+    // This requires an actual drive phase, not just random flywheel movement
     int64_t last_activity_time = metrics->last_stroke_start_time_us;
     
-    // If no stroke yet but flywheel is moving, use flywheel time for initial detection
-    if (last_activity_time == 0 && metrics->last_flywheel_time_us > 0) {
-        last_activity_time = metrics->last_flywheel_time_us;
+    // Check if there's recent rowing activity (drive phase detected recently)
+    // If last_activity_time is 0, there's never been activity
+    bool has_recent_activity = false;
+    int64_t time_since_activity_ms = 0;
+    if (last_activity_time > 0) {
+        time_since_activity_ms = (now - last_activity_time) / 1000;
+        has_recent_activity = (time_since_activity_ms < auto_pause_timeout_ms);
     }
     
-    int64_t time_since_activity_ms = (now - last_activity_time) / 1000;
-    
-    // Check if there's recent rowing activity
-    bool has_activity = (time_since_activity_ms < auto_pause_timeout_ms) && 
-                        (last_activity_time > 0);
+    // For auto-start, require at least one completed stroke to avoid spurious starts
+    // A completed stroke means stroke_count > 0, which requires going through drive and recovery phases
+    bool has_completed_stroke = (metrics->stroke_count > 0);
     
     // Current state
     bool session_active = (s_current_session_id > 0);
     bool is_paused = metrics->is_paused;
     
-    if (has_activity) {
-        // Flywheel is active
+    if (has_recent_activity && has_completed_stroke) {
+        // Genuine rowing activity detected (completed stroke + recent activity)
         if (!session_active) {
             // No session yet - auto-start a new session
-            ESP_LOGI(TAG, "Auto-starting session (drive phase detected)");
+            ESP_LOGI(TAG, "Auto-starting session (stroke #%lu detected)", (unsigned long)metrics->stroke_count);
             session_manager_start_session(metrics);
+            s_stroke_count_at_resume = metrics->stroke_count;  // Track stroke count at start
             metrics->is_paused = false;
         } else if (is_paused) {
             // Session exists but is paused - auto-resume
-            ESP_LOGI(TAG, "Auto-resuming session (drive phase detected)");
+            ESP_LOGI(TAG, "Auto-resuming session (stroke #%lu detected)", (unsigned long)metrics->stroke_count);
             
             // Calculate pause duration and add to total
             if (metrics->pause_start_time_us > 0) {
@@ -608,18 +620,27 @@ esp_err_t session_manager_check_activity(rowing_metrics_t *metrics, const config
                 metrics->session_start_time_us = now;
             }
             
+            s_stroke_count_at_resume = metrics->stroke_count;  // Track stroke count at resume
             metrics->is_paused = false;
             metrics->pause_start_time_us = 0;
-            metrics->last_resume_time_us = now;  // Track when we resumed
+            metrics->last_resume_time_us = now;
         }
-    } else {
-        // No rowing activity
-        // Only auto-pause if: session active, not already paused, 
-        // AND there was activity AFTER the last resume (not just old strokes)
-        bool had_activity_since_resume = (last_activity_time > metrics->last_resume_time_us);
-        if (session_active && !is_paused && had_activity_since_resume) {
+    } else if (!has_recent_activity) {
+        // No recent activity (timeout exceeded)
+        // Auto-pause if: session active, not already paused, and strokes occurred since last resume
+        bool had_strokes_since_resume = (metrics->stroke_count > s_stroke_count_at_resume);
+        if (session_active && !is_paused && had_strokes_since_resume) {
             // Session is running but no activity - auto-pause
-            ESP_LOGI(TAG, "Auto-pausing session (no drive phase for %ld ms)", (long)auto_pause_timeout_ms);
+            ESP_LOGI(TAG, "Auto-pausing session (idle for %lld ms, strokes: %lu->%lu)", 
+                     (long long)time_since_activity_ms,
+                     (unsigned long)s_stroke_count_at_resume,
+                     (unsigned long)metrics->stroke_count);
+            metrics->is_paused = true;
+            metrics->pause_start_time_us = now;
+        } else if (session_active && !is_paused && !had_strokes_since_resume) {
+            // Session started but no strokes completed since resume - this was likely a spurious start
+            // Auto-pause immediately to stop the timer
+            ESP_LOGI(TAG, "Auto-pausing session (no completed strokes since start/resume)");
             metrics->is_paused = true;
             metrics->pause_start_time_us = now;
         }
