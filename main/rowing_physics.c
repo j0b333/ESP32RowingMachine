@@ -502,10 +502,22 @@ bool rowing_physics_update_inertia_calibration(inertia_calibration_t *calibratio
                     float spindown_time_sec = (float)(current_time_us - calibration->peak_time_us) / 1000000.0f;
                     float k = calibration->drag_coefficient_used;
                     float omega0 = calibration->peak_velocity_rad_s;
+                    float omega_final = SPINDOWN_STOP_VELOCITY;
                     
-                    // Simplified inertia calculation: I = k × ω₀ × Δt
-                    // This is derived from the drag equation: I × dω/dt = -k × ω²
-                    calibration->calculated_inertia = k * omega0 * spindown_time_sec;
+                    // Correct inertia calculation for quadratic drag
+                    // From differential equation: I × dω/dt = -k × ω²
+                    // Solution: I = k × Δt / (1/ω_f - 1/ω₀)
+                    // This accounts for the non-linear deceleration under quadratic drag
+                    // 
+                    // Physical validity check: omega_final must be less than omega0
+                    // (the flywheel must have slowed down during spindown)
+                    if (omega_final < omega0 && omega0 > 0 && omega_final > 0) {
+                        float denominator = (1.0f / omega_final) - (1.0f / omega0);
+                        calibration->calculated_inertia = k * spindown_time_sec / denominator;
+                    } else {
+                        // Invalid deceleration - shouldn't happen with valid calibration
+                        calibration->calculated_inertia = 0;
+                    }
                     
                     // Sanity check the result (typical range 0.05 - 0.20)
                     if (calibration->calculated_inertia >= 0.01f && calibration->calculated_inertia <= 1.0f) {

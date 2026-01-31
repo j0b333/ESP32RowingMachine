@@ -7,6 +7,11 @@ let ws = null;
 let reconnectTimeout = null;
 let isConnected = false;
 
+// Global config object for settings like max heart rate
+let config = {
+    maxHR: 190  // Default max heart rate, will be loaded from server
+};
+
 // Screen Wake Lock to keep the screen awake
 let wakeLock = null;
 
@@ -544,6 +549,9 @@ async function loadSettings() {
         elements.showPower.checked = data.showPower !== false;
         elements.showCalories.checked = data.showCalories !== false;
         elements.autoPause.value = data.autoPauseSeconds !== undefined ? data.autoPauseSeconds : 5;
+        
+        // Update global config for HR chart zones
+        config.maxHR = data.maxHeartRate || 190;
     } catch (e) {
         console.error('Failed to load settings:', e);
     }
@@ -593,6 +601,9 @@ async function saveSettings(event) {
         if (data.success) {
             console.log('Settings saved');
             showSettingsFeedback('Settings saved successfully!', true);
+            
+            // Update global config for HR chart zones
+            config.maxHR = settings.maxHeartRate;
         }
     } catch (e) {
         console.error('Failed to save settings:', e);
@@ -1048,7 +1059,7 @@ async function showWorkoutCharts(session) {
         
         // For HR charts, ensure zones are visible
         if (isHRChart) {
-            const maxHR = config.maxHR || 200;
+            const maxHR = config.maxHR || 190;
             minVal = Math.min(minVal, maxHR * 0.5);  // Show from zone 1
             maxVal = Math.max(maxVal, maxHR);
             
@@ -1140,11 +1151,19 @@ async function showWorkoutCharts(session) {
         if (response.ok) {
             const data = await response.json();
             
+            // Extract values from Health Connect format arrays
+            // Convert speedSamples (metersPerSecond) to pace (seconds per 500m)
+            const paceValues = (data.speedSamples || []).map(s => 
+                s.metersPerSecond > 0 ? 500 / s.metersPerSecond : 0
+            );
+            const powerValues = (data.powerSamples || []).map(s => s.watts);
+            const hrValues = (data.heartRateSamples || []).map(s => s.bpm);
+            
             // Draw charts with actual sample data (SPM removed - not stored per-second)
             setTimeout(() => {
-                drawSampleChart('modal-chart-pace', data.paceSamples, data.avgPace, 'Pace', '#16d9e3', formatPace);
-                drawSampleChart('modal-chart-power', data.powerSamplesArray, data.avgPower, 'Power', '#96fbc4', v => Math.round(v) + ' W');
-                drawSampleChart('modal-chart-hr', data.hrSamples, data.avgHeartRate || 0, 'HR', '#e94560', v => v > 0 ? Math.round(v) + ' bpm' : '-- bpm', true);
+                drawSampleChart('modal-chart-pace', paceValues, data.avgPace, 'Pace', '#16d9e3', formatPace);
+                drawSampleChart('modal-chart-power', powerValues, data.avgPower, 'Power', '#96fbc4', v => Math.round(v) + ' W');
+                drawSampleChart('modal-chart-hr', hrValues, data.avgHeartRate || 0, 'HR', '#e94560', v => v > 0 ? Math.round(v) + ' bpm' : '-- bpm', true);
             }, 50);
         } else {
             throw new Error('Failed to fetch session');
@@ -1478,7 +1497,7 @@ function renderChart(canvasId, dataArray, timestamps, color, target = null, inve
     
     // Draw HR zone bands if this is an HR chart
     if (isHRChart) {
-        const maxHR = config.maxHR || 200;
+        const maxHR = config.maxHR || 190;
         // HR Zones (% of max HR) with colors
         const hrZones = [
             { min: 0.50, max: 0.60, color: 'rgba(128, 128, 128, 0.3)', label: 'Z1' },  // Gray - Recovery

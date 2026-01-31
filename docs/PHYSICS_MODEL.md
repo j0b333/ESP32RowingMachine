@@ -77,17 +77,12 @@ By measuring:
 - Time to coast down (Δt)
 - Known drag coefficient (k)
 
-We calculate:
+For quadratic drag (τ = -k × ω²), the exact formula is:
 ```
-I = k × ω₀ × Δt / ln(ω₀/ω_final)
-```
-
-In practice, we use a simplified model:
-```
-I = k × ω₀ × Δt
+I = k × Δt / (1/ω_final - 1/ω₀)
 ```
 
-This typically produces values in the range of 0.05 - 0.15 kg⋅m² for most rowing ergometers.
+This accounts for the non-linear deceleration under quadratic drag and typically produces values in the range of 0.05 - 0.15 kg⋅m² for most rowing ergometers.
 
 #### Method 2: Geometric Estimation
 
