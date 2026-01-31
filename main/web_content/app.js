@@ -952,7 +952,9 @@ async function loadWorkoutHistory() {
             
             const avgHr = session.avgHeartRate ? Math.round(session.avgHeartRate) + ' bpm' : '-- bpm';
             const maxHr = session.maxHeartRate ? Math.round(session.maxHeartRate) + ' bpm' : '-- bpm';
-            const syncBadge = session.synced ? '<span class="sync-badge">✓ Synced</span>' : '';
+            const syncBadge = session.synced 
+                ? '<span class="sync-badge synced">✓ Synced</span>' 
+                : '<span class="sync-badge not-synced">○ Not synced</span>';
             
             item.innerHTML = `
                 <div class="history-item-header">
