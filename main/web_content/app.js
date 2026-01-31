@@ -312,8 +312,75 @@ function updateHeartRate(data) {
     }
 }
 
+// Server-Sent Events connection
+let eventSource = null;
+
 /**
- * Connect to WebSocket
+ * Connect to Server-Sent Events (SSE) for real-time metrics
+ * Uses async request handling on ESP32 to keep connection alive
+ */
+function connectSSE() {
+    if (eventSource && eventSource.readyState !== EventSource.CLOSED) {
+        return;
+    }
+    
+    const sseUrl = `${window.location.origin}/events`;
+    console.log('Connecting to SSE:', sseUrl);
+    
+    try {
+        eventSource = new EventSource(sseUrl);
+        
+        eventSource.onopen = () => {
+            console.log('SSE connected');
+            isConnected = true;
+            elements.connectionStatus.textContent = 'Connected';
+            
+            if (reconnectTimeout) {
+                clearTimeout(reconnectTimeout);
+                reconnectTimeout = null;
+            }
+        };
+        
+        eventSource.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                updateMetrics(data);
+            } catch (e) {
+                console.error('Error parsing SSE message:', e);
+            }
+        };
+        
+        eventSource.onerror = (error) => {
+            console.error('SSE error:', error);
+            isConnected = false;
+            elements.connectionStatus.textContent = 'Disconnected';
+            eventSource.close();
+            eventSource = null;
+            
+            // Attempt to reconnect after delay
+            if (!reconnectTimeout) {
+                reconnectTimeout = setTimeout(() => {
+                    reconnectTimeout = null;
+                    connectSSE();
+                }, 3000);
+            }
+        };
+        
+    } catch (e) {
+        console.error('SSE connection failed:', e);
+        
+        // Attempt to reconnect after delay
+        if (!reconnectTimeout) {
+            reconnectTimeout = setTimeout(() => {
+                reconnectTimeout = null;
+                connectSSE();
+            }, 3000);
+        }
+    }
+}
+
+/**
+ * Connect to WebSocket for real-time metrics (fallback)
  */
 function connectWebSocket() {
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -820,15 +887,18 @@ function formatDuration(seconds) {
 }
 
 /**
- * Format date from timestamp
+ * Format date from Unix epoch milliseconds timestamp
+ * The ESP32 now provides timestamps in Unix epoch milliseconds when SNTP is synced
  */
 function formatDate(timestamp) {
-    // If timestamp is in microseconds (ESP32 format uses microseconds), convert to milliseconds
-    // Microsecond timestamps are around 1.7e15, millisecond timestamps are around 1.7e12
-    const ms = timestamp > 1e15 ? timestamp / 1000 : timestamp;
+    // timestamp is now expected to be Unix epoch milliseconds
+    // Unix epoch ms for year 2020 is approximately 1.577e12
+    // Uptime-based timestamps would be much smaller (< 1e12 for < 11 days uptime)
+    
+    let ms = timestamp;
     const date = new Date(ms);
     
-    // If the date is invalid or before 2020, it's likely an ESP32 uptime timestamp
+    // If the date is invalid or before 2020, it's likely an ESP32 uptime timestamp (not synced)
     if (isNaN(date.getTime()) || date.getFullYear() < 2020) {
         return 'Session';
     }
@@ -878,7 +948,9 @@ async function loadWorkoutHistory() {
             
             const avgHr = session.avgHeartRate ? Math.round(session.avgHeartRate) + ' bpm' : '-- bpm';
             const maxHr = session.maxHeartRate ? Math.round(session.maxHeartRate) + ' bpm' : '-- bpm';
-            const syncBadge = session.synced ? '<span class="sync-badge">✓ Synced</span>' : '';
+            const syncBadge = session.synced 
+                ? '<span class="sync-badge synced">✓ Synced</span>' 
+                : '<span class="sync-badge not-synced">○ Not synced</span>';
             
             item.innerHTML = `
                 <div class="history-item-header">
@@ -1663,11 +1735,11 @@ function renderChart(canvasId, dataArray, timestamps, color, target = null, inve
 }
 
 /**
- * Poll metrics via REST API (fallback when WebSocket unavailable)
+ * Poll metrics via REST API (fallback when SSE/WebSocket unavailable)
  */
 async function pollMetrics() {
     if (isConnected) {
-        return;  // WebSocket is active, no need to poll
+        return;  // SSE or WebSocket is active, no need to poll
     }
     
     try {
@@ -1728,8 +1800,8 @@ function init() {
         }
     });
     
-    // Connect to WebSocket
-    connectWebSocket();
+    // Connect to SSE for real-time metrics (preferred over WebSocket)
+    connectSSE();
     
     // Start polling as fallback (every 2 seconds)
     setInterval(pollMetrics, 2000);

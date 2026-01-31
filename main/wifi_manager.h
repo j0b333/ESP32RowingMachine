@@ -117,4 +117,22 @@ int wifi_manager_scan(wifi_ap_record_t *ap_records, uint16_t max_records);
  */
 wifi_operating_mode_t wifi_manager_get_mode(void);
 
+/**
+ * Initialize SNTP time synchronization
+ * Call this after successful WiFi STA connection to synchronize time
+ */
+void wifi_manager_init_sntp(void);
+
+/**
+ * Check if time has been synchronized via SNTP
+ * @return true if time is synchronized and valid
+ */
+bool wifi_manager_is_time_synced(void);
+
+/**
+ * Get current Unix time in milliseconds
+ * @return Unix timestamp in milliseconds, or 0 if time not synced
+ */
+int64_t wifi_manager_get_unix_time_ms(void);
+
 #endif // WIFI_MANAGER_H
