@@ -1988,6 +1988,14 @@ static const httpd_uri_t uri_api_session_synced = {
     .user_ctx = NULL
 };
 
+// PUT handler for synced - companion app uses PUT instead of POST
+static const httpd_uri_t uri_api_session_synced_put = {
+    .uri = "/api/sessions/*/synced",
+    .method = HTTP_PUT,
+    .handler = api_session_synced_handler,
+    .user_ctx = NULL
+};
+
 static const httpd_uri_t uri_api_sessions_delete_synced = {
     .uri = "/api/sessions/synced",
     .method = HTTP_DELETE,
@@ -2135,8 +2143,8 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     httpd_config_t http_config = HTTPD_DEFAULT_CONFIG();
     http_config.server_port = WEB_SERVER_PORT;
     http_config.max_open_sockets = 10;   // Max allowed is 13 minus 3 internal = 10 for app use
-    http_config.max_uri_handlers = 40;   // We have 30+ handlers, ensure enough slots
-    http_config.lru_purge_enable = false; // Disable LRU purging - SSE connections must stay open
+    http_config.max_uri_handlers = 41;   // We have 30+ handlers + 1 for PUT synced, ensure enough slots
+    http_config.lru_purge_enable = true; // Enable LRU purging to clean up stale connections
     http_config.uri_match_fn = httpd_uri_match_wildcard;
     http_config.open_fn = ws_open_callback;
     http_config.close_fn = ws_close_callback;
@@ -2191,6 +2199,7 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     REGISTER_URI(uri_api_sessions);                  // GET /api/sessions (exact)
     REGISTER_URI(uri_api_sessions_delete_synced);    // DELETE /api/sessions/synced (specific)
     REGISTER_URI(uri_api_session_synced);            // POST /api/sessions/*/synced (specific with ID)
+    REGISTER_URI(uri_api_session_synced_put);        // PUT /api/sessions/*/synced (companion app compatibility)
     REGISTER_URI(uri_api_session_detail);            // GET /api/sessions/* (wildcard)
     REGISTER_URI(uri_api_session_delete);            // DELETE /api/sessions/* (wildcard)
     
