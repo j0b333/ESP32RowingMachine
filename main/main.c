@@ -372,12 +372,7 @@ void app_main(void) {
                      (unsigned long)utils_get_min_free_heap());
         }
         
-        // Periodic memory check
-        if (loop_counter % 6 == 0) {  // Every minute
-            ESP_LOGI(TAG, "Memory: free=%lu, min=%lu",
-                     (unsigned long)utils_get_free_heap(),
-                     (unsigned long)utils_get_min_free_heap());
-        }
+
     }
     
     // Cleanup (if we ever exit the loop)
