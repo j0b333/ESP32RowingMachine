@@ -1605,14 +1605,24 @@ static esp_err_t sse_handler(httpd_req_t *req) {
     int keep_interval = 10; // Send keepalive every 10 seconds
     int keep_count = 5;     // Close after 5 failed keepalives
     
-    setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keep_alive, sizeof(keep_alive));
-    setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &keep_idle, sizeof(keep_idle));
-    setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &keep_interval, sizeof(keep_interval));
-    setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &keep_count, sizeof(keep_count));
+    if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &keep_alive, sizeof(keep_alive)) < 0) {
+        ESP_LOGW(TAG, "Failed to set SO_KEEPALIVE for SSE fd=%d: errno %d", fd, errno);
+    }
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &keep_idle, sizeof(keep_idle)) < 0) {
+        ESP_LOGW(TAG, "Failed to set TCP_KEEPIDLE for SSE fd=%d: errno %d", fd, errno);
+    }
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &keep_interval, sizeof(keep_interval)) < 0) {
+        ESP_LOGW(TAG, "Failed to set TCP_KEEPINTVL for SSE fd=%d: errno %d", fd, errno);
+    }
+    if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &keep_count, sizeof(keep_count)) < 0) {
+        ESP_LOGW(TAG, "Failed to set TCP_KEEPCNT for SSE fd=%d: errno %d", fd, errno);
+    }
     
     // Disable Nagle's algorithm for lower latency SSE
     int nodelay = 1;
-    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay)) < 0) {
+        ESP_LOGW(TAG, "Failed to set TCP_NODELAY for SSE fd=%d: errno %d", fd, errno);
+    }
     
     // Send raw HTTP response headers for SSE
     // This bypasses httpd's response handling which would close the connection
