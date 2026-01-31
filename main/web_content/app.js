@@ -1440,7 +1440,9 @@ function resizeCharts() {
     canvases.forEach(canvas => {
         const container = canvas.parentElement;
         const dpr = window.devicePixelRatio || 1;
-        const rect = canvas.getBoundingClientRect();  // Get canvas rect directly
+        // In landscape, canvas shares space with header in a flex container,
+        // so use the canvas rect directly to get its actual computed width
+        const rect = canvas.getBoundingClientRect();
         
         // In landscape, canvas shares space with header, so use its actual computed width
         const canvasWidth = rect.width > 0 ? rect.width : container.getBoundingClientRect().width;
