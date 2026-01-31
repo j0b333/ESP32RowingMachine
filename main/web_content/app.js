@@ -1434,15 +1434,23 @@ function initCharts() {
  */
 function resizeCharts() {
     const canvases = document.querySelectorAll('.chart-canvas');
+    const chartHeight = Math.round(window.innerHeight * 0.25);  // 25% of viewport height
+    const isLandscape = window.innerWidth > window.innerHeight;
+    
     canvases.forEach(canvas => {
         const container = canvas.parentElement;
         const dpr = window.devicePixelRatio || 1;
-        const rect = container.getBoundingClientRect();
+        // In landscape, canvas shares space with header in a flex container,
+        // so use the canvas rect directly to get its actual computed width
+        const rect = canvas.getBoundingClientRect();
         
-        canvas.width = rect.width * dpr;
-        canvas.height = 120 * dpr;
-        canvas.style.width = rect.width + 'px';
-        canvas.style.height = '120px';
+        // In landscape, canvas shares space with header, so use its actual computed width
+        const canvasWidth = rect.width > 0 ? rect.width : container.getBoundingClientRect().width;
+        
+        canvas.width = canvasWidth * dpr;
+        canvas.height = chartHeight * dpr;
+        canvas.style.width = canvasWidth + 'px';
+        canvas.style.height = chartHeight + 'px';
         
         const ctx = canvas.getContext('2d');
         ctx.scale(dpr, dpr);
