@@ -1594,7 +1594,7 @@ static esp_err_t sse_handler(httpd_req_t *req) {
     httpd_req_t *async_req = NULL;
     esp_err_t ret = httpd_req_async_handler_begin(req, &async_req);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to start async SSE handler: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to start async SSE handler for fd=%d: %s", fd, esp_err_to_name(ret));
         return ret;
     }
     
@@ -1608,7 +1608,7 @@ static esp_err_t sse_handler(httpd_req_t *req) {
     const char *init_msg = "event: connected\ndata: {\"status\":\"connected\"}\n\n";
     ret = httpd_resp_send_chunk(req, init_msg, strlen(init_msg));
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to send SSE init: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to send SSE init for fd=%d: %s", fd, esp_err_to_name(ret));
         httpd_req_async_handler_complete(async_req);
         return ret;
     }
@@ -1616,6 +1616,7 @@ static esp_err_t sse_handler(httpd_req_t *req) {
     // Add to SSE client list for broadcast
     if (!sse_add_client(fd, async_req)) {
         // Client list full - complete the async request to close connection
+        ESP_LOGW(TAG, "Rejecting SSE connection for fd=%d: client list full", fd);
         httpd_req_async_handler_complete(async_req);
         return ESP_FAIL;
     }
