@@ -35,6 +35,7 @@ void rowing_physics_init(rowing_metrics_t *metrics, const config_t *config) {
     metrics->best_pace_sec_500m = 999999.0f;  // Initialize to "infinite" pace
     metrics->valid_data = false;
     metrics->is_active = false;
+    metrics->is_paused = true;  // Start in paused state until session starts
     metrics->calibration_complete = false;
     
     ESP_LOGI(TAG, "Physics engine initialized");

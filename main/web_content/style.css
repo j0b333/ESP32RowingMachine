@@ -887,10 +887,41 @@ footer {
 
 .chart-canvas {
     width: 100%;
-    /* 25% viewport height, but minimum 20% of viewport width (aspect ratio 5:1 max) */
     height: 25vh;
-    min-height: 20vw;
     display: block;
+}
+
+/* Landscape orientation: title/value on left side */
+@media (orientation: landscape) {
+    .chart-container {
+        display: flex;
+        flex-direction: row;
+        align-items: stretch;
+    }
+    
+    .chart-header {
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        min-width: 80px;
+        padding: 8px;
+        gap: 4px;
+    }
+    
+    .chart-title {
+        font-size: 0.7em;
+        text-align: center;
+    }
+    
+    .chart-value {
+        font-size: 1em;
+        text-align: center;
+    }
+    
+    .chart-canvas {
+        flex: 1;
+        height: 25vh;
+    }
 }
 
 .chart-targets {
