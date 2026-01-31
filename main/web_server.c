@@ -2134,7 +2134,7 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
     
     httpd_config_t http_config = HTTPD_DEFAULT_CONFIG();
     http_config.server_port = WEB_SERVER_PORT;
-    http_config.max_open_sockets = 16;   // Increased for SSE persistent connections
+    http_config.max_open_sockets = 10;   // Max allowed is 13 minus 3 internal = 10 for app use
     http_config.max_uri_handlers = 40;   // We have 30+ handlers, ensure enough slots
     http_config.lru_purge_enable = false; // Disable LRU purging - SSE connections must stay open
     http_config.uri_match_fn = httpd_uri_match_wildcard;
