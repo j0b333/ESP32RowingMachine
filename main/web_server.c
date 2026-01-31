@@ -1583,8 +1583,8 @@ static esp_err_t sse_handler(httpd_req_t *req) {
     
     ESP_LOGI(TAG, "SSE connection established: fd=%d", fd);
     
-    // Return ESP_OK - the connection stays open and we'll send data via broadcast
-    // The httpd will not close the connection because we used chunked encoding
+    // Return ESP_OK - httpd_resp_send_chunk() establishes a persistent connection
+    // with chunked transfer encoding, keeping the connection open for future data
     return ESP_OK;
 }
 

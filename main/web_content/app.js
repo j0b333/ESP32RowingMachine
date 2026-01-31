@@ -892,14 +892,10 @@ function formatDuration(seconds) {
  */
 function formatDate(timestamp) {
     // timestamp is now expected to be Unix epoch milliseconds
-    // For backwards compatibility, check if it's an old microseconds value
     // Unix epoch ms for year 2020 is approximately 1.577e12
-    // Unix epoch ms for year 2100 is approximately 4.1e12
-    // Microseconds since boot would be much smaller (< 1e12 for < 11 days uptime)
+    // Uptime-based timestamps would be much smaller (< 1e12 for < 11 days uptime)
     
     let ms = timestamp;
-    
-    // If timestamp looks like it's in a reasonable Unix epoch ms range (after 2020)
     const date = new Date(ms);
     
     // If the date is invalid or before 2020, it's likely an ESP32 uptime timestamp (not synced)
