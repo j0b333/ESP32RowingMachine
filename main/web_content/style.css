@@ -887,7 +887,9 @@ footer {
 
 .chart-canvas {
     width: 100%;
-    height: 120px;
+    /* 25% viewport height, but minimum 20% of viewport width (aspect ratio 5:1 max) */
+    height: 25vh;
+    min-height: 20vw;
     display: block;
 }
 
@@ -941,22 +943,19 @@ footer {
         grid-template-columns: 1fr 1fr;
         gap: 8px;
     }
-    
-    .chart-canvas {
-        height: 100px;
-    }
 }
 
-/* Desktop: 2x2 chart grid */
+/* Charts always in single column layout */
+.charts-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* Desktop: Keep single column, adjust sizing */
 @media (min-width: 768px) {
     .charts-grid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
         gap: 15px;
-    }
-    
-    .chart-canvas {
-        height: 150px;
     }
 }
 

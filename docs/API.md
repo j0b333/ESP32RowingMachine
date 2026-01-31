@@ -320,9 +320,9 @@ Gets detailed session data including per-second samples.
 
 ---
 
-#### POST /api/sessions/{id}/synced
+#### POST/PUT /api/sessions/{id}/synced
 
-Marks a session as synced to the companion app.
+Marks a session as synced to the companion app. Both POST and PUT methods are accepted for compatibility.
 
 **Response:**
 ```json

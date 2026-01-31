@@ -2,6 +2,28 @@
 
 A smart rowing machine monitor firmware for ESP32-S3 that transforms a rowing machine into a connected fitness device with Bluetooth FTMS support and a real-time web interface.
 
+## Screenshots
+
+### Row Tab
+Real-time rowing metrics display with power, distance, pace, and heart rate.
+
+![Row Tab](https://github.com/user-attachments/assets/f5dab6b6-4639-4986-96d3-d330575e7e29)
+
+### Graph Tab
+Live graphs showing pace, power, and heart rate over time.
+
+![Graph Tab](https://github.com/user-attachments/assets/6b46884a-85c8-4afe-8d42-0f5970f2de42)
+
+### History Tab
+View and manage your saved workout sessions.
+
+![History Tab](https://github.com/user-attachments/assets/e47ae13f-2b65-4416-a2aa-e57ef38419a4)
+
+### Settings Tab
+Configure weight, heart rate zones, units, and advanced options.
+
+![Settings Tab](https://github.com/user-attachments/assets/6a428dea-120d-4bbf-8cef-06b5670e8122)
+
 ## Features
 
 -  **Bluetooth FTMS** - Works with Kinomap, EXR, MyHomeFit, and other fitness apps
