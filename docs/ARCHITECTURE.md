@@ -114,7 +114,7 @@ Manages heart rate data from multiple sources.
 
 #### wifi_manager
 Manages WiFi in Access Point or Station mode.
-- Creates AP: SSID "CrivitRower", password "rower123"
+- Creates AP: SSID "CrivitRower" (open network, no password)
 - Can connect to existing WiFi network
 - mDNS for `rowing.local` hostname
 
