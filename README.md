@@ -34,7 +34,7 @@ idf.py -p /dev/ttyUSB0 flash monitor
 
 ### Connect
 
-1. Connect to WiFi: **CrivitRower** (password: `rowing123`)
+1. Connect to WiFi: **CrivitRower** (password: `rower123`)
 2. Open browser: **http://192.168.4.1**
 3. Connect it to your local wireless network or use it directly using http://rower.local
 3. Start rowing!
