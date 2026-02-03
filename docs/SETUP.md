@@ -94,7 +94,7 @@ idf.py build
 1. Power on the ESP32 (connect USB-C)
 2. The device creates a WiFi access point:
    - **SSID:** `CrivitRower`
-   - **Password:** `rowing123`
+   - **Password:** `rower123`
 3. Connect your phone/tablet to this network
 4. Open a browser and navigate to `http://192.168.4.1`
 
@@ -235,5 +235,5 @@ Edit `main/app_config.h` for advanced settings:
 | `GPIO_SEAT_SENSOR` | 16 | Seat sensor GPIO pin |
 | `DEFAULT_MOMENT_OF_INERTIA` | 0.101 | Flywheel inertia (kg⋅m²) |
 | `WIFI_AP_SSID_DEFAULT` | "CrivitRower" | WiFi network name |
-| `WIFI_AP_PASS_DEFAULT` | "rowing123" | WiFi password |
+| `WIFI_AP_PASS_DEFAULT` | "rower123" | WiFi password |
 | `BLE_DEVICE_NAME_DEFAULT` | "Crivit Rower" | Bluetooth name |
