@@ -97,7 +97,7 @@
 // WIFI CONFIGURATION
 // ============================================================================
 #define WIFI_AP_SSID_DEFAULT            "CrivitRower"
-#define WIFI_AP_PASS_DEFAULT            "rower123"
+#define WIFI_AP_PASS_DEFAULT            ""
 #define WIFI_AP_CHANNEL                 1
 #define WIFI_AP_MAX_CONNECTIONS         4
 
