@@ -89,6 +89,14 @@ static void prov_event_handler(void *arg, esp_event_base_t event_base,
             esp_wifi_connect();
             break;
             
+        case WIFI_EVENT_AP_START:
+            ESP_LOGI(TAG, "SoftAP started - ready for client connections");
+            break;
+            
+        case WIFI_EVENT_AP_STOP:
+            ESP_LOGW(TAG, "SoftAP stopped!");
+            break;
+            
         case WIFI_EVENT_AP_STACONNECTED: {
             wifi_event_ap_staconnected_t *event = 
                 (wifi_event_ap_staconnected_t *)event_data;
@@ -102,20 +110,29 @@ static void prov_event_handler(void *arg, esp_event_base_t event_base,
         case WIFI_EVENT_AP_STADISCONNECTED: {
             wifi_event_ap_stadisconnected_t *event = 
                 (wifi_event_ap_stadisconnected_t *)event_data;
-            ESP_LOGI(TAG, "SoftAP: Device disconnected (AID=%d, MAC=%02x:%02x:%02x:%02x:%02x:%02x)",
+            ESP_LOGW(TAG, "SoftAP: Device disconnected (AID=%d, MAC=%02x:%02x:%02x:%02x:%02x:%02x, reason=%d)",
                      event->aid,
                      event->mac[0], event->mac[1], event->mac[2],
-                     event->mac[3], event->mac[4], event->mac[5]);
+                     event->mac[3], event->mac[4], event->mac[5],
+                     event->reason);
             break;
         }
         
         default:
             break;
         }
-    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
-        ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
-        ESP_LOGI(TAG, "Connected with IP: " IPSTR, IP2STR(&event->ip_info.ip));
-        xEventGroupSetBits(s_prov_event_group, WIFI_CONNECTED_BIT);
+    } else if (event_base == IP_EVENT) {
+        if (event_id == IP_EVENT_STA_GOT_IP) {
+            ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
+            ESP_LOGI(TAG, "Connected with IP: " IPSTR, IP2STR(&event->ip_info.ip));
+            xEventGroupSetBits(s_prov_event_group, WIFI_CONNECTED_BIT);
+        } else if (event_id == IP_EVENT_AP_STAIPASSIGNED) {
+            ip_event_ap_staipassigned_t *event = (ip_event_ap_staipassigned_t *)event_data;
+            ESP_LOGI(TAG, "SoftAP: Client assigned IP " IPSTR " (MAC=%02x:%02x:%02x:%02x:%02x:%02x)",
+                     IP2STR(&event->ip),
+                     event->mac[0], event->mac[1], event->mac[2],
+                     event->mac[3], event->mac[4], event->mac[5]);
+        }
     }
 }
 
@@ -158,14 +175,22 @@ esp_err_t wifi_provisioning_init(void)
                                                 &prov_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, 
                                                 &prov_event_handler, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, 
+    // Register for IP events - both STA (our connection) and AP (client DHCP assignments)
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, ESP_EVENT_ANY_ID, 
                                                 &prov_event_handler, NULL));
     
-    // Create default WiFi STA interface for connecting to home WiFi after provisioning
-    // NOTE: Do NOT create the AP interface here - the provisioning manager (softAP scheme)
-    // creates and manages its own AP interface. Creating it here causes duplicate DHCP
-    // servers and connectivity issues.
-    esp_netif_create_default_wifi_sta();
+    // Create default WiFi network interfaces for both STA and AP
+    // STA is needed for connecting to home WiFi after provisioning
+    // AP is needed for the softAP provisioning mode with DHCP server
+    ESP_LOGI(TAG, "Creating WiFi network interfaces...");
+    esp_netif_t *sta_netif = esp_netif_create_default_wifi_sta();
+    esp_netif_t *ap_netif = esp_netif_create_default_wifi_ap();
+    
+    if (sta_netif == NULL || ap_netif == NULL) {
+        ESP_LOGE(TAG, "Failed to create WiFi network interfaces");
+        return ESP_ERR_NO_MEM;
+    }
+    ESP_LOGI(TAG, "WiFi interfaces created (STA + AP with DHCP server)");
     
     // Initialize WiFi
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
