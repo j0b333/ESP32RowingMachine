@@ -5,13 +5,12 @@
  * This module implements WiFi provisioning using the official ESP-IDF v6.0
  * network_provisioning component with softAP transport.
  * 
- * IMPORTANT FIX (ESP-IDF v6.0 client disconnect issue):
- * The default network_provisioning scheme uses WIFI_MODE_APSTA which can cause
- * mobile devices to disconnect with reason=2 (AUTH_EXPIRE) shortly after connecting.
- * This is due to resource contention between AP and STA interfaces.
+ * IMPORTANT: According to ESP-IDF v6.0 documentation and official examples:
+ * - Do NOT manually call esp_wifi_set_mode() when using the provisioning manager
+ * - The provisioning manager internally manages WiFi mode transitions
+ * - Manual mode changes interfere with the provisioning flow and cause SoftAP restarts
  * 
- * Solution: Start provisioning in AP-only mode for stable client connections,
- * then switch to APSTA mode only when credentials are received and need validation.
+ * Reference: https://docs.espressif.com/projects/esp-idf/en/release-v6.0/esp32/migration-guides/release-6.x/6.0/provisioning.html
  */
 
 #include "wifi_provisioning.h"
@@ -65,15 +64,8 @@ static void prov_event_handler(void *arg, esp_event_base_t event_base,
             wifi_sta_config_t *wifi_sta_cfg = (wifi_sta_config_t *)event_data;
             ESP_LOGI(TAG, "Received WiFi credentials: SSID=%s", 
                      (const char *)wifi_sta_cfg->ssid);
-            
-            // Switch back to APSTA mode for credential validation
-            // We started in AP-only mode for stable client connections,
-            // but now we need STA mode to test the received credentials
-            ESP_LOGI(TAG, "Switching to APSTA mode for credential validation");
-            esp_err_t err = esp_wifi_set_mode(WIFI_MODE_APSTA);
-            if (err != ESP_OK) {
-                ESP_LOGW(TAG, "Failed to set APSTA mode: %s", esp_err_to_name(err));
-            }
+            // NOTE: Do NOT manually switch WiFi modes here
+            // The provisioning manager handles mode transitions internally
             break;
         }
         
@@ -230,16 +222,9 @@ esp_err_t wifi_provisioning_init(void)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
     
-    // Set WiFi country code for Netherlands (Europe)
-    wifi_country_t country = {
-        .cc = "NL",
-        .schan = 1,
-        .nchan = 13,
-        .max_tx_power = 20,
-        .policy = WIFI_COUNTRY_POLICY_MANUAL,  // Don't auto-change during provisioning
-    };
-    ESP_ERROR_CHECK(esp_wifi_set_country(&country));
-    ESP_LOGI(TAG, "WiFi country set to NL (channels 1-13, 20dBm)");
+    // NOTE: WiFi country code is not set manually here.
+    // The provisioning manager and WiFi driver handle region settings automatically.
+    // Manual country configuration can cause "ap start fail" errors in some cases.
     
     // Configure provisioning manager with softAP scheme
     network_prov_mgr_config_t prov_config = {
@@ -364,54 +349,13 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
         return ret;
     }
     
-    // CRITICAL FIX for ESP-IDF v6.0: Override WiFi mode from APSTA to AP-only
+    // IMPORTANT: Do NOT manually call esp_wifi_set_mode() here!
+    // The provisioning manager internally manages WiFi mode transitions.
+    // Manual mode changes cause SoftAP stop/restart cycles which destabilize
+    // the AP and cause client disconnect issues.
     // 
-    // The network_provisioning scheme_softap internally uses WIFI_MODE_APSTA which causes
-    // client disconnect issues (reason=2 AUTH_EXPIRE) on many devices. This happens because:
-    // 1. APSTA mode creates resource contention between AP and STA interfaces
-    // 2. The STA interface tries to scan/connect which interferes with AP stability
-    // 3. Mobile devices connecting to the SoftAP get AUTH_EXPIRE timeouts
-    //
-    // During provisioning, we ONLY need AP mode - the device should focus entirely on
-    // serving the provisioning interface. STA mode is only needed AFTER credentials
-    // are received when the device needs to connect to the user's router.
-    //
-    // By switching to AP-only mode after provisioning starts, we ensure:
-    // - Stable SoftAP for client connections
-    // - No interference from STA scanning
-    // - Better compatibility with mobile devices
-    //
-    // Note: We manually switch to APSTA mode in the NETWORK_PROV_WIFI_CRED_RECV
-    // event handler when credentials are received and need to be validated.
-    ESP_LOGI(TAG, "Switching to AP-only mode for stable client connections");
-    ret = esp_wifi_set_mode(WIFI_MODE_AP);
-    if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to set AP-only mode: %s (continuing anyway)", esp_err_to_name(ret));
-    }
-    
-    // Configure SoftAP for optimal client compatibility
-    // These settings help prevent AUTH_EXPIRE disconnects
-    wifi_config_t ap_config;
-    ret = esp_wifi_get_config(WIFI_IF_AP, &ap_config);
-    if (ret == ESP_OK) {
-        // Ensure beacon interval is 100ms for good client discovery
-        ap_config.ap.beacon_interval = 100;
-        // Allow up to 4 simultaneous connections
-        ap_config.ap.max_connection = 4;
-        // Ensure SSID is broadcast (not hidden)
-        ap_config.ap.ssid_hidden = 0;
-        // Set PMF (Protected Management Frames) to optional for better compatibility
-        ap_config.ap.pmf_cfg.required = false;
-        ap_config.ap.pmf_cfg.capable = true;
-        
-        ret = esp_wifi_set_config(WIFI_IF_AP, &ap_config);
-        if (ret != ESP_OK) {
-            ESP_LOGW(TAG, "Failed to apply AP config optimizations: %s", esp_err_to_name(ret));
-        } else {
-            ESP_LOGI(TAG, "SoftAP configured: beacon=%dms, max_conn=%d", 
-                     ap_config.ap.beacon_interval, ap_config.ap.max_connection);
-        }
-    }
+    // Reference: ESP-IDF v6.0 migration guide states:
+    // "Do not manually call esp_wifi_set_mode() when using the provisioning manager"
     
     s_prov_active = true;
     
