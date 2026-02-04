@@ -1408,6 +1408,42 @@ static esp_err_t api_wifi_status_handler(httpd_req_t *req) {
         cJSON_AddNumberToObject(root, "stationCount", wifi_manager_get_station_count());
     }
     
+    // Add diagnostic info for debugging connection issues
+    cJSON *diag = cJSON_CreateObject();
+    if (diag != NULL) {
+        cJSON_AddStringToObject(diag, "authMode", "WPA2-PSK");
+        cJSON_AddNumberToObject(diag, "channel", WIFI_AP_CHANNEL);
+        cJSON_AddStringToObject(diag, "bandwidth", "HT20");
+        cJSON_AddNumberToObject(diag, "maxConnections", WIFI_AP_MAX_CONNECTIONS);
+        
+        // Cached WiFi scan to check hardware health (avoid scanning on every request)
+        static int64_t last_scan_time = 0;
+        static int cached_scan_count = -2;  // -2 = never scanned
+        const int64_t SCAN_CACHE_TTL_US = 60 * 1000000;  // 60 seconds
+        
+        int64_t now = esp_timer_get_time();
+        if (cached_scan_count == -2 || (now - last_scan_time) > SCAN_CACHE_TTL_US) {
+            // Perform scan (cached result expired)
+            wifi_ap_record_t ap_record;
+            cached_scan_count = wifi_manager_scan(&ap_record, 1);
+            last_scan_time = now;
+        }
+        
+        cJSON_AddBoolToObject(diag, "wifiHardwareOk", cached_scan_count >= 0);
+        cJSON_AddNumberToObject(diag, "nearbyNetworks", cached_scan_count);
+        
+        // Hardware status hints
+        if (cached_scan_count < 0) {
+            cJSON_AddStringToObject(diag, "hardwareHint", "WiFi scan failed - possible hardware issue");
+        } else if (cached_scan_count == 0) {
+            cJSON_AddStringToObject(diag, "hardwareHint", "No networks found - check antenna or location");
+        } else {
+            cJSON_AddStringToObject(diag, "hardwareHint", "WiFi hardware appears functional");
+        }
+        
+        cJSON_AddItemToObject(root, "diagnostics", diag);
+    }
+    
     char *json_string = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
     

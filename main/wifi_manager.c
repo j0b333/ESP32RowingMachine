@@ -74,6 +74,47 @@ static esp_netif_ip_info_t s_ip_info;
     } while(0)
 
 /**
+ * Get human-readable string for WiFi disconnect reason
+ * Helps diagnose connection issues
+ */
+static const char* wifi_disconnect_reason_str(int reason) {
+    switch (reason) {
+        case 1: return "UNSPECIFIED";
+        case 2: return "AUTH_EXPIRE";
+        case 3: return "AUTH_LEAVE";
+        case 4: return "ASSOC_EXPIRE";
+        case 5: return "ASSOC_TOOMANY";
+        case 6: return "NOT_AUTHED";
+        case 7: return "NOT_ASSOCED";
+        case 8: return "ASSOC_LEAVE";
+        case 9: return "ASSOC_NOT_AUTHED";
+        case 10: return "DISASSOC_PWRCAP_BAD";
+        case 11: return "DISASSOC_SUPCHAN_BAD";
+        case 13: return "IE_INVALID";
+        case 14: return "MIC_FAILURE";
+        case 15: return "4WAY_HANDSHAKE_TIMEOUT";
+        case 16: return "GROUP_KEY_UPDATE_TIMEOUT";
+        case 17: return "IE_IN_4WAY_DIFFERS";
+        case 18: return "GROUP_CIPHER_INVALID";
+        case 19: return "PAIRWISE_CIPHER_INVALID";
+        case 20: return "AKMP_INVALID";
+        case 21: return "UNSUPP_RSN_IE_VERSION";
+        case 22: return "INVALID_RSN_IE_CAP";
+        case 23: return "802_1X_AUTH_FAILED";
+        case 24: return "CIPHER_SUITE_REJECTED";
+        case 200: return "BEACON_TIMEOUT";
+        case 201: return "NO_AP_FOUND";
+        case 202: return "AUTH_FAIL";
+        case 203: return "ASSOC_FAIL";
+        case 204: return "HANDSHAKE_TIMEOUT";
+        case 205: return "CONNECTION_FAIL";
+        case 206: return "AP_TSF_RESET";
+        case 207: return "ROAMING";
+        default: return "UNKNOWN";
+    }
+}
+
+/**
  * WiFi event handler
  */
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
@@ -121,10 +162,20 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
             
             case WIFI_EVENT_AP_STADISCONNECTED: {
                 wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *)event_data;
-                ESP_LOGI(TAG, "Station disconnected: %02x:%02x:%02x:%02x:%02x:%02x, AID=%d, reason=%d",
+                const char *reason_str = wifi_disconnect_reason_str(event->reason);
+                ESP_LOGW(TAG, "Station disconnected: MAC=%02x:%02x:%02x:%02x:%02x:%02x, AID=%d",
                          event->mac[0], event->mac[1], event->mac[2],
-                         event->mac[3], event->mac[4], event->mac[5], 
-                         event->aid, event->reason);
+                         event->mac[3], event->mac[4], event->mac[5], event->aid);
+                ESP_LOGW(TAG, "  Reason: %d (%s)", event->reason, reason_str);
+                
+                // Provide diagnostic hints for common issues
+                if (event->reason == 2 || event->reason == 202) {
+                    ESP_LOGW(TAG, "  Hint: AUTH_FAIL - Client may have wrong password or unsupported auth mode");
+                } else if (event->reason == 15 || event->reason == 204) {
+                    ESP_LOGW(TAG, "  Hint: HANDSHAKE_TIMEOUT - Possible hardware issue or interference");
+                } else if (event->reason == 203) {
+                    ESP_LOGW(TAG, "  Hint: ASSOC_FAIL - Client association failed, may indicate hardware issue");
+                }
                 break;
             }
             

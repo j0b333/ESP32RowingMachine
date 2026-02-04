@@ -77,6 +77,33 @@ Configure weight, heart rate zones, units, and advanced options.
 Sync workouts to Samsung Health / Google Fit:
 **[ESP32RowingMachineCompanionApp](https://github.com/j0b333/ESP32RowingMachineCompanionApp)**
 
+## Troubleshooting
+
+### WiFi Connection Issues
+
+If clients cannot connect to the "CrivitRower" WiFi network:
+
+1. **Verify the password** - Default is `12345678` (8 characters required for WPA2)
+2. **Check the logs** - Look for disconnect reason codes in the serial output
+3. **Try different devices** - If only some devices fail, it may be client-specific
+4. **Test WiFi hardware** - Access `http://192.168.4.1/api/wifi/status` from a connected device to see diagnostics:
+   ```json
+   {
+     "diagnostics": {
+       "wifiHardwareOk": true,
+       "nearbyNetworks": 5,
+       "hardwareHint": "WiFi hardware appears functional"
+     }
+   }
+   ```
+5. **If diagnostics show hardware issues** - The ESP32's antenna may be damaged. Try a different ESP32 board.
+
+**Common log messages and their meanings:**
+- `removing station after unsuccessful auth/assoc` - Client failed to authenticate (wrong password or client issue)
+- `AUTH_FAIL` - Authentication failed, check password
+- `HANDSHAKE_TIMEOUT` - Possible hardware issue or interference
+- `ASSOC_FAIL` - Association failed, may indicate hardware problem
+
 ## License
 
 MIT License - See [LICENSE](LICENSE) for details.
