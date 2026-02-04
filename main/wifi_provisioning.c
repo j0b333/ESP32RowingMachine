@@ -127,8 +127,8 @@ static void prov_event_handler(void *arg, esp_event_base_t event_base,
             ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
             ESP_LOGI(TAG, "Connected with IP: " IPSTR, IP2STR(&event->ip_info.ip));
             xEventGroupSetBits(s_prov_event_group, WIFI_CONNECTED_BIT);
-        } else if (event_id == IP_EVENT_AP_STAIPASSIGNED) {
-            ip_event_ap_staipassigned_t *event = (ip_event_ap_staipassigned_t *)event_data;
+        } else if (event_id == IP_EVENT_ASSIGNED_IP_TO_CLIENT) {
+            ip_event_assigned_ip_to_client_t *event = (ip_event_assigned_ip_to_client_t *)event_data;
             ESP_LOGI(TAG, "SoftAP: Client assigned IP " IPSTR " (MAC=%02x:%02x:%02x:%02x:%02x:%02x)",
                      IP2STR(&event->ip),
                      event->mac[0], event->mac[1], event->mac[2],

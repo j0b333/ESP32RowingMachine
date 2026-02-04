@@ -101,6 +101,7 @@
 // on ESP32. Using a simple password helps with client authentication issues.
 // Note: Password must be 8-63 characters for WPA2.
 #define WIFI_AP_PROV_PASSWORD           "rowing123"     // Password for provisioning softAP
+#define WIFI_AP_PASS_DEFAULT            ""              // Default AP password (empty for config)
 #define WIFI_AP_CHANNEL                 11              // WiFi channel
 #define WIFI_AP_MAX_CONNECTIONS         4
 
