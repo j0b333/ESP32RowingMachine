@@ -354,8 +354,8 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     // Manual mode changes cause SoftAP stop/restart cycles which destabilize
     // the AP and cause client disconnect issues.
     // 
-    // Reference: ESP-IDF v6.0 migration guide states:
-    // "Do not manually call esp_wifi_set_mode() when using the provisioning manager"
+    // Reference: ESP-IDF v6.0 migration guide:
+    // https://docs.espressif.com/projects/esp-idf/en/release-v6.0/esp32/migration-guides/release-6.x/6.0/provisioning.html
     
     s_prov_active = true;
     
