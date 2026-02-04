@@ -322,13 +322,24 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     xEventGroupClearBits(s_prov_event_group, 
                          WIFI_CONNECTED_BIT | WIFI_FAIL_BIT | PROV_END_BIT);
     
-    // Use open network (no password) for softAP provisioning
-    // WPA2 was causing 4-way handshake timeout (reason=15) on some devices
-    // The "password" field in the QR code is only for the ESP app transport security,
-    // not the WiFi network password
-    const char *service_key = NULL;  // Open network
+    // Configure SoftAP for provisioning using OPEN network (no password)
+    // This is Espressif's recommended approach for the ESP SoftAP Provisioning app
+    // 
+    // Why OPEN instead of WPA2:
+    // 1. ESP SoftAP Provisioning app is designed for open networks
+    // 2. iOS cannot programmatically connect to WPA2 APs (requires manual password entry)
+    // 3. WPA2 causes 4-way handshake timeout (reason=15) when phone connects without password
+    // 4. Android/iOS captive portal behavior is handled by the provisioning app itself
+    // 
+    // Security is provided at the application layer via NETWORK_PROV_SECURITY (Security 0/1/2)
+    // The provisioning protocol encrypts credentials during transfer even over open WiFi
+    //
+    // Note: If users manually connect from phone WiFi settings instead of using the app,
+    // they may see brief disconnect/reconnect behavior due to captive portal detection.
+    // This is normal - instruct users to use the ESP SoftAP Provisioning app.
+    const char *service_key = NULL;  // NULL = open network (no WiFi password)
     
-    ESP_LOGI(TAG, "Starting provisioning with SSID: %s (OPEN network)", service_name);
+    ESP_LOGI(TAG, "Starting provisioning with SSID: %s (OPEN network - use ESP SoftAP Prov app)", service_name);
     
     ret = network_prov_mgr_start_provisioning(security, NULL, service_name, service_key);
     if (ret != ESP_OK) {
@@ -342,7 +353,7 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     ESP_LOGI(TAG, "  Provisioning started!");
     ESP_LOGI(TAG, "  WiFi SSID: %s", service_name);
     ESP_LOGI(TAG, "  WiFi Password: (none - open network)");
-    ESP_LOGI(TAG, "  Security: OPEN");
+    ESP_LOGI(TAG, "  Use: ESP SoftAP Provisioning app");
     ESP_LOGI(TAG, "====================================");
     
     // Print QR code for ESP SoftAP Prov app (no password for open network)

@@ -285,6 +285,7 @@ static esp_err_t init_subsystems(void) {
             ESP_LOGI(TAG, "====================================");
             ESP_LOGI(TAG, "  WiFi Provisioning Mode");
             ESP_LOGI(TAG, "  Connect to: %s", g_config.wifi_ssid);
+            ESP_LOGI(TAG, "  (Open network - no password)");
             ESP_LOGI(TAG, "  Use ESP SoftAP Prov app (iOS/Android)");
             ESP_LOGI(TAG, "  to configure WiFi credentials");
             ESP_LOGI(TAG, "====================================");
