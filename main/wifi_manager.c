@@ -503,6 +503,12 @@ static uint8_t find_best_channel(void) {
 
 /**
  * Start WiFi in Access Point mode
+ * 
+ * ESP-IDF v6.0 requires strict ordering:
+ * 1. esp_wifi_set_mode()
+ * 2. esp_wifi_set_config()
+ * 3. esp_wifi_set_protocol() / esp_wifi_set_bandwidth() - BEFORE start
+ * 4. esp_wifi_start()
  */
 esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
     WIFI_MUTEX_TAKE();
@@ -518,10 +524,12 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
     // Clear previous event bits
     xEventGroupClearBits(s_wifi_event_group, WIFI_STARTED_BIT | WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
     
-    // Find the best channel with least congestion
-    uint8_t best_channel = find_best_channel();
+    // Use fixed channel for ESP-IDF v6.0 compatibility
+    // Auto-channel selection requires WiFi state transitions that may cause issues
+    uint8_t ap_channel = WIFI_AP_CHANNEL;
+    ESP_LOGI(TAG, "Using WiFi channel %d", ap_channel);
     
-    // Set mode to AP
+    // Set mode to AP FIRST (ESP-IDF v6.0 requirement)
     ret = esp_wifi_set_mode(WIFI_MODE_AP);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set AP mode: %s", esp_err_to_name(ret));
@@ -532,33 +540,26 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
     // Configure AP with settings optimized for maximum client compatibility
     // Note: ESP32-S3 has known softAP issues with some clients (GitHub issues #13508, #13608, #13210)
     // 
-    // SECURITY TRADE-OFFS (prioritizing connectivity over security for initial setup):
-    // - WPA/WPA2 mixed mode: Allows older devices to connect but enables weaker WPA1/TKIP
-    // - PMF disabled: Removes protection against deauth attacks but fixes handshake issues
-    // - TKIP+CCMP: Supports legacy devices but TKIP has known vulnerabilities
-    // These settings are acceptable for a local rowing monitor but would not be recommended
-    // for networks handling sensitive data. Users can modify app_config.h for stricter security.
+    // Using OPEN authentication as ESP32-S3 has issues with WPA2 in softAP mode
     wifi_config_t wifi_config = {
         .ap = {
             .ssid_len = strlen(ssid),
-            .channel = best_channel,  // Use auto-selected channel
+            .channel = ap_channel,
             .max_connection = WIFI_AP_MAX_CONNECTIONS,
-            .authmode = (password != NULL && strlen(password) >= 8) ? 
-                        WIFI_AUTH_WPA_WPA2_PSK : WIFI_AUTH_OPEN,  // Mixed mode for broader compatibility
+            .authmode = WIFI_AUTH_OPEN,  // Force open for ESP32-S3 compatibility
             .pmf_cfg = {
                 .required = false,
-                .capable = false,  // Disable PMF - causes handshake issues on some phones
+                .capable = false,
             },
-            .beacon_interval = 100,  // Default 100ms beacon interval
-            .pairwise_cipher = WIFI_CIPHER_TYPE_TKIP_CCMP,  // Support both TKIP and AES
+            .beacon_interval = 100,
         },
     };
     
     strncpy((char *)wifi_config.ap.ssid, ssid, sizeof(wifi_config.ap.ssid) - 1);
-    if (password != NULL && strlen(password) >= 8) {
-        strncpy((char *)wifi_config.ap.password, password, sizeof(wifi_config.ap.password) - 1);
-    }
+    // Always use OPEN auth for ESP32-S3 softAP compatibility
+    // Password is ignored - users should configure home WiFi for security
     
+    // Set config BEFORE start (ESP-IDF v6.0 requirement)
     ret = esp_wifi_set_config(WIFI_IF_AP, &wifi_config);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set AP config: %s", esp_err_to_name(ret));
@@ -566,13 +567,13 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
         return ret;
     }
     
-    // Set WiFi protocol to 802.11b/g/n for maximum compatibility
+    // Set WiFi protocol BEFORE start (ESP-IDF v6.0 requirement)
     ret = esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Failed to set WiFi protocol: %s (continuing anyway)", esp_err_to_name(ret));
     }
     
-    // Start WiFi
+    // NOW start WiFi
     ret = esp_wifi_start();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start WiFi: %s", esp_err_to_name(ret));
@@ -580,16 +581,12 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
         return ret;
     }
     
-    // Set AP bandwidth to HT20 for better client compatibility
-    // ESP32-S3 defaults to HT40 which can cause connection issues with some devices
+    // These can be set after start
     ret = esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW20);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Failed to set AP bandwidth to HT20: %s", esp_err_to_name(ret));
-        // Continue anyway, this is not critical
     }
     
-    // Set maximum TX power for better range/reliability
-    // Value is in 0.25 dBm units, so 20 dBm = 80
     int8_t tx_power = 80;  // 20 dBm
     ret = esp_wifi_set_max_tx_power(tx_power);
     if (ret != ESP_OK) {
@@ -624,13 +621,8 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
     esp_wifi_get_config(WIFI_IF_AP, &current_config);
     
     // Log detailed AP configuration for debugging
-    const char *auth_mode_str = (password != NULL && strlen(password) >= 8) ? "WPA2-PSK" : "OPEN";
-    ESP_LOGI(TAG, "WiFi AP started: SSID=%s, IP=" IPSTR ", Auth=%s, Channel=%d (auto-selected), Bandwidth=HT20", 
-             ssid, IP2STR(&s_ip_info.ip), auth_mode_str, current_config.ap.channel);
-    if (password == NULL || strlen(password) < 8) {
-        ESP_LOGW(TAG, "AP using OPEN authentication - some devices (Windows/Android) may refuse to connect");
-        ESP_LOGW(TAG, "Consider setting a password of at least 8 characters for WPA2");
-    }
+    ESP_LOGI(TAG, "WiFi AP started: SSID=%s, IP=" IPSTR ", Auth=OPEN, Channel=%d, Bandwidth=HT20", 
+             ssid, IP2STR(&s_ip_info.ip), current_config.ap.channel);
     
     return ESP_OK;
 }
@@ -870,30 +862,23 @@ esp_err_t wifi_manager_start_apsta(const char *ap_ssid, const char *ap_password,
         return ret;
     }
     
-    // Configure AP with settings optimized for maximum client compatibility
-    // Note: ESP32-S3 has known softAP issues with some clients (GitHub issues #13508, #13608, #13210)
+    // Configure AP - using OPEN auth for ESP32-S3 compatibility
     wifi_config_t ap_config = {
         .ap = {
             .ssid_len = strlen(ap_ssid),
             .channel = WIFI_AP_CHANNEL,
             .max_connection = WIFI_AP_MAX_CONNECTIONS,
-            .authmode = (ap_password != NULL && strlen(ap_password) >= 8) ? 
-                        WIFI_AUTH_WPA_WPA2_PSK : WIFI_AUTH_OPEN,  // Mixed mode for broader compatibility
+            .authmode = WIFI_AUTH_OPEN,  // Force open for ESP32-S3 compatibility
             .pmf_cfg = {
                 .required = false,
-                .capable = false,  // Disable PMF completely - can cause handshake issues on some phones
+                .capable = false,
             },
-            .beacon_interval = 100,  // Default 100ms beacon interval
-            .pairwise_cipher = WIFI_CIPHER_TYPE_TKIP_CCMP,  // Support both TKIP and AES for max compatibility
+            .beacon_interval = 100,
         },
     };
     
     strncpy((char *)ap_config.ap.ssid, ap_ssid, sizeof(ap_config.ap.ssid) - 1);
     ap_config.ap.ssid[sizeof(ap_config.ap.ssid) - 1] = '\0';
-    if (ap_password != NULL && strlen(ap_password) >= 8) {
-        strncpy((char *)ap_config.ap.password, ap_password, sizeof(ap_config.ap.password) - 1);
-        ap_config.ap.password[sizeof(ap_config.ap.password) - 1] = '\0';
-    }
     
     ret = esp_wifi_set_config(WIFI_IF_AP, &ap_config);
     if (ret != ESP_OK) {
@@ -902,7 +887,7 @@ esp_err_t wifi_manager_start_apsta(const char *ap_ssid, const char *ap_password,
         return ret;
     }
     
-    // Set WiFi protocol to 802.11b/g/n for maximum compatibility
+    // Set WiFi protocol BEFORE start
     ret = esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Failed to set WiFi protocol: %s (continuing anyway)", esp_err_to_name(ret));
