@@ -161,10 +161,11 @@ esp_err_t wifi_provisioning_init(void)
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, 
                                                 &prov_event_handler, NULL));
     
-    // Create default WiFi network interfaces for both STA and AP
-    // Both are needed - STA for connecting to home WiFi, AP for provisioning
+    // Create default WiFi STA interface for connecting to home WiFi after provisioning
+    // NOTE: Do NOT create the AP interface here - the provisioning manager (softAP scheme)
+    // creates and manages its own AP interface. Creating it here causes duplicate DHCP
+    // servers and connectivity issues.
     esp_netif_create_default_wifi_sta();
-    esp_netif_create_default_wifi_ap();  // Required for DHCP server to work
     
     // Initialize WiFi
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
