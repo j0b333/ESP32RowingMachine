@@ -34,10 +34,12 @@ idf.py -p /dev/ttyUSB0 flash monitor
 
 ### Connect
 
-1. Connect to WiFi: **CrivitRower** (password: **12345678**)
+1. Connect to WiFi: **CrivitRower** (open network, no password)
 2. Open browser: **http://192.168.4.1**
 3. Connect it to your local wireless network or use it directly using http://rower.local
 3. Start rowing!
+
+> **Note:** ESP32-S3 has known issues with WPA2 softAP. Using an open network is more reliable. Once connected to your home WiFi, the device uses your router's security.
 
 ## Documentation
 
