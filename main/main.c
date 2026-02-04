@@ -43,7 +43,6 @@
 #include "hr_receiver.h"
 #include "dns_server.h"
 #include "utils.h"
-#include "mdns.h"
 
 static const char *TAG = "MAIN";
 
@@ -255,46 +254,19 @@ static esp_err_t init_subsystems(void) {
         if (!provisioned) {
             ESP_LOGI(TAG, "Starting WiFi provisioning via softAP...");
             
-            // Start minimal captive portal HTTP server for browser access
-            // This server does NOT use wildcard URI matcher, making it compatible
-            // with the provisioning library's protocomm layer
-            ESP_LOGI(TAG, "Starting captive portal HTTP server...");
-            ret = web_server_start_captive_portal();
-            if (ret != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to start captive portal server");
-                return ret;
-            }
-            
-            // Get the HTTP server handle and share it with provisioning
-            httpd_handle_t httpd_handle = web_server_get_handle();
-            if (httpd_handle == NULL) {
-                ESP_LOGE(TAG, "Captive portal server handle is NULL");
-                return ESP_ERR_INVALID_STATE;
-            }
-            
-            // Start provisioning with our HTTP server handle
-            ret = wifi_provisioning_start(g_config.wifi_ssid, NULL, httpd_handle);
+            // NOTE: HTTP server sharing with ESP-IDF 6.0 network_provisioning component
+            // causes LoadProhibited crash in protocomm. Let provisioning create and manage
+            // its own HTTP server. After successful provisioning, the device reboots and
+            // starts normally with web server and mDNS for browser access.
+            ret = wifi_provisioning_start(g_config.wifi_ssid, NULL, NULL);
             if (ret != ESP_OK) {
                 ESP_LOGE(TAG, "Failed to start provisioning");
                 return ret;
             }
             
-            // Initialize mDNS for rower.local access
-            ESP_LOGI(TAG, "Starting mDNS for rower.local...");
-            ret = mdns_init();
-            if (ret == ESP_OK) {
-                mdns_hostname_set("rower");
-                mdns_instance_name_set("Crivit Rowing Monitor");
-                mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
-                ESP_LOGI(TAG, "mDNS started: rower.local");
-            } else {
-                ESP_LOGW(TAG, "mDNS init failed: %s", esp_err_to_name(ret));
-            }
-            
-            // Start DNS server for captive portal
-            // This redirects all DNS queries to 192.168.4.1 so browsers will show
-            // a captive portal detection page
-            ESP_LOGI(TAG, "Starting DNS server for captive portal...");
+            // Start DNS server - not for browser captive portal (no web server during provisioning)
+            // but to ensure DNS resolution works for the mobile app
+            ESP_LOGI(TAG, "Starting DNS server...");
             esp_err_t dns_ret = dns_server_start("192.168.4.1");
             if (dns_ret != ESP_OK) {
                 ESP_LOGW(TAG, "DNS server failed to start");
@@ -303,9 +275,8 @@ static esp_err_t init_subsystems(void) {
             ESP_LOGI(TAG, "====================================");
             ESP_LOGI(TAG, "  WiFi Provisioning Mode");
             ESP_LOGI(TAG, "  Connect to: %s", g_config.wifi_ssid);
-            ESP_LOGI(TAG, "  Browse to: http://192.168.4.1");
-            ESP_LOGI(TAG, "  Or: http://rower.local");
-            ESP_LOGI(TAG, "  Or use ESP SoftAP Prov app (iOS/Android)");
+            ESP_LOGI(TAG, "  Use ESP SoftAP Prov app (iOS/Android)");
+            ESP_LOGI(TAG, "  to configure WiFi credentials");
             ESP_LOGI(TAG, "====================================");
         }
     }
