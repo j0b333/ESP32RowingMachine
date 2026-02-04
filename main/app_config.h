@@ -104,6 +104,9 @@
 #define WIFI_AP_CHANNEL                 11              // Fallback channel if auto-select fails
 #define WIFI_AP_MAX_CONNECTIONS         4
 
+// Delay after starting softAP provisioning to ensure DHCP server is fully initialized
+#define WIFI_DHCP_INIT_DELAY_MS         500
+
 // ============================================================================
 // WEB SERVER CONFIGURATION
 // ============================================================================

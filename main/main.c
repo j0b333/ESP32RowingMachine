@@ -264,6 +264,11 @@ static esp_err_t init_subsystems(void) {
                 return ret;
             }
             
+            // Wait for softAP and DHCP server to fully initialize
+            // This delay ensures the network stack is ready before we start the DNS server
+            ESP_LOGI(TAG, "Waiting for DHCP server to initialize...");
+            vTaskDelay(pdMS_TO_TICKS(WIFI_DHCP_INIT_DELAY_MS));
+            
             // Start DNS server - not for browser captive portal (no web server during provisioning)
             // but to ensure DNS resolution works for the mobile app
             ESP_LOGI(TAG, "Starting DNS server...");
