@@ -2541,3 +2541,68 @@ bool web_server_is_calibrating_inertia(void) {
             g_inertia_calibration.state == CALIBRATION_SPINUP ||
             g_inertia_calibration.state == CALIBRATION_SPINDOWN);
 }
+
+/**
+ * Start a minimal HTTP server for captive portal during provisioning
+ * 
+ * This creates a lightweight HTTP server with only captive portal handlers,
+ * WITHOUT the wildcard URI matcher (which is incompatible with protocomm).
+ * This server can be shared with the provisioning manager.
+ * 
+ * @return ESP_OK on success
+ */
+esp_err_t web_server_start_captive_portal(void) {
+    if (g_server != NULL) {
+        ESP_LOGW(TAG, "Server already running");
+        return ESP_OK;
+    }
+    
+    // Minimal config - no wildcard matcher, no WebSocket/SSE callbacks
+    httpd_config_t http_config = HTTPD_DEFAULT_CONFIG();
+    http_config.server_port = WEB_SERVER_PORT;
+    http_config.max_open_sockets = 7;        // Minimal for provisioning
+    http_config.max_uri_handlers = 20;       // Captive portal + provisioning endpoints
+    http_config.lru_purge_enable = true;
+    // NOTE: Do NOT set uri_match_fn to wildcard - it's incompatible with protocomm
+    http_config.recv_wait_timeout = 10;
+    http_config.send_wait_timeout = 10;
+    
+    ESP_LOGI(TAG, "Starting captive portal HTTP server on port %d", http_config.server_port);
+    
+    esp_err_t ret = httpd_start(&g_server, &http_config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start captive portal server: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    
+    // Register only captive portal handlers
+    int registered = 0;
+    #define REGISTER_CAPTIVE_URI(handler) do { \
+        if (httpd_register_uri_handler(g_server, &handler) == ESP_OK) { \
+            registered++; \
+        } else { \
+            ESP_LOGW(TAG, "Failed to register captive: %s", handler.uri); \
+        } \
+    } while(0)
+    
+    // Core pages
+    REGISTER_CAPTIVE_URI(uri_index);          // /
+    REGISTER_CAPTIVE_URI(uri_setup);          // /setup
+    REGISTER_CAPTIVE_URI(uri_style);          // /style.css
+    REGISTER_CAPTIVE_URI(uri_favicon);        // /favicon.ico
+    
+    // Captive portal detection URLs
+    REGISTER_CAPTIVE_URI(uri_generate_204);   // /generate_204 (Android)
+    REGISTER_CAPTIVE_URI(uri_gen_204);        // /gen_204 (Android)
+    REGISTER_CAPTIVE_URI(uri_hotspot_detect); // /hotspot-detect.html (Apple)
+    REGISTER_CAPTIVE_URI(uri_canonical);      // /canonical.html (Apple)
+    REGISTER_CAPTIVE_URI(uri_success);        // /success.txt (Windows)
+    REGISTER_CAPTIVE_URI(uri_ncsi);           // /ncsi.txt (Windows)
+    REGISTER_CAPTIVE_URI(uri_connecttest);    // /connecttest.txt (Windows)
+    REGISTER_CAPTIVE_URI(uri_redirect);       // /redirect
+    
+    #undef REGISTER_CAPTIVE_URI
+    
+    ESP_LOGI(TAG, "Captive portal server started (%d handlers registered)", registered);
+    return ESP_OK;
+}
