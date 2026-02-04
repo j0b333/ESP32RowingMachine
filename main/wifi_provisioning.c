@@ -212,15 +212,17 @@ esp_err_t wifi_provisioning_is_provisioned(bool *provisioned)
 
 /**
  * Print QR code for ESP SoftAP Provisioning app
- * Format: {"ver":"v1","name":"SSID","pop":"","transport":"softap"}
+ * Format: {"ver":"v1","name":"SSID","pop":"","transport":"softap","security":"0"}
  */
 static void print_qr_code(const char *service_name)
 {
     // Format the provisioning payload for the ESP SoftAP Prov app
-    // Using Security 0 (no pop), softap transport
+    // Using Security 0 (no encryption), softap transport
+    // IMPORTANT: The "security":"0" field is required to match NETWORK_PROV_SECURITY_0
+    // Without this field, the app defaults to security version 2 causing a mismatch error
     char payload[150];
     snprintf(payload, sizeof(payload),
-             "{\"ver\":\"v1\",\"name\":\"%s\",\"pop\":\"\",\"transport\":\"softap\"}",
+             "{\"ver\":\"v1\",\"name\":\"%s\",\"pop\":\"\",\"transport\":\"softap\",\"security\":\"0\"}",
              service_name);
     
     ESP_LOGI(TAG, "Provisioning payload: %s", payload);
