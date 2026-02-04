@@ -254,31 +254,21 @@ static esp_err_t init_subsystems(void) {
         if (!provisioned) {
             ESP_LOGI(TAG, "Starting WiFi provisioning via softAP...");
             
-            // Start web server FIRST so we can share the HTTP server with provisioning
-            // This ensures our URI handlers (including "/" for captive portal) are available
-            ESP_LOGI(TAG, "Starting web server for captive portal...");
-            ret = web_server_start(&g_metrics, &g_config);
-            if (ret != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to start web server for provisioning captive portal");
-                return ret;
-            }
-            
-            // Get the HTTP server handle and pass it to provisioning
-            httpd_handle_t httpd_handle = web_server_get_handle();
-            if (httpd_handle == NULL) {
-                ESP_LOGE(TAG, "Web server handle is NULL - cannot proceed with provisioning");
-                return ESP_ERR_INVALID_STATE;
-            }
-            
-            // Start provisioning with our HTTP server handle
-            // Provisioning will register its endpoints on our server
-            ret = wifi_provisioning_start(g_config.wifi_ssid, NULL, httpd_handle);
+            // Start provisioning - it will create its own HTTP server
+            // Note: We do NOT share our web server with provisioning because the
+            // provisioning library's protocomm layer has specific requirements
+            // for the HTTP server configuration. Users should use the ESP SoftAP
+            // Prov mobile app for provisioning, not browser access.
+            ret = wifi_provisioning_start(g_config.wifi_ssid, NULL, NULL);
             if (ret != ESP_OK) {
                 ESP_LOGE(TAG, "Failed to start provisioning");
                 return ret;
             }
             
             // Start DNS server for captive portal
+            // This redirects all DNS queries to 192.168.4.1 so browsers will show
+            // a captive portal detection page. The provisioning is done via the
+            // ESP SoftAP Prov mobile app (iOS/Android), not via browser.
             ESP_LOGI(TAG, "Starting DNS server for captive portal...");
             esp_err_t dns_ret = dns_server_start("192.168.4.1");
             if (dns_ret != ESP_OK) {
