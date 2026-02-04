@@ -152,8 +152,10 @@ static esp_err_t init_subsystems(void) {
     esp_err_t ret;
     bool provisioned = true;  // Assume provisioned unless WiFi says otherwise
     
-    // Enable debug logging for DNS server to help diagnose captive portal issues
-    esp_log_level_set("DNS_SERVER", ESP_LOG_DEBUG);
+    // Enable debug logging for WiFi provisioning troubleshooting
+    esp_log_level_set("WIFI_PROV", ESP_LOG_DEBUG);
+    esp_log_level_set("wifi", ESP_LOG_DEBUG);
+    esp_log_level_set("esp_netif_lwip", ESP_LOG_DEBUG);
     
     // Initialize NVS and load configuration
     ESP_LOGI(TAG, "Initializing configuration manager...");
@@ -257,16 +259,24 @@ static esp_err_t init_subsystems(void) {
         if (!provisioned) {
             ESP_LOGI(TAG, "Starting WiFi provisioning via softAP...");
             
-            // Start provisioning - it will create its own HTTP server
-            // Our web server will start after WiFi is connected
+            // NOTE: HTTP server sharing with ESP-IDF 6.0 network_provisioning component
+            // causes LoadProhibited crash in protocomm. Let provisioning create and manage
+            // its own HTTP server. After successful provisioning, the device reboots and
+            // starts normally with web server and mDNS for browser access.
             ret = wifi_provisioning_start(g_config.wifi_ssid, NULL, NULL);
             if (ret != ESP_OK) {
                 ESP_LOGE(TAG, "Failed to start provisioning");
                 return ret;
             }
             
-            // Start DNS server for captive portal
-            ESP_LOGI(TAG, "Starting DNS server for captive portal...");
+            // Wait for softAP and DHCP server to fully initialize
+            // This delay ensures the network stack is ready before we start the DNS server
+            ESP_LOGI(TAG, "Waiting for DHCP server to initialize...");
+            vTaskDelay(pdMS_TO_TICKS(WIFI_DHCP_INIT_DELAY_MS));
+            
+            // Start DNS server - not for browser captive portal (no web server during provisioning)
+            // but to ensure DNS resolution works for the mobile app
+            ESP_LOGI(TAG, "Starting DNS server...");
             esp_err_t dns_ret = dns_server_start("192.168.4.1");
             if (dns_ret != ESP_OK) {
                 ESP_LOGW(TAG, "DNS server failed to start");
@@ -275,8 +285,8 @@ static esp_err_t init_subsystems(void) {
             ESP_LOGI(TAG, "====================================");
             ESP_LOGI(TAG, "  WiFi Provisioning Mode");
             ESP_LOGI(TAG, "  Connect to: %s", g_config.wifi_ssid);
-            ESP_LOGI(TAG, "  Use ESP SoftAP Prov app to configure");
-            ESP_LOGI(TAG, "  WiFi credentials (iOS/Android)");
+            ESP_LOGI(TAG, "  Use ESP SoftAP Prov app (iOS/Android)");
+            ESP_LOGI(TAG, "  to configure WiFi credentials");
             ESP_LOGI(TAG, "====================================");
         }
     }

@@ -7,6 +7,7 @@
  */
 
 #include "wifi_provisioning.h"
+#include "app_config.h"
 
 #include <string.h>
 #include <freertos/FreeRTOS.h>
@@ -40,6 +41,11 @@ static bool s_prov_active = false;
 static void prov_event_handler(void *arg, esp_event_base_t event_base,
                                 int32_t event_id, void *event_data)
 {
+    // Debug: log all events (event_base is a const char*)
+    if (event_base) {
+        ESP_LOGD(TAG, "Event received: base=%s, id=%ld", (const char *)event_base, (long)event_id);
+    }
+    
     if (event_base == NETWORK_PROV_EVENT) {
         switch (event_id) {
         case NETWORK_PROV_START:
@@ -80,13 +86,31 @@ static void prov_event_handler(void *arg, esp_event_base_t event_base,
     } else if (event_base == WIFI_EVENT) {
         switch (event_id) {
         case WIFI_EVENT_STA_START:
-            ESP_LOGI(TAG, "WiFi STA started, connecting...");
-            esp_wifi_connect();
+            // When using the provisioning manager, DO NOT call esp_wifi_connect() here!
+            // The provisioning manager handles WiFi connection after credentials are received.
+            // Calling esp_wifi_connect() manually interferes with the provisioning flow
+            // and causes "sta_connect: invalid ssid" errors when no credentials exist.
+            ESP_LOGD(TAG, "WiFi STA started (provisioning manager handles connection)");
             break;
             
         case WIFI_EVENT_STA_DISCONNECTED:
-            ESP_LOGI(TAG, "Disconnected, reconnecting...");
-            esp_wifi_connect();
+            // Handle reconnection after credentials have been provisioned
+            // During active provisioning, the provisioning manager handles everything
+            // After provisioning completes (s_prov_active=false), we should reconnect
+            if (!s_prov_active) {
+                ESP_LOGI(TAG, "Disconnected, reconnecting...");
+                esp_wifi_connect();
+            } else {
+                ESP_LOGD(TAG, "WiFi STA disconnected (provisioning active - manager handles reconnection)");
+            }
+            break;
+            
+        case WIFI_EVENT_AP_START:
+            ESP_LOGI(TAG, "SoftAP started - ready for client connections");
+            break;
+            
+        case WIFI_EVENT_AP_STOP:
+            ESP_LOGW(TAG, "SoftAP stopped!");
             break;
             
         case WIFI_EVENT_AP_STACONNECTED: {
@@ -102,20 +126,29 @@ static void prov_event_handler(void *arg, esp_event_base_t event_base,
         case WIFI_EVENT_AP_STADISCONNECTED: {
             wifi_event_ap_stadisconnected_t *event = 
                 (wifi_event_ap_stadisconnected_t *)event_data;
-            ESP_LOGI(TAG, "SoftAP: Device disconnected (AID=%d, MAC=%02x:%02x:%02x:%02x:%02x:%02x)",
+            ESP_LOGW(TAG, "SoftAP: Device disconnected (AID=%d, MAC=%02x:%02x:%02x:%02x:%02x:%02x, reason=%d)",
                      event->aid,
                      event->mac[0], event->mac[1], event->mac[2],
-                     event->mac[3], event->mac[4], event->mac[5]);
+                     event->mac[3], event->mac[4], event->mac[5],
+                     event->reason);
             break;
         }
         
         default:
             break;
         }
-    } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
-        ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
-        ESP_LOGI(TAG, "Connected with IP: " IPSTR, IP2STR(&event->ip_info.ip));
-        xEventGroupSetBits(s_prov_event_group, WIFI_CONNECTED_BIT);
+    } else if (event_base == IP_EVENT) {
+        if (event_id == IP_EVENT_STA_GOT_IP) {
+            ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
+            ESP_LOGI(TAG, "Connected with IP: " IPSTR, IP2STR(&event->ip_info.ip));
+            xEventGroupSetBits(s_prov_event_group, WIFI_CONNECTED_BIT);
+        } else if (event_id == IP_EVENT_ASSIGNED_IP_TO_CLIENT) {
+            ip_event_assigned_ip_to_client_t *event = (ip_event_assigned_ip_to_client_t *)event_data;
+            ESP_LOGI(TAG, "SoftAP: Client assigned IP " IPSTR " (MAC=%02x:%02x:%02x:%02x:%02x:%02x)",
+                     IP2STR(&event->ip),
+                     event->mac[0], event->mac[1], event->mac[2],
+                     event->mac[3], event->mac[4], event->mac[5]);
+        }
     }
 }
 
@@ -158,13 +191,23 @@ esp_err_t wifi_provisioning_init(void)
                                                 &prov_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, 
                                                 &prov_event_handler, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, 
+    // Register for IP events - both STA (our connection) and AP (client DHCP assignments)
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, ESP_EVENT_ANY_ID, 
                                                 &prov_event_handler, NULL));
     
-    // Create default WiFi network interfaces for both STA and AP
-    // Both are needed - STA for connecting to home WiFi, AP for provisioning
-    esp_netif_create_default_wifi_sta();
-    esp_netif_create_default_wifi_ap();  // Required for DHCP server to work
+    // Create default WiFi network interfaces
+    // IMPORTANT: Both STA and AP interfaces MUST be created BEFORE WiFi init and provisioning
+    // The provisioning manager uses the existing AP interface with its DHCP server
+    // Without the AP interface, DHCP server won't work and clients can't get IP addresses
+    ESP_LOGI(TAG, "Creating WiFi network interfaces...");
+    esp_netif_t *sta_netif = esp_netif_create_default_wifi_sta();
+    esp_netif_t *ap_netif = esp_netif_create_default_wifi_ap();
+    
+    if (sta_netif == NULL || ap_netif == NULL) {
+        ESP_LOGE(TAG, "Failed to create WiFi network interfaces");
+        return ESP_ERR_NO_MEM;
+    }
+    ESP_LOGI(TAG, "WiFi interfaces created (STA + AP with DHCP server)");
     
     // Initialize WiFi
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -212,16 +255,26 @@ esp_err_t wifi_provisioning_is_provisioned(bool *provisioned)
 
 /**
  * Print QR code for ESP SoftAP Provisioning app
- * Format: {"ver":"v1","name":"SSID","pop":"","transport":"softap"}
+ * Format: {"ver":"v1","name":"SSID","pop":"","transport":"softap","security":"0","password":"xxx"}
  */
-static void print_qr_code(const char *service_name)
+static void print_qr_code(const char *service_name, const char *password)
 {
     // Format the provisioning payload for the ESP SoftAP Prov app
-    // Using Security 0 (no pop), softap transport
-    char payload[150];
-    snprintf(payload, sizeof(payload),
-             "{\"ver\":\"v1\",\"name\":\"%s\",\"pop\":\"\",\"transport\":\"softap\"}",
-             service_name);
+    // Using Security 0 (no encryption), softap transport with WPA2 password
+    // IMPORTANT: The "security":"0" field is required to match NETWORK_PROV_SECURITY_0
+    // Without this field, the app defaults to security version 2 causing a mismatch error
+    char payload[200];
+    if (password && strlen(password) >= 8) {
+        // WPA2 protected network
+        snprintf(payload, sizeof(payload),
+                 "{\"ver\":\"v1\",\"name\":\"%s\",\"pop\":\"\",\"transport\":\"softap\",\"security\":\"0\",\"password\":\"%s\"}",
+                 service_name, password);
+    } else {
+        // Open network
+        snprintf(payload, sizeof(payload),
+                 "{\"ver\":\"v1\",\"name\":\"%s\",\"pop\":\"\",\"transport\":\"softap\",\"security\":\"0\"}",
+                 service_name);
+    }
     
     ESP_LOGI(TAG, "Provisioning payload: %s", payload);
     
@@ -235,6 +288,9 @@ static void print_qr_code(const char *service_name)
     esp_qrcode_generate(&cfg, payload);
     
     ESP_LOGI(TAG, "Or manually connect to WiFi: %s", service_name);
+    if (password && strlen(password) >= 8) {
+        ESP_LOGI(TAG, "WiFi Password: %s", password);
+    }
     ESP_LOGI(TAG, "Then open http://192.168.4.1 in browser (or use app)");
 }
 
@@ -266,9 +322,15 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     xEventGroupClearBits(s_prov_event_group, 
                          WIFI_CONNECTED_BIT | WIFI_FAIL_BIT | PROV_END_BIT);
     
-    ESP_LOGI(TAG, "Starting provisioning with SSID: %s", service_name);
+    // Use open network (no password) for softAP provisioning
+    // WPA2 was causing 4-way handshake timeout (reason=15) on some devices
+    // The "password" field in the QR code is only for the ESP app transport security,
+    // not the WiFi network password
+    const char *service_key = NULL;  // Open network
     
-    ret = network_prov_mgr_start_provisioning(security, NULL, service_name, NULL);
+    ESP_LOGI(TAG, "Starting provisioning with SSID: %s (OPEN network)", service_name);
+    
+    ret = network_prov_mgr_start_provisioning(security, NULL, service_name, service_key);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start provisioning: %s", esp_err_to_name(ret));
         return ret;
@@ -279,11 +341,12 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     ESP_LOGI(TAG, "====================================");
     ESP_LOGI(TAG, "  Provisioning started!");
     ESP_LOGI(TAG, "  WiFi SSID: %s", service_name);
-    ESP_LOGI(TAG, "  Security: None (open)");
+    ESP_LOGI(TAG, "  WiFi Password: (none - open network)");
+    ESP_LOGI(TAG, "  Security: OPEN");
     ESP_LOGI(TAG, "====================================");
     
-    // Print QR code for ESP SoftAP Prov app
-    print_qr_code(service_name);
+    // Print QR code for ESP SoftAP Prov app (no password for open network)
+    print_qr_code(service_name, NULL);
     
     return ESP_OK;
 }

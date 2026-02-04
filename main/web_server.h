@@ -19,6 +19,16 @@
 esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config);
 
 /**
+ * Start a minimal HTTP server for captive portal during provisioning
+ * 
+ * This creates a lightweight HTTP server with only captive portal handlers,
+ * suitable for sharing with the provisioning manager (no wildcard URI matcher).
+ * 
+ * @return ESP_OK on success
+ */
+esp_err_t web_server_start_captive_portal(void);
+
+/**
  * Stop HTTP server
  */
 void web_server_stop(void);
