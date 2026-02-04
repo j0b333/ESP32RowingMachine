@@ -341,20 +341,23 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     
     ESP_LOGI(TAG, "Starting provisioning with SSID: %s (OPEN network - use ESP SoftAP Prov app)", service_name);
 
-    /* Provide explicit SoftAP config to provisioning scheme instead of starting WiFi
-     * manually. This avoids repeated AP stop/start loops and enforces OPEN auth when
-     * no password is set (reason=2 AUTH_EXPIRE). IDF v6 network_provisioning respects
-     * this config on start.
+    /* esp-idf v6.0 network_provisioning 1.1.x does not expose softap config setter.
+     * Configure SoftAP explicitly via esp_wifi APIs before starting provisioning.
      */
-    wifi_prov_softap_config_t softap_cfg = {
-        .ssid = service_name,
-        .password = (service_key && strlen(service_key) >= 8) ? service_key : "",
-        .channel = 1,
-        .ssid_hidden = false,
-        .max_connection = 4,
-        .authmode = (service_key && strlen(service_key) >= 8) ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN,
-    };
-    ESP_ERROR_CHECK(network_prov_scheme_softap_set_config(&softap_cfg));
+    wifi_config_t ap_cfg = { 0 };
+    strlcpy((char *)ap_cfg.ap.ssid, service_name, sizeof(ap_cfg.ap.ssid));
+    ap_cfg.ap.ssid_len = strlen(service_name);
+    ap_cfg.ap.channel = 1;
+    ap_cfg.ap.max_connection = 4;
+    ap_cfg.ap.authmode = WIFI_AUTH_OPEN;
+    ap_cfg.ap.pmf_cfg.required = false;
+    if (service_key && strlen(service_key) >= 8) {
+        strlcpy((char *)ap_cfg.ap.password, service_key, sizeof(ap_cfg.ap.password));
+        ap_cfg.ap.authmode = WIFI_AUTH_WPA2_PSK;
+    }
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
+    ESP_ERROR_CHECK(esp_wifi_start());
 
     ret = network_prov_mgr_start_provisioning(security, NULL, service_name, service_key);
     if (ret != ESP_OK) {
