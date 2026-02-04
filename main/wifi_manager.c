@@ -391,7 +391,7 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
     
     // Set AP bandwidth to HT20 for better client compatibility
     // ESP32-S3 defaults to HT40 which can cause connection issues with some devices
-    ret = esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20);
+    ret = esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW20);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Failed to set AP bandwidth to HT20: %s", esp_err_to_name(ret));
         // Continue anyway, this is not critical
@@ -721,7 +721,7 @@ esp_err_t wifi_manager_start_apsta(const char *ap_ssid, const char *ap_password,
     
     // Set AP bandwidth to HT20 for better client compatibility
     // ESP32-S3 defaults to HT40 which can cause connection issues with some devices
-    ret = esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20);
+    ret = esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW20);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Failed to set AP bandwidth to HT20: %s", esp_err_to_name(ret));
         // Continue anyway, this is not critical
