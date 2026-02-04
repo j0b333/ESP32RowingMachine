@@ -322,14 +322,24 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     xEventGroupClearBits(s_prov_event_group, 
                          WIFI_CONNECTED_BIT | WIFI_FAIL_BIT | PROV_END_BIT);
     
-    // Configure SoftAP for provisioning using WPA2 authentication
-    // Using WPA2 with a password is more stable than open networks on modern devices
-    // Android 10+ and iOS have issues with open networks (captive portal behavior)
-    // The service_key parameter in network_prov_mgr_start_provisioning() sets the WiFi password
-    // When service_key is non-NULL and >= 8 chars, WPA2-PSK is used automatically
-    const char *service_key = WIFI_AP_PROV_PASSWORD;
+    // Configure SoftAP for provisioning using OPEN network (no password)
+    // This is Espressif's recommended approach for the ESP SoftAP Provisioning app
+    // 
+    // Why OPEN instead of WPA2:
+    // 1. ESP SoftAP Provisioning app is designed for open networks
+    // 2. iOS cannot programmatically connect to WPA2 APs (requires manual password entry)
+    // 3. WPA2 causes 4-way handshake timeout (reason=15) when phone connects without password
+    // 4. Android/iOS captive portal behavior is handled by the provisioning app itself
+    // 
+    // Security is provided at the application layer via NETWORK_PROV_SECURITY (Security 0/1/2)
+    // The provisioning protocol encrypts credentials during transfer even over open WiFi
+    //
+    // Note: If users manually connect from phone WiFi settings instead of using the app,
+    // they may see brief disconnect/reconnect behavior due to captive portal detection.
+    // This is normal - instruct users to use the ESP SoftAP Provisioning app.
+    const char *service_key = NULL;  // NULL = open network (no WiFi password)
     
-    ESP_LOGI(TAG, "Starting provisioning with SSID: %s (WPA2 protected)", service_name);
+    ESP_LOGI(TAG, "Starting provisioning with SSID: %s (OPEN network - use ESP SoftAP Prov app)", service_name);
     
     ret = network_prov_mgr_start_provisioning(security, NULL, service_name, service_key);
     if (ret != ESP_OK) {
@@ -342,12 +352,12 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     ESP_LOGI(TAG, "====================================");
     ESP_LOGI(TAG, "  Provisioning started!");
     ESP_LOGI(TAG, "  WiFi SSID: %s", service_name);
-    ESP_LOGI(TAG, "  WiFi Password: %s", WIFI_AP_PROV_PASSWORD);
-    ESP_LOGI(TAG, "  Security: WPA2-PSK");
+    ESP_LOGI(TAG, "  WiFi Password: (none - open network)");
+    ESP_LOGI(TAG, "  Use: ESP SoftAP Provisioning app");
     ESP_LOGI(TAG, "====================================");
     
-    // Print QR code for ESP SoftAP Prov app (with password for WPA2)
-    print_qr_code(service_name, WIFI_AP_PROV_PASSWORD);
+    // Print QR code for ESP SoftAP Prov app (no password for open network)
+    print_qr_code(service_name, NULL);
     
     return ESP_OK;
 }
