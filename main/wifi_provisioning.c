@@ -185,21 +185,19 @@ esp_err_t wifi_provisioning_init(void)
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, ESP_EVENT_ANY_ID, 
                                                 &prov_event_handler, NULL));
     
-    // Create default WiFi STA interface for connecting to home WiFi after provisioning
-    // NOTE: Do NOT create the AP interface here! The network_prov_scheme_softap creates
-    // and manages its own AP interface with DHCP server. Creating it here causes:
-    // - Duplicate netif interfaces
-    // - DHCP server conflict (both try to start DHCP)
-    // - SoftAP restart during provisioning start
-    // - DHCP server becomes non-functional, clients can't get IPs
-    ESP_LOGI(TAG, "Creating WiFi STA interface...");
+    // Create default WiFi network interfaces
+    // IMPORTANT: Both STA and AP interfaces MUST be created BEFORE WiFi init and provisioning
+    // The provisioning manager uses the existing AP interface with its DHCP server
+    // Without the AP interface, DHCP server won't work and clients can't get IP addresses
+    ESP_LOGI(TAG, "Creating WiFi network interfaces...");
     esp_netif_t *sta_netif = esp_netif_create_default_wifi_sta();
+    esp_netif_t *ap_netif = esp_netif_create_default_wifi_ap();
     
-    if (sta_netif == NULL) {
-        ESP_LOGE(TAG, "Failed to create WiFi STA interface");
+    if (sta_netif == NULL || ap_netif == NULL) {
+        ESP_LOGE(TAG, "Failed to create WiFi network interfaces");
         return ESP_ERR_NO_MEM;
     }
-    ESP_LOGI(TAG, "WiFi STA interface created (AP will be created by provisioning manager)");
+    ESP_LOGI(TAG, "WiFi interfaces created (STA + AP with DHCP server)");
     
     // Initialize WiFi
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
