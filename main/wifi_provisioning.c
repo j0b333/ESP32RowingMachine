@@ -7,6 +7,7 @@
  */
 
 #include "wifi_provisioning.h"
+#include "app_config.h"
 
 #include <string.h>
 #include <freertos/FreeRTOS.h>
@@ -238,18 +239,26 @@ esp_err_t wifi_provisioning_is_provisioned(bool *provisioned)
 
 /**
  * Print QR code for ESP SoftAP Provisioning app
- * Format: {"ver":"v1","name":"SSID","pop":"","transport":"softap","security":"0"}
+ * Format: {"ver":"v1","name":"SSID","pop":"","transport":"softap","security":"0","password":"xxx"}
  */
-static void print_qr_code(const char *service_name)
+static void print_qr_code(const char *service_name, const char *password)
 {
     // Format the provisioning payload for the ESP SoftAP Prov app
-    // Using Security 0 (no encryption), softap transport
+    // Using Security 0 (no encryption), softap transport with WPA2 password
     // IMPORTANT: The "security":"0" field is required to match NETWORK_PROV_SECURITY_0
     // Without this field, the app defaults to security version 2 causing a mismatch error
-    char payload[150];
-    snprintf(payload, sizeof(payload),
-             "{\"ver\":\"v1\",\"name\":\"%s\",\"pop\":\"\",\"transport\":\"softap\",\"security\":\"0\"}",
-             service_name);
+    char payload[200];
+    if (password && strlen(password) >= 8) {
+        // WPA2 protected network
+        snprintf(payload, sizeof(payload),
+                 "{\"ver\":\"v1\",\"name\":\"%s\",\"pop\":\"\",\"transport\":\"softap\",\"security\":\"0\",\"password\":\"%s\"}",
+                 service_name, password);
+    } else {
+        // Open network
+        snprintf(payload, sizeof(payload),
+                 "{\"ver\":\"v1\",\"name\":\"%s\",\"pop\":\"\",\"transport\":\"softap\",\"security\":\"0\"}",
+                 service_name);
+    }
     
     ESP_LOGI(TAG, "Provisioning payload: %s", payload);
     
@@ -263,6 +272,9 @@ static void print_qr_code(const char *service_name)
     esp_qrcode_generate(&cfg, payload);
     
     ESP_LOGI(TAG, "Or manually connect to WiFi: %s", service_name);
+    if (password && strlen(password) >= 8) {
+        ESP_LOGI(TAG, "WiFi Password: %s", password);
+    }
     ESP_LOGI(TAG, "Then open http://192.168.4.1 in browser (or use app)");
 }
 
@@ -294,9 +306,13 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     xEventGroupClearBits(s_prov_event_group, 
                          WIFI_CONNECTED_BIT | WIFI_FAIL_BIT | PROV_END_BIT);
     
-    ESP_LOGI(TAG, "Starting provisioning with SSID: %s", service_name);
+    // Use WPA2 password for softAP - more stable than open networks on ESP32
+    // The password must be 8-63 characters for WPA2
+    const char *service_key = WIFI_AP_PROV_PASSWORD;
     
-    ret = network_prov_mgr_start_provisioning(security, NULL, service_name, NULL);
+    ESP_LOGI(TAG, "Starting provisioning with SSID: %s (WPA2 protected)", service_name);
+    
+    ret = network_prov_mgr_start_provisioning(security, NULL, service_name, service_key);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start provisioning: %s", esp_err_to_name(ret));
         return ret;
@@ -307,11 +323,12 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     ESP_LOGI(TAG, "====================================");
     ESP_LOGI(TAG, "  Provisioning started!");
     ESP_LOGI(TAG, "  WiFi SSID: %s", service_name);
-    ESP_LOGI(TAG, "  Security: None (open)");
+    ESP_LOGI(TAG, "  WiFi Password: %s", service_key);
+    ESP_LOGI(TAG, "  Security: WPA2");
     ESP_LOGI(TAG, "====================================");
     
     // Print QR code for ESP SoftAP Prov app
-    print_qr_code(service_name);
+    print_qr_code(service_name, service_key);
     
     return ESP_OK;
 }
