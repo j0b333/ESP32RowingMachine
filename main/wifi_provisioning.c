@@ -133,7 +133,25 @@ esp_err_t wifi_provisioning_init(void)
         return ESP_ERR_NO_MEM;
     }
     
-    // Register event handlers
+    // Initialize NVS (required for WiFi)
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+    
+    // Initialize TCP/IP stack
+    ESP_ERROR_CHECK(esp_netif_init());
+    
+    // Create default event loop (required before registering handlers)
+    ret = esp_event_loop_create_default();
+    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+        // ESP_ERR_INVALID_STATE means it's already created, which is fine
+        ESP_ERROR_CHECK(ret);
+    }
+    
+    // Register event handlers (now the event loop exists)
     ESP_ERROR_CHECK(esp_event_handler_register(NETWORK_PROV_EVENT, ESP_EVENT_ANY_ID, 
                                                 &prov_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, 
@@ -149,13 +167,24 @@ esp_err_t wifi_provisioning_init(void)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
     
+    // Set WiFi country code for Netherlands (Europe)
+    wifi_country_t country = {
+        .cc = "NL",
+        .schan = 1,
+        .nchan = 13,
+        .max_tx_power = 20,
+        .policy = WIFI_COUNTRY_POLICY_AUTO,
+    };
+    ESP_ERROR_CHECK(esp_wifi_set_country(&country));
+    ESP_LOGI(TAG, "WiFi country set to NL (channels 1-13, 20dBm)");
+    
     // Configure provisioning manager with softAP scheme
     network_prov_mgr_config_t prov_config = {
         .scheme = network_prov_scheme_softap,
         .scheme_event_handler = NETWORK_PROV_EVENT_HANDLER_NONE,
     };
     
-    esp_err_t ret = network_prov_mgr_init(prov_config);
+    ret = network_prov_mgr_init(prov_config);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize provisioning manager: %s", 
                  esp_err_to_name(ret));
