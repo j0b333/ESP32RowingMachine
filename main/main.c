@@ -150,6 +150,7 @@ static void broadcast_task(void *arg) {
  */
 static esp_err_t init_subsystems(void) {
     esp_err_t ret;
+    bool provisioned = true;  // Assume provisioned unless WiFi says otherwise
     
     // Enable debug logging for DNS server to help diagnose captive portal issues
     esp_log_level_set("DNS_SERVER", ESP_LOG_DEBUG);
@@ -217,7 +218,7 @@ static esp_err_t init_subsystems(void) {
         }
         
         // Check if device is already provisioned
-        bool provisioned = false;
+        provisioned = false;  // Reset to false, check via API
         ret = wifi_provisioning_is_provisioned(&provisioned);
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "Failed to check provisioning status");
@@ -281,7 +282,9 @@ static esp_err_t init_subsystems(void) {
     }
     
     // Initialize BLE if enabled
-    if (g_config.ble_enabled) {
+    // NOTE: BLE scanning interferes with WiFi softAP on ESP32-S3 (shared 2.4GHz radio)
+    // Only initialize BLE if we're NOT in provisioning mode
+    if (g_config.ble_enabled && provisioned) {
         ESP_LOGI(TAG, "Initializing BLE FTMS...");
         ret = ble_ftms_init(g_config.device_name);
         if (ret != ESP_OK) {
@@ -304,6 +307,9 @@ static esp_err_t init_subsystems(void) {
             ble_hr_client_start_scan();
         }
 #endif
+    } else if (g_config.ble_enabled && !provisioned) {
+        ESP_LOGI(TAG, "BLE disabled during provisioning (WiFi/BLE coexistence issue)");
+        ESP_LOGI(TAG, "BLE will start automatically after WiFi provisioning completes");
     }
     
     // Session is NOT auto-started on boot - user must press Start button in web UI
