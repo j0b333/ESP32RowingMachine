@@ -104,6 +104,16 @@ If clients cannot connect to the "CrivitRower" WiFi network:
 - `HANDSHAKE_TIMEOUT` - Possible hardware issue or interference
 - `ASSOC_FAIL` - Association failed, may indicate hardware problem
 
+### Known ESP32-S3 SoftAP Issues
+
+There is a **known bug in ESP-IDF affecting ESP32-S3 softAP mode** where some iOS/Android devices fail to connect (GitHub issues [#13508](https://github.com/espressif/esp-idf/issues/13508), [#13608](https://github.com/espressif/esp-idf/issues/13608), [#13210](https://github.com/espressif/esp-idf/issues/13210)). This issue does not affect the original ESP32.
+
+**Workarounds:**
+- Use an original ESP32 board instead of ESP32-S3
+- Try downgrading to ESP-IDF v4.4.x
+- Reboot your phone and try connecting again
+- Put your phone in airplane mode, then enable WiFi only (disable cellular)
+
 ## License
 
 MIT License - See [LICENSE](LICENSE) for details.

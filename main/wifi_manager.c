@@ -425,20 +425,28 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
         return ret;
     }
     
-    // Configure AP
+    // Configure AP with settings optimized for maximum client compatibility
+    // Note: ESP32-S3 has known softAP issues with some clients (GitHub issues #13508, #13608, #13210)
+    // 
+    // SECURITY TRADE-OFFS (prioritizing connectivity over security for initial setup):
+    // - WPA/WPA2 mixed mode: Allows older devices to connect but enables weaker WPA1/TKIP
+    // - PMF disabled: Removes protection against deauth attacks but fixes handshake issues
+    // - TKIP+CCMP: Supports legacy devices but TKIP has known vulnerabilities
+    // These settings are acceptable for a local rowing monitor but would not be recommended
+    // for networks handling sensitive data. Users can modify app_config.h for stricter security.
     wifi_config_t wifi_config = {
         .ap = {
             .ssid_len = strlen(ssid),
             .channel = WIFI_AP_CHANNEL,
             .max_connection = WIFI_AP_MAX_CONNECTIONS,
             .authmode = (password != NULL && strlen(password) >= 8) ? 
-                        WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN,
+                        WIFI_AUTH_WPA_WPA2_PSK : WIFI_AUTH_OPEN,  // Mixed mode for broader compatibility
             .pmf_cfg = {
                 .required = false,
-                .capable = true,
+                .capable = false,  // Disable PMF - causes handshake issues on some phones
             },
             .beacon_interval = 100,  // Default 100ms beacon interval
-            .pairwise_cipher = WIFI_CIPHER_TYPE_CCMP,  // AES for better compatibility
+            .pairwise_cipher = WIFI_CIPHER_TYPE_TKIP_CCMP,  // Support both TKIP and AES
         },
     };
     
@@ -754,20 +762,21 @@ esp_err_t wifi_manager_start_apsta(const char *ap_ssid, const char *ap_password,
         return ret;
     }
     
-    // Configure AP with enhanced settings for better compatibility
+    // Configure AP with settings optimized for maximum client compatibility
+    // Note: ESP32-S3 has known softAP issues with some clients (GitHub issues #13508, #13608, #13210)
     wifi_config_t ap_config = {
         .ap = {
             .ssid_len = strlen(ap_ssid),
             .channel = WIFI_AP_CHANNEL,
             .max_connection = WIFI_AP_MAX_CONNECTIONS,
             .authmode = (ap_password != NULL && strlen(ap_password) >= 8) ? 
-                        WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN,
+                        WIFI_AUTH_WPA_WPA2_PSK : WIFI_AUTH_OPEN,  // Mixed mode for broader compatibility
             .pmf_cfg = {
                 .required = false,
-                .capable = true,
+                .capable = false,  // Disable PMF completely - can cause handshake issues on some phones
             },
             .beacon_interval = 100,  // Default 100ms beacon interval
-            .pairwise_cipher = WIFI_CIPHER_TYPE_CCMP,  // AES for better compatibility
+            .pairwise_cipher = WIFI_CIPHER_TYPE_TKIP_CCMP,  // Support both TKIP and AES for max compatibility
         },
     };
     
