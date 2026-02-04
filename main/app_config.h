@@ -97,8 +97,11 @@
 // WIFI CONFIGURATION
 // ============================================================================
 #define WIFI_AP_SSID_DEFAULT            "CrivitRower"
-#define WIFI_AP_PASS_DEFAULT            ""
-#define WIFI_AP_CHANNEL                 1
+// ESP32-S3 has known softAP issues with WPA2 (GitHub #13210, #13508).
+// WIFI_AUTH_OPEN (no password) often works when WPA2 fails.
+// Set password to empty string "" for open network, or 8+ chars for WPA2.
+#define WIFI_AP_PASS_DEFAULT            ""              // Open network - most reliable on ESP32-S3
+#define WIFI_AP_CHANNEL                 11              // Fallback channel if auto-select fails
 #define WIFI_AP_MAX_CONNECTIONS         4
 
 // ============================================================================

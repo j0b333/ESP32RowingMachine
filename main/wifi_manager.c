@@ -74,6 +74,47 @@ static esp_netif_ip_info_t s_ip_info;
     } while(0)
 
 /**
+ * Get human-readable string for WiFi disconnect reason
+ * Helps diagnose connection issues
+ */
+static const char* wifi_disconnect_reason_str(int reason) {
+    switch (reason) {
+        case 1: return "UNSPECIFIED";
+        case 2: return "AUTH_EXPIRE";
+        case 3: return "AUTH_LEAVE";
+        case 4: return "ASSOC_EXPIRE";
+        case 5: return "ASSOC_TOOMANY";
+        case 6: return "NOT_AUTHED";
+        case 7: return "NOT_ASSOCED";
+        case 8: return "ASSOC_LEAVE";
+        case 9: return "ASSOC_NOT_AUTHED";
+        case 10: return "DISASSOC_PWRCAP_BAD";
+        case 11: return "DISASSOC_SUPCHAN_BAD";
+        case 13: return "IE_INVALID";
+        case 14: return "MIC_FAILURE";
+        case 15: return "4WAY_HANDSHAKE_TIMEOUT";
+        case 16: return "GROUP_KEY_UPDATE_TIMEOUT";
+        case 17: return "IE_IN_4WAY_DIFFERS";
+        case 18: return "GROUP_CIPHER_INVALID";
+        case 19: return "PAIRWISE_CIPHER_INVALID";
+        case 20: return "AKMP_INVALID";
+        case 21: return "UNSUPP_RSN_IE_VERSION";
+        case 22: return "INVALID_RSN_IE_CAP";
+        case 23: return "802_1X_AUTH_FAILED";
+        case 24: return "CIPHER_SUITE_REJECTED";
+        case 200: return "BEACON_TIMEOUT";
+        case 201: return "NO_AP_FOUND";
+        case 202: return "AUTH_FAIL";
+        case 203: return "ASSOC_FAIL";
+        case 204: return "HANDSHAKE_TIMEOUT";
+        case 205: return "CONNECTION_FAIL";
+        case 206: return "AP_TSF_RESET";
+        case 207: return "ROAMING";
+        default: return "UNKNOWN";
+    }
+}
+
+/**
  * WiFi event handler
  */
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
@@ -121,10 +162,20 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
             
             case WIFI_EVENT_AP_STADISCONNECTED: {
                 wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *)event_data;
-                ESP_LOGI(TAG, "Station disconnected: %02x:%02x:%02x:%02x:%02x:%02x, AID=%d, reason=%d",
+                const char *reason_str = wifi_disconnect_reason_str(event->reason);
+                ESP_LOGW(TAG, "Station disconnected: MAC=%02x:%02x:%02x:%02x:%02x:%02x, AID=%d",
                          event->mac[0], event->mac[1], event->mac[2],
-                         event->mac[3], event->mac[4], event->mac[5], 
-                         event->aid, event->reason);
+                         event->mac[3], event->mac[4], event->mac[5], event->aid);
+                ESP_LOGW(TAG, "  Reason: %d (%s)", event->reason, reason_str);
+                
+                // Provide diagnostic hints for common issues
+                if (event->reason == 2 || event->reason == 202) {
+                    ESP_LOGW(TAG, "  Hint: AUTH_FAIL - Client may have wrong password or unsupported auth mode");
+                } else if (event->reason == 15 || event->reason == 204) {
+                    ESP_LOGW(TAG, "  Hint: HANDSHAKE_TIMEOUT - Possible hardware issue or interference");
+                } else if (event->reason == 203) {
+                    ESP_LOGW(TAG, "  Hint: ASSOC_FAIL - Client association failed, may indicate hardware issue");
+                }
                 break;
             }
             
@@ -224,6 +275,25 @@ esp_err_t wifi_manager_init(void) {
         ESP_LOGE(TAG, "Failed to init WiFi: %s", esp_err_to_name(ret));
         WIFI_MUTEX_GIVE();
         return ret;
+    }
+    
+    // Set WiFi country code for proper channel and power settings
+    // Using "NL" (Netherlands/Europe) which supports channels 1-13 at 20dBm
+    // Note: max_tx_power in wifi_country_t is in 0.25 dBm units, so 20 dBm = 20 * 4 = 80
+    wifi_country_t country_config = {
+        .cc = "NL",  // Netherlands/Europe regulatory domain (channels 1-13)
+        .schan = 1,
+        .nchan = 13,  // Europe allows channels 1-13
+        .max_tx_power = 20 * 4,  // 20 dBm (value is in 0.25 dBm units)
+        .policy = WIFI_COUNTRY_POLICY_MANUAL,
+    };
+    ret = esp_wifi_set_country(&country_config);
+    if (ret != ESP_OK) {
+        // If country code setting fails, ESP-IDF will use the default country
+        // from NVS or "CN" (China) which may restrict some channels
+        ESP_LOGW(TAG, "Failed to set country code: %s (will use ESP-IDF default)", esp_err_to_name(ret));
+    } else {
+        ESP_LOGI(TAG, "WiFi country set to NL (channels 1-13, 20dBm)");
     }
     
     // Register event handlers
@@ -330,8 +400,118 @@ void wifi_manager_deinit(void) {
     ESP_LOGI(TAG, "WiFi manager deinitialized");
 }
 
+// Channel selection constants
+#define MAX_APS_TO_ANALYZE      20      // Maximum APs to analyze for channel selection
+#define STRONG_SIGNAL_RSSI      -60     // RSSI threshold for strong signal (dBm)
+#define MEDIUM_SIGNAL_RSSI      -75     // RSSI threshold for medium signal (dBm)
+
+/**
+ * Find the best WiFi channel with least congestion
+ * Scans nearby networks and returns the least used channel among 1, 6, 11
+ * 
+ * NOTE: Currently unused - kept for future use when auto-channel selection is re-enabled
+ * 
+ * @return Best channel (1, 6, or 11), or WIFI_AP_CHANNEL as fallback
+ */
+__attribute__((unused))
+static uint8_t find_best_channel(void) {
+    ESP_LOGI(TAG, "Scanning for least congested channel...");
+    
+    // Need to temporarily start WiFi in STA mode to scan
+    esp_err_t ret = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Could not set STA mode for scan, using default channel");
+        return WIFI_AP_CHANNEL;
+    }
+    
+    ret = esp_wifi_start();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Could not start WiFi for scan, using default channel");
+        return WIFI_AP_CHANNEL;
+    }
+    
+    // Configure and start scan
+    wifi_scan_config_t scan_config = {
+        .ssid = NULL,
+        .bssid = NULL,
+        .channel = 0,  // Scan all channels
+        .show_hidden = true,
+        .scan_type = WIFI_SCAN_TYPE_ACTIVE,
+        .scan_time.active.min = 100,
+        .scan_time.active.max = 300,
+    };
+    
+    ret = esp_wifi_scan_start(&scan_config, true);  // Blocking scan
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Scan failed, using default channel");
+        esp_wifi_stop();
+        return WIFI_AP_CHANNEL;
+    }
+    
+    // Get scan results
+    uint16_t ap_count = 0;
+    esp_wifi_scan_get_ap_num(&ap_count);
+    
+    // Count networks on each of the non-overlapping channels (1, 6, 11)
+    // Also count adjacent channels that would cause interference
+    int channel_scores[14] = {0};  // Index 1-13 used
+    
+    if (ap_count > 0) {
+        uint16_t max_aps = (ap_count > MAX_APS_TO_ANALYZE) ? MAX_APS_TO_ANALYZE : ap_count;
+        wifi_ap_record_t *ap_records = malloc(sizeof(wifi_ap_record_t) * max_aps);
+        
+        if (ap_records != NULL) {
+            esp_wifi_scan_get_ap_records(&max_aps, ap_records);
+            
+            for (int i = 0; i < max_aps; i++) {
+                uint8_t ch = ap_records[i].primary;
+                if (ch >= 1 && ch <= 13) {
+                    // Weight by signal strength (stronger = more interference)
+                    int weight = (ap_records[i].rssi > STRONG_SIGNAL_RSSI) ? 3 : 
+                                 (ap_records[i].rssi > MEDIUM_SIGNAL_RSSI) ? 2 : 1;
+                    
+                    // Affect the channel and 2 adjacent channels on each side
+                    for (int offset = -2; offset <= 2; offset++) {
+                        int affected_ch = ch + offset;
+                        if (affected_ch >= 1 && affected_ch <= 13) {
+                            channel_scores[affected_ch] += weight;
+                        }
+                    }
+                }
+            }
+            free(ap_records);
+        }
+    }
+    
+    esp_wifi_stop();
+    
+    // Find the best channel among 1, 6, 11 (non-overlapping)
+    int best_channel = 1;
+    int best_score = channel_scores[1];
+    
+    if (channel_scores[6] < best_score) {
+        best_channel = 6;
+        best_score = channel_scores[6];
+    }
+    if (channel_scores[11] < best_score) {
+        best_channel = 11;
+        best_score = channel_scores[11];
+    }
+    
+    ESP_LOGI(TAG, "Channel analysis: ch1=%d, ch6=%d, ch11=%d -> selected channel %d",
+             channel_scores[1], channel_scores[6], channel_scores[11], best_channel);
+    
+    return (uint8_t)best_channel;
+}
+
 /**
  * Start WiFi in Access Point mode
+ * 
+ * ESP-IDF v6.0 requires strict ordering:
+ * 1. esp_wifi_set_mode()
+ * 2. esp_wifi_set_config()
+ * 3. esp_wifi_set_protocol() / esp_wifi_set_bandwidth() - BEFORE start
+ * 4. esp_wifi_start()
  */
 esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
     WIFI_MUTEX_TAKE();
@@ -347,7 +527,12 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
     // Clear previous event bits
     xEventGroupClearBits(s_wifi_event_group, WIFI_STARTED_BIT | WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
     
-    // Set mode to AP
+    // Use fixed channel for ESP-IDF v6.0 compatibility
+    // Auto-channel selection requires WiFi state transitions that may cause issues
+    uint8_t ap_channel = WIFI_AP_CHANNEL;
+    ESP_LOGI(TAG, "Using WiFi channel %d", ap_channel);
+    
+    // Set mode to AP FIRST (ESP-IDF v6.0 requirement)
     ret = esp_wifi_set_mode(WIFI_MODE_AP);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set AP mode: %s", esp_err_to_name(ret));
@@ -355,25 +540,29 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
         return ret;
     }
     
-    // Configure AP
+    // Configure AP with settings optimized for maximum client compatibility
+    // Note: ESP32-S3 has known softAP issues with some clients (GitHub issues #13508, #13608, #13210)
+    // 
+    // Using OPEN authentication as ESP32-S3 has issues with WPA2 in softAP mode
     wifi_config_t wifi_config = {
         .ap = {
             .ssid_len = strlen(ssid),
-            .channel = WIFI_AP_CHANNEL,
+            .channel = ap_channel,
             .max_connection = WIFI_AP_MAX_CONNECTIONS,
-            .authmode = (password != NULL && strlen(password) >= 8) ? 
-                        WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN,
+            .authmode = WIFI_AUTH_OPEN,  // Force open for ESP32-S3 compatibility
             .pmf_cfg = {
                 .required = false,
+                .capable = false,
             },
+            .beacon_interval = 100,
         },
     };
     
     strncpy((char *)wifi_config.ap.ssid, ssid, sizeof(wifi_config.ap.ssid) - 1);
-    if (password != NULL && strlen(password) >= 8) {
-        strncpy((char *)wifi_config.ap.password, password, sizeof(wifi_config.ap.password) - 1);
-    }
+    // Always use OPEN auth for ESP32-S3 softAP compatibility
+    // Password is ignored - users should configure home WiFi for security
     
+    // Set config BEFORE start (ESP-IDF v6.0 requirement)
     ret = esp_wifi_set_config(WIFI_IF_AP, &wifi_config);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set AP config: %s", esp_err_to_name(ret));
@@ -381,12 +570,32 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
         return ret;
     }
     
-    // Start WiFi
+    // Set WiFi protocol BEFORE start (ESP-IDF v6.0 requirement)
+    ret = esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to set WiFi protocol: %s (continuing anyway)", esp_err_to_name(ret));
+    }
+    
+    // NOW start WiFi
     ret = esp_wifi_start();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start WiFi: %s", esp_err_to_name(ret));
         WIFI_MUTEX_GIVE();
         return ret;
+    }
+    
+    // These can be set after start
+    ret = esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW20);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to set AP bandwidth to HT20: %s", esp_err_to_name(ret));
+    }
+    
+    int8_t tx_power = 80;  // 20 dBm
+    ret = esp_wifi_set_max_tx_power(tx_power);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to set TX power: %s", esp_err_to_name(ret));
+    } else {
+        ESP_LOGI(TAG, "WiFi TX power set to 20 dBm");
     }
     
     // Release mutex before waiting (to prevent deadlock)
@@ -409,7 +618,14 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
     init_mdns();
     
     s_current_mode = WIFI_OPERATING_MODE_AP;
-    ESP_LOGI(TAG, "WiFi AP started: SSID=%s, IP=" IPSTR, ssid, IP2STR(&s_ip_info.ip));
+    
+    // Get the actual channel we're using
+    wifi_config_t current_config;
+    esp_wifi_get_config(WIFI_IF_AP, &current_config);
+    
+    // Log detailed AP configuration for debugging
+    ESP_LOGI(TAG, "WiFi AP started: SSID=%s, IP=" IPSTR ", Auth=OPEN, Channel=%d, Bandwidth=HT20", 
+             ssid, IP2STR(&s_ip_info.ip), current_config.ap.channel);
     
     return ESP_OK;
 }
@@ -649,32 +865,35 @@ esp_err_t wifi_manager_start_apsta(const char *ap_ssid, const char *ap_password,
         return ret;
     }
     
-    // Configure AP
+    // Configure AP - using OPEN auth for ESP32-S3 compatibility
     wifi_config_t ap_config = {
         .ap = {
             .ssid_len = strlen(ap_ssid),
             .channel = WIFI_AP_CHANNEL,
             .max_connection = WIFI_AP_MAX_CONNECTIONS,
-            .authmode = (ap_password != NULL && strlen(ap_password) >= 8) ? 
-                        WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN,
+            .authmode = WIFI_AUTH_OPEN,  // Force open for ESP32-S3 compatibility
             .pmf_cfg = {
                 .required = false,
+                .capable = false,
             },
+            .beacon_interval = 100,
         },
     };
     
     strncpy((char *)ap_config.ap.ssid, ap_ssid, sizeof(ap_config.ap.ssid) - 1);
     ap_config.ap.ssid[sizeof(ap_config.ap.ssid) - 1] = '\0';
-    if (ap_password != NULL && strlen(ap_password) >= 8) {
-        strncpy((char *)ap_config.ap.password, ap_password, sizeof(ap_config.ap.password) - 1);
-        ap_config.ap.password[sizeof(ap_config.ap.password) - 1] = '\0';
-    }
     
     ret = esp_wifi_set_config(WIFI_IF_AP, &ap_config);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set AP config: %s", esp_err_to_name(ret));
         WIFI_MUTEX_GIVE();
         return ret;
+    }
+    
+    // Set WiFi protocol BEFORE start
+    ret = esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to set WiFi protocol: %s (continuing anyway)", esp_err_to_name(ret));
     }
     
     // Configure STA
@@ -709,6 +928,21 @@ esp_err_t wifi_manager_start_apsta(const char *ap_ssid, const char *ap_password,
         ESP_LOGE(TAG, "Failed to start WiFi: %s", esp_err_to_name(ret));
         WIFI_MUTEX_GIVE();
         return ret;
+    }
+    
+    // Set AP bandwidth to HT20 for better client compatibility
+    // ESP32-S3 defaults to HT40 which can cause connection issues with some devices
+    ret = esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW20);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to set AP bandwidth to HT20: %s", esp_err_to_name(ret));
+        // Continue anyway, this is not critical
+    }
+    
+    // Set maximum TX power for better range/reliability
+    int8_t tx_power = 80;  // 20 dBm (value is in 0.25 dBm units)
+    ret = esp_wifi_set_max_tx_power(tx_power);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to set TX power: %s", esp_err_to_name(ret));
     }
     
     // Release mutex before waiting (to prevent deadlock)

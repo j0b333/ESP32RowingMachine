@@ -7,6 +7,7 @@
 #define WEB_SERVER_H
 
 #include "esp_err.h"
+#include "esp_http_server.h"
 #include "rowing_physics.h"
 
 /**
@@ -21,6 +22,13 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config);
  * Stop HTTP server
  */
 void web_server_stop(void);
+
+/**
+ * Get the HTTP server handle
+ * Useful for sharing with provisioning manager
+ * @return HTTP server handle or NULL if not started
+ */
+httpd_handle_t web_server_get_handle(void);
 
 /**
  * Broadcast metrics to all connected WebSocket clients

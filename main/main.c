@@ -11,6 +11,7 @@
  * - Bluetooth Low Energy FTMS service for fitness app integration
  * - WiFi web server with WebSocket for real-time metrics
  * - NVS persistent configuration storage
+ * - ESP-IDF v6.0 network_provisioning for WiFi setup
  * 
  * Compatible with ESP-IDF 6.0+
  */
@@ -24,6 +25,7 @@
 #include "esp_timer.h"
 #include "esp_system.h"
 #include "esp_chip_info.h"
+#include "esp_wifi.h"
 
 // Application modules
 #include "app_config.h"
@@ -34,6 +36,7 @@
 #include "ble_ftms_server.h"
 #include "ble_hr_client.h"
 #include "wifi_manager.h"
+#include "wifi_provisioning.h"
 #include "web_server.h"
 #include "config_manager.h"
 #include "session_manager.h"
@@ -147,6 +150,7 @@ static void broadcast_task(void *arg) {
  */
 static esp_err_t init_subsystems(void) {
     esp_err_t ret;
+    bool provisioned = true;  // Assume provisioned unless WiFi says otherwise
     
     // Enable debug logging for DNS server to help diagnose captive portal issues
     esp_log_level_set("DNS_SERVER", ESP_LOG_DEBUG);
@@ -204,78 +208,83 @@ static esp_err_t init_subsystems(void) {
     
     // Initialize WiFi if enabled
     if (g_config.wifi_enabled) {
-        ESP_LOGI(TAG, "Initializing WiFi manager...");
-        ret = wifi_manager_init();
+        ESP_LOGI(TAG, "Initializing WiFi provisioning (ESP-IDF v6.0)...");
+        
+        // Initialize the network_provisioning component
+        ret = wifi_provisioning_init();
         if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to initialize WiFi");
+            ESP_LOGE(TAG, "Failed to initialize WiFi provisioning");
             return ret;
         }
         
-        // Check if STA credentials are configured
-        bool sta_connected = false;
-        if (g_config.sta_configured && strlen(g_config.sta_ssid) > 0) {
-            ESP_LOGI(TAG, "Saved WiFi credentials found: %s", g_config.sta_ssid);
-            ESP_LOGI(TAG, "Attempting to connect (60 second timeout)...");
-            
-            // Try to connect with 60 second timeout
-            sta_connected = wifi_manager_connect_sta_with_timeout(
-                g_config.sta_ssid, 
-                g_config.sta_password, 
-                60  // 60 second timeout
-            );
-            
-            if (!sta_connected) {
-                ESP_LOGW(TAG, "Could not connect to %s within 60 seconds", g_config.sta_ssid);
-                ESP_LOGI(TAG, "Falling back to AP mode for WiFi provisioning");
-            }
-        } else {
-            ESP_LOGI(TAG, "No saved WiFi credentials, starting in provisioning mode");
+        // Check if device is already provisioned
+        provisioned = false;  // Reset to false, check via API
+        ret = wifi_provisioning_is_provisioned(&provisioned);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to check provisioning status");
+            return ret;
         }
         
-        // Start WiFi in AP mode if STA not configured or connection failed
-        if (!sta_connected) {
-            ESP_LOGI(TAG, "Starting WiFi AP: %s", g_config.wifi_ssid);
-            ret = wifi_manager_start_ap(g_config.wifi_ssid, g_config.wifi_password);
+        if (provisioned) {
+            ESP_LOGI(TAG, "Device is already provisioned - starting WiFi STA");
+            
+            // Start WiFi in station mode (credentials from NVS)
+            ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+            ESP_ERROR_CHECK(esp_wifi_start());
+            
+            // Wait for connection
+            ESP_LOGI(TAG, "Waiting for WiFi connection...");
+            ret = wifi_provisioning_wait_for_connection(60000);  // 60 second timeout
+            
+            if (ret == ESP_OK) {
+                ESP_LOGI(TAG, "Connected to WiFi!");
+                
+                // Start web server after connection
+                ESP_LOGI(TAG, "Starting web server...");
+                ret = web_server_start(&g_metrics, &g_config);
+                if (ret != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to start web server");
+                    return ret;
+                }
+            } else {
+                ESP_LOGW(TAG, "Could not connect to saved WiFi - resetting provisioning");
+                wifi_provisioning_reset();
+                provisioned = false;
+            }
+        }
+        
+        // If not provisioned, start provisioning via softAP
+        if (!provisioned) {
+            ESP_LOGI(TAG, "Starting WiFi provisioning via softAP...");
+            
+            // Start provisioning - it will create its own HTTP server
+            // Our web server will start after WiFi is connected
+            ret = wifi_provisioning_start(g_config.wifi_ssid, NULL, NULL);
             if (ret != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to start WiFi AP");
+                ESP_LOGE(TAG, "Failed to start provisioning");
                 return ret;
             }
             
-            // Start DNS server for captive portal (only in AP mode)
+            // Start DNS server for captive portal
             ESP_LOGI(TAG, "Starting DNS server for captive portal...");
             esp_err_t dns_ret = dns_server_start("192.168.4.1");
             if (dns_ret != ESP_OK) {
-                ESP_LOGW(TAG, "DNS server failed to start - captive portal may not work automatically");
+                ESP_LOGW(TAG, "DNS server failed to start");
             }
+            
+            ESP_LOGI(TAG, "====================================");
+            ESP_LOGI(TAG, "  WiFi Provisioning Mode");
+            ESP_LOGI(TAG, "  Connect to: %s", g_config.wifi_ssid);
+            ESP_LOGI(TAG, "  Use ESP SoftAP Prov app to configure");
+            ESP_LOGI(TAG, "  WiFi credentials (iOS/Android)");
+            ESP_LOGI(TAG, "====================================");
         }
-        
-        // Start web server
-        ESP_LOGI(TAG, "Starting web server...");
-        ret = web_server_start(&g_metrics, &g_config);
-        if (ret != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to start web server");
-            return ret;
-        }
-        
-        // Print connection info
-        char ip_str[16];
-        wifi_manager_get_ip_string(ip_str, sizeof(ip_str));
-        ESP_LOGI(TAG, "====================================");
-        ESP_LOGI(TAG, "  Web interface: http://%s", ip_str);
-        ESP_LOGI(TAG, "  Also available at: http://rower.local");
-        if (sta_connected) {
-            ESP_LOGI(TAG, "  Mode: Station (connected to %s)", g_config.sta_ssid);
-        } else {
-            ESP_LOGI(TAG, "  Mode: Access Point (Captive Portal)");
-            ESP_LOGI(TAG, "  WiFi SSID: %s", g_config.wifi_ssid);
-            ESP_LOGI(TAG, "  Direct access: http://192.168.4.1");
-            ESP_LOGI(TAG, "  Setup page: http://%s/setup", ip_str);
-        }
-        ESP_LOGI(TAG, "====================================");
     }
     
     // Initialize BLE if enabled
-    if (g_config.ble_enabled) {
+    // NOTE: BLE scanning interferes with WiFi softAP on ESP32-S3 (shared 2.4GHz radio)
+    // Only initialize BLE if we're NOT in provisioning mode
+    if (g_config.ble_enabled && provisioned) {
         ESP_LOGI(TAG, "Initializing BLE FTMS...");
         ret = ble_ftms_init(g_config.device_name);
         if (ret != ESP_OK) {
@@ -298,6 +307,9 @@ static esp_err_t init_subsystems(void) {
             ble_hr_client_start_scan();
         }
 #endif
+    } else if (g_config.ble_enabled && !provisioned) {
+        ESP_LOGI(TAG, "BLE disabled during provisioning (WiFi/BLE coexistence issue)");
+        ESP_LOGI(TAG, "BLE will start automatically after WiFi provisioning completes");
     }
     
     // Session is NOT auto-started on boot - user must press Start button in web UI

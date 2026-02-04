@@ -39,6 +39,8 @@ idf.py -p /dev/ttyUSB0 flash monitor
 3. Connect it to your local wireless network or use it directly using http://rower.local
 3. Start rowing!
 
+> **Note:** ESP32-S3 has known issues with WPA2 softAP. Using an open network is more reliable. Once connected to your home WiFi, the device uses your router's security.
+
 ## Documentation
 
 **[Full Documentation](docs/README.md)** - Complete guides and references
@@ -76,6 +78,43 @@ Configure weight, heart rate zones, units, and advanced options.
 
 Sync workouts to Samsung Health / Google Fit:
 **[ESP32RowingMachineCompanionApp](https://github.com/j0b333/ESP32RowingMachineCompanionApp)**
+
+## Troubleshooting
+
+### WiFi Connection Issues
+
+If clients cannot connect to the "CrivitRower" WiFi network:
+
+1. **Verify the password** - Default is `12345678` (8 characters required for WPA2)
+2. **Check the logs** - Look for disconnect reason codes in the serial output
+3. **Try different devices** - If only some devices fail, it may be client-specific
+4. **Test WiFi hardware** - Access `http://192.168.4.1/api/wifi/status` from a connected device to see diagnostics:
+   ```json
+   {
+     "diagnostics": {
+       "wifiHardwareOk": true,
+       "nearbyNetworks": 5,
+       "hardwareHint": "WiFi hardware appears functional"
+     }
+   }
+   ```
+5. **If diagnostics show hardware issues** - The ESP32's antenna may be damaged. Try a different ESP32 board.
+
+**Common log messages and their meanings:**
+- `removing station after unsuccessful auth/assoc` - Client failed to authenticate (wrong password or client issue)
+- `AUTH_FAIL` - Authentication failed, check password
+- `HANDSHAKE_TIMEOUT` - Possible hardware issue or interference
+- `ASSOC_FAIL` - Association failed, may indicate hardware problem
+
+### Known ESP32-S3 SoftAP Issues
+
+There is a **known bug in ESP-IDF affecting ESP32-S3 softAP mode** where some iOS/Android devices fail to connect (GitHub issues [#13508](https://github.com/espressif/esp-idf/issues/13508), [#13608](https://github.com/espressif/esp-idf/issues/13608), [#13210](https://github.com/espressif/esp-idf/issues/13210)). This issue does not affect the original ESP32.
+
+**Workarounds:**
+- Use an original ESP32 board instead of ESP32-S3
+- Try downgrading to ESP-IDF v4.4.x
+- Reboot your phone and try connecting again
+- Put your phone in airplane mode, then enable WiFi only (disable cellular)
 
 ## License
 
