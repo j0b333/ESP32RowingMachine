@@ -370,9 +370,12 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
         strlcpy((char *)s_ap_cfg.ap.password, service_key, sizeof(s_ap_cfg.ap.password));
         s_ap_cfg.ap.authmode = WIFI_AUTH_WPA2_PSK;
     }
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+    // During provisioning we only need SoftAP; keep STA off to avoid coexistence glitches
+    ESP_ERROR_CHECK(esp_wifi_stop());
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &s_ap_cfg)); // initial config (may be overridden)
     s_ap_cfg_ready = true;
+    ESP_ERROR_CHECK(esp_wifi_start());
 
     ret = network_prov_mgr_start_provisioning(security, NULL, service_name, service_key);
     if (ret != ESP_OK) {
