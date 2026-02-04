@@ -86,13 +86,25 @@ static void prov_event_handler(void *arg, esp_event_base_t event_base,
     } else if (event_base == WIFI_EVENT) {
         switch (event_id) {
         case WIFI_EVENT_STA_START:
-            ESP_LOGI(TAG, "WiFi STA started, connecting...");
-            esp_wifi_connect();
+            // Only try to connect if we're NOT in provisioning mode
+            // During provisioning, there are no saved credentials yet
+            if (!s_prov_active) {
+                ESP_LOGI(TAG, "WiFi STA started, connecting...");
+                esp_wifi_connect();
+            } else {
+                ESP_LOGD(TAG, "WiFi STA started (in provisioning mode - not connecting)");
+            }
             break;
             
         case WIFI_EVENT_STA_DISCONNECTED:
-            ESP_LOGI(TAG, "Disconnected, reconnecting...");
-            esp_wifi_connect();
+            // Only try to reconnect if we're NOT in provisioning mode
+            // During provisioning, the STA tries to connect but fails (no credentials)
+            if (!s_prov_active) {
+                ESP_LOGI(TAG, "Disconnected, reconnecting...");
+                esp_wifi_connect();
+            } else {
+                ESP_LOGD(TAG, "WiFi STA disconnected (in provisioning mode - not reconnecting)");
+            }
             break;
             
         case WIFI_EVENT_AP_START:
