@@ -161,9 +161,9 @@ esp_err_t wifi_provisioning_init(void)
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, 
                                                 &prov_event_handler, NULL));
     
-    // Create default WiFi netifs
+    // Create default WiFi STA netif only
+    // NOTE: Do NOT create AP netif here - network_prov_scheme_softap will create it
     esp_netif_create_default_wifi_sta();
-    esp_netif_create_default_wifi_ap();
     
     // Initialize WiFi
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
