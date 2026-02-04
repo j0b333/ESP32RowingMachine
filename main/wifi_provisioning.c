@@ -322,13 +322,54 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     xEventGroupClearBits(s_prov_event_group, 
                          WIFI_CONNECTED_BIT | WIFI_FAIL_BIT | PROV_END_BIT);
     
-    // Use open network (no password) for softAP provisioning
-    // WPA2 was causing 4-way handshake timeout (reason=15) on some devices
-    // The "password" field in the QR code is only for the ESP app transport security,
-    // not the WiFi network password
-    const char *service_key = NULL;  // Open network
+    // Configure SoftAP explicitly BEFORE starting provisioning
+    // This fixes DHCP/connection issues by ensuring proper AP configuration
+    // Using WPA2 with a password is more stable than open networks on modern devices
+    // Android 10+ and iOS have issues with open networks (captive portal behavior)
+    wifi_config_t softap_config = {
+        .ap = {
+            .ssid = {0},
+            .ssid_len = 0,
+            .channel = 1,  // Fixed channel for stability
+            .password = {0},
+            .max_connection = WIFI_AP_MAX_CONNECTIONS,
+            .authmode = WIFI_AUTH_WPA2_PSK,
+            .pmf_cfg = {
+                .required = false,
+                .capable = true
+            },
+            .ssid_hidden = 0,
+            .beacon_interval = 100,
+        }
+    };
     
-    ESP_LOGI(TAG, "Starting provisioning with SSID: %s (OPEN network)", service_name);
+    // Copy service name to SSID
+    size_t ssid_len = strlen(service_name);
+    if (ssid_len > sizeof(softap_config.ap.ssid) - 1) {
+        ssid_len = sizeof(softap_config.ap.ssid) - 1;
+    }
+    memcpy(softap_config.ap.ssid, service_name, ssid_len);
+    softap_config.ap.ssid_len = ssid_len;
+    
+    // Copy password and ensure null-termination
+    strncpy((char *)softap_config.ap.password, WIFI_AP_PROV_PASSWORD, sizeof(softap_config.ap.password) - 1);
+    softap_config.ap.password[sizeof(softap_config.ap.password) - 1] = '\0';
+    
+    // Set the SoftAP configuration BEFORE starting provisioning
+    // This is critical for proper DHCP server operation
+    ret = network_prov_scheme_softap_set_softap_config(&softap_config);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to set softAP config: %s (continuing anyway)", esp_err_to_name(ret));
+    } else {
+        ESP_LOGI(TAG, "SoftAP config set: SSID=%s, channel=%d, WPA2", 
+                 service_name, softap_config.ap.channel);
+    }
+    
+    // Use the configured password for softAP provisioning
+    // The service_key parameter is the WiFi password for the provisioning AP
+    const char *service_key = WIFI_AP_PROV_PASSWORD;
+    
+    ESP_LOGI(TAG, "Starting provisioning with SSID: %s (WPA2 protected)", service_name);
     
     ret = network_prov_mgr_start_provisioning(security, NULL, service_name, service_key);
     if (ret != ESP_OK) {
@@ -341,12 +382,12 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     ESP_LOGI(TAG, "====================================");
     ESP_LOGI(TAG, "  Provisioning started!");
     ESP_LOGI(TAG, "  WiFi SSID: %s", service_name);
-    ESP_LOGI(TAG, "  WiFi Password: (none - open network)");
-    ESP_LOGI(TAG, "  Security: OPEN");
+    ESP_LOGI(TAG, "  WiFi Password: %s", WIFI_AP_PROV_PASSWORD);
+    ESP_LOGI(TAG, "  Security: WPA2-PSK");
     ESP_LOGI(TAG, "====================================");
     
-    // Print QR code for ESP SoftAP Prov app (no password for open network)
-    print_qr_code(service_name, NULL);
+    // Print QR code for ESP SoftAP Prov app (with password for WPA2)
+    print_qr_code(service_name, WIFI_AP_PROV_PASSWORD);
     
     return ESP_OK;
 }
