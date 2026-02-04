@@ -161,9 +161,10 @@ esp_err_t wifi_provisioning_init(void)
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, 
                                                 &prov_event_handler, NULL));
     
-    // Create default WiFi STA netif only
-    // NOTE: Do NOT create AP netif here - network_prov_scheme_softap will create it
+    // Create default WiFi network interfaces for both STA and AP
+    // Both are needed - STA for connecting to home WiFi, AP for provisioning
     esp_netif_create_default_wifi_sta();
+    esp_netif_create_default_wifi_ap();  // Required for DHCP server to work
     
     // Initialize WiFi
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -175,7 +176,7 @@ esp_err_t wifi_provisioning_init(void)
         .schan = 1,
         .nchan = 13,
         .max_tx_power = 20,
-        .policy = WIFI_COUNTRY_POLICY_AUTO,
+        .policy = WIFI_COUNTRY_POLICY_MANUAL,  // Don't auto-change during provisioning
     };
     ESP_ERROR_CHECK(esp_wifi_set_country(&country));
     ESP_LOGI(TAG, "WiFi country set to NL (channels 1-13, 20dBm)");
