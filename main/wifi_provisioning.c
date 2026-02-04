@@ -381,8 +381,8 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     // - No interference from STA scanning
     // - Better compatibility with mobile devices
     //
-    // Note: The provisioning manager will switch to STA mode automatically when it
-    // receives credentials and needs to test the connection.
+    // Note: We manually switch to APSTA mode in the NETWORK_PROV_WIFI_CRED_RECV
+    // event handler when credentials are received and need to be validated.
     ESP_LOGI(TAG, "Switching to AP-only mode for stable client connections");
     ret = esp_wifi_set_mode(WIFI_MODE_AP);
     if (ret != ESP_OK) {
@@ -394,7 +394,7 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     wifi_config_t ap_config;
     ret = esp_wifi_get_config(WIFI_IF_AP, &ap_config);
     if (ret == ESP_OK) {
-        // Set beacon interval to 100ms (default) for good client discovery
+        // Ensure beacon interval is 100ms for good client discovery
         ap_config.ap.beacon_interval = 100;
         // Allow up to 4 simultaneous connections
         ap_config.ap.max_connection = 4;
