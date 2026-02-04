@@ -340,7 +340,27 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     const char *service_key = NULL;  // NULL = open network (no WiFi password)
     
     ESP_LOGI(TAG, "Starting provisioning with SSID: %s (OPEN network - use ESP SoftAP Prov app)", service_name);
-    
+
+    /* Explicitly configure SoftAP auth mode to avoid WPA2 mismatch (reason=2 AUTH_EXPIRE)
+     * seen on IDF v6 when the provisioning manager defaults to WPA2 with empty password.
+     * For open networks, force WIFI_AUTH_OPEN. For password length >=8, use WPA2-PSK.
+     */
+    wifi_config_t ap_cfg = { 0 };
+    strlcpy((char *)ap_cfg.ap.ssid, service_name, sizeof(ap_cfg.ap.ssid));
+    ap_cfg.ap.ssid_len = strlen(service_name);
+    ap_cfg.ap.channel = 1;
+    ap_cfg.ap.max_connection = 4;
+    ap_cfg.ap.authmode = WIFI_AUTH_OPEN;
+    ap_cfg.ap.pmf_cfg.required = false;
+    if (service_key && strlen(service_key) >= 8) {
+        strlcpy((char *)ap_cfg.ap.password, service_key, sizeof(ap_cfg.ap.password));
+        ap_cfg.ap.authmode = WIFI_AUTH_WPA2_PSK;  // WPA2 for widest compatibility
+    }
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
     ret = network_prov_mgr_start_provisioning(security, NULL, service_name, service_key);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start provisioning: %s", esp_err_to_name(ret));
