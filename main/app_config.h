@@ -97,7 +97,7 @@
 // WIFI CONFIGURATION
 // ============================================================================
 #define WIFI_AP_SSID_DEFAULT            "CrivitRower"
-#define WIFI_AP_PASS_DEFAULT            ""
+#define WIFI_AP_PASS_DEFAULT            "12345678"  // WPA2 requires min 8 chars - open networks often fail
 #define WIFI_AP_CHANNEL                 1
 #define WIFI_AP_MAX_CONNECTIONS         4
 

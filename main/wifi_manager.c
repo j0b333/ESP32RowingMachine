@@ -417,7 +417,15 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
     init_mdns();
     
     s_current_mode = WIFI_OPERATING_MODE_AP;
-    ESP_LOGI(TAG, "WiFi AP started: SSID=%s, IP=" IPSTR, ssid, IP2STR(&s_ip_info.ip));
+    
+    // Log detailed AP configuration for debugging
+    const char *auth_mode_str = (password != NULL && strlen(password) >= 8) ? "WPA2-PSK" : "OPEN";
+    ESP_LOGI(TAG, "WiFi AP started: SSID=%s, IP=" IPSTR ", Auth=%s, Channel=%d, Bandwidth=HT20", 
+             ssid, IP2STR(&s_ip_info.ip), auth_mode_str, WIFI_AP_CHANNEL);
+    if (password == NULL || strlen(password) < 8) {
+        ESP_LOGW(TAG, "AP using OPEN authentication - some devices (Windows/Android) may refuse to connect");
+        ESP_LOGW(TAG, "Consider setting a password of at least 8 characters for WPA2");
+    }
     
     return ESP_OK;
 }
