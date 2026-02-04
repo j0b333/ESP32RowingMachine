@@ -152,6 +152,11 @@ static esp_err_t init_subsystems(void) {
     esp_err_t ret;
     bool provisioned = true;  // Assume provisioned unless WiFi says otherwise
     
+    // Enable debug logging for WiFi provisioning troubleshooting
+    esp_log_level_set("WIFI_PROV", ESP_LOG_DEBUG);
+    esp_log_level_set("wifi", ESP_LOG_DEBUG);
+    esp_log_level_set("esp_netif_lwip", ESP_LOG_DEBUG);
+    
     // Initialize NVS and load configuration
     ESP_LOGI(TAG, "Initializing configuration manager...");
     ret = config_manager_init();

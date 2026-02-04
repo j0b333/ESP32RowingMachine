@@ -41,6 +41,11 @@ static bool s_prov_active = false;
 static void prov_event_handler(void *arg, esp_event_base_t event_base,
                                 int32_t event_id, void *event_data)
 {
+    // Debug: log all events (event_base is a const char*)
+    if (event_base) {
+        ESP_LOGD(TAG, "Event received: base=%s, id=%ld", (const char *)event_base, (long)event_id);
+    }
+    
     if (event_base == NETWORK_PROV_EVENT) {
         switch (event_id) {
         case NETWORK_PROV_START:
@@ -306,11 +311,13 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     xEventGroupClearBits(s_prov_event_group, 
                          WIFI_CONNECTED_BIT | WIFI_FAIL_BIT | PROV_END_BIT);
     
-    // Use WPA2 password for softAP - more stable than open networks on ESP32
-    // The password must be 8-63 characters for WPA2
-    const char *service_key = WIFI_AP_PROV_PASSWORD;
+    // Use open network (no password) for softAP provisioning
+    // WPA2 was causing 4-way handshake timeout (reason=15) on some devices
+    // The "password" field in the QR code is only for the ESP app transport security,
+    // not the WiFi network password
+    const char *service_key = NULL;  // Open network
     
-    ESP_LOGI(TAG, "Starting provisioning with SSID: %s (WPA2 protected)", service_name);
+    ESP_LOGI(TAG, "Starting provisioning with SSID: %s (OPEN network)", service_name);
     
     ret = network_prov_mgr_start_provisioning(security, NULL, service_name, service_key);
     if (ret != ESP_OK) {
@@ -323,12 +330,12 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     ESP_LOGI(TAG, "====================================");
     ESP_LOGI(TAG, "  Provisioning started!");
     ESP_LOGI(TAG, "  WiFi SSID: %s", service_name);
-    ESP_LOGI(TAG, "  WiFi Password: %s", service_key);
-    ESP_LOGI(TAG, "  Security: WPA2");
+    ESP_LOGI(TAG, "  WiFi Password: (none - open network)");
+    ESP_LOGI(TAG, "  Security: OPEN");
     ESP_LOGI(TAG, "====================================");
     
-    // Print QR code for ESP SoftAP Prov app
-    print_qr_code(service_name, service_key);
+    // Print QR code for ESP SoftAP Prov app (no password for open network)
+    print_qr_code(service_name, NULL);
     
     return ESP_OK;
 }
