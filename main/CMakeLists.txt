@@ -8,6 +8,7 @@ idf_component_register(
         "ble_ftms_server.c"
         "ble_hr_client.c"
         "wifi_manager.c"
+        "wifi_provisioning.c"
         "web_server.c"
         "config_manager.c"
         "session_manager.c"

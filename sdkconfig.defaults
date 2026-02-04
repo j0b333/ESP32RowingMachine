@@ -53,10 +53,16 @@ CONFIG_ESP_WIFI_SOFTAP_BEACON_MAX_LEN=752
 CONFIG_ESP_WIFI_MGMT_SBUF_NUM=32
 CONFIG_ESP_WIFI_SOFTAP_SUPPORT=y
 
-# HTTP Server Configuration - Increased for all handlers
+# WiFi Provisioning (ESP-IDF v6.0 network_provisioning)
+# Enable Security Version 0 for simpler provisioning (no encryption)
+CONFIG_ESP_PROTOCOMM_SUPPORT_SECURITY_VERSION_0=y
+# Optional: Enable Sec1/Sec2 for encrypted provisioning
+CONFIG_ESP_PROTOCOMM_SUPPORT_SECURITY_VERSION_1=y
+
+# HTTP Server Configuration - Increased for all handlers + provisioning
 CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
 CONFIG_HTTPD_MAX_URI_LEN=512
-CONFIG_HTTPD_MAX_URI_HANDLERS=50
+CONFIG_HTTPD_MAX_URI_HANDLERS=60
 CONFIG_HTTPD_WS_SUPPORT=y
 
 # LWIP Configuration for multiple client support

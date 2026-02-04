@@ -2311,6 +2311,13 @@ void web_server_stop(void) {
 }
 
 /**
+ * Get HTTP server handle for sharing with provisioning
+ */
+httpd_handle_t web_server_get_handle(void) {
+    return g_server;
+}
+
+/**
  * Check if a socket is still valid and connected
  */
 static bool is_socket_valid(httpd_handle_t hd, int fd) {
