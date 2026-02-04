@@ -4,6 +4,14 @@
  * 
  * This module implements WiFi provisioning using the official ESP-IDF v6.0
  * network_provisioning component with softAP transport.
+ * 
+ * IMPORTANT FIX (ESP-IDF v6.0 client disconnect issue):
+ * The default network_provisioning scheme uses WIFI_MODE_APSTA which can cause
+ * mobile devices to disconnect with reason=2 (AUTH_EXPIRE) shortly after connecting.
+ * This is due to resource contention between AP and STA interfaces.
+ * 
+ * Solution: Start provisioning in AP-only mode for stable client connections,
+ * then switch to APSTA mode only when credentials are received and need validation.
  */
 
 #include "wifi_provisioning.h"
@@ -57,6 +65,15 @@ static void prov_event_handler(void *arg, esp_event_base_t event_base,
             wifi_sta_config_t *wifi_sta_cfg = (wifi_sta_config_t *)event_data;
             ESP_LOGI(TAG, "Received WiFi credentials: SSID=%s", 
                      (const char *)wifi_sta_cfg->ssid);
+            
+            // Switch back to APSTA mode for credential validation
+            // We started in AP-only mode for stable client connections,
+            // but now we need STA mode to test the received credentials
+            ESP_LOGI(TAG, "Switching to APSTA mode for credential validation");
+            esp_err_t err = esp_wifi_set_mode(WIFI_MODE_APSTA);
+            if (err != ESP_OK) {
+                ESP_LOGW(TAG, "Failed to set APSTA mode: %s", esp_err_to_name(err));
+            }
             break;
         }
         
@@ -345,6 +362,55 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start provisioning: %s", esp_err_to_name(ret));
         return ret;
+    }
+    
+    // CRITICAL FIX for ESP-IDF v6.0: Override WiFi mode from APSTA to AP-only
+    // 
+    // The network_provisioning scheme_softap internally uses WIFI_MODE_APSTA which causes
+    // client disconnect issues (reason=2 AUTH_EXPIRE) on many devices. This happens because:
+    // 1. APSTA mode creates resource contention between AP and STA interfaces
+    // 2. The STA interface tries to scan/connect which interferes with AP stability
+    // 3. Mobile devices connecting to the SoftAP get AUTH_EXPIRE timeouts
+    //
+    // During provisioning, we ONLY need AP mode - the device should focus entirely on
+    // serving the provisioning interface. STA mode is only needed AFTER credentials
+    // are received when the device needs to connect to the user's router.
+    //
+    // By switching to AP-only mode after provisioning starts, we ensure:
+    // - Stable SoftAP for client connections
+    // - No interference from STA scanning
+    // - Better compatibility with mobile devices
+    //
+    // Note: The provisioning manager will switch to STA mode automatically when it
+    // receives credentials and needs to test the connection.
+    ESP_LOGI(TAG, "Switching to AP-only mode for stable client connections");
+    ret = esp_wifi_set_mode(WIFI_MODE_AP);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to set AP-only mode: %s (continuing anyway)", esp_err_to_name(ret));
+    }
+    
+    // Configure SoftAP for optimal client compatibility
+    // These settings help prevent AUTH_EXPIRE disconnects
+    wifi_config_t ap_config;
+    ret = esp_wifi_get_config(WIFI_IF_AP, &ap_config);
+    if (ret == ESP_OK) {
+        // Set beacon interval to 100ms (default) for good client discovery
+        ap_config.ap.beacon_interval = 100;
+        // Allow up to 4 simultaneous connections
+        ap_config.ap.max_connection = 4;
+        // Ensure SSID is broadcast (not hidden)
+        ap_config.ap.ssid_hidden = 0;
+        // Set PMF (Protected Management Frames) to optional for better compatibility
+        ap_config.ap.pmf_cfg.required = false;
+        ap_config.ap.pmf_cfg.capable = true;
+        
+        ret = esp_wifi_set_config(WIFI_IF_AP, &ap_config);
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to apply AP config optimizations: %s", esp_err_to_name(ret));
+        } else {
+            ESP_LOGI(TAG, "SoftAP configured: beacon=%dms, max_conn=%d", 
+                     ap_config.ap.beacon_interval, ap_config.ap.max_connection);
+        }
     }
     
     s_prov_active = true;
