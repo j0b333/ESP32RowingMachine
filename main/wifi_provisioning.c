@@ -21,6 +21,8 @@
 #include <network_provisioning/manager.h>
 #include <network_provisioning/scheme_softap.h>
 
+#include "qrcode.h"
+
 static const char *TAG = "WIFI_PROV";
 
 /* Event group bits for WiFi connection status */
@@ -207,6 +209,34 @@ esp_err_t wifi_provisioning_is_provisioned(bool *provisioned)
     return network_prov_mgr_is_wifi_provisioned(provisioned);
 }
 
+/**
+ * Print QR code for ESP SoftAP Provisioning app
+ * Format: {"ver":"v1","name":"SSID","pop":"","transport":"softap"}
+ */
+static void print_qr_code(const char *service_name)
+{
+    // Format the provisioning payload for the ESP SoftAP Prov app
+    // Using Security 0 (no pop), softap transport
+    char payload[150];
+    snprintf(payload, sizeof(payload),
+             "{\"ver\":\"v1\",\"name\":\"%s\",\"pop\":\"\",\"transport\":\"softap\"}",
+             service_name);
+    
+    ESP_LOGI(TAG, "Provisioning payload: %s", payload);
+    
+    // Generate and print QR code to console
+    esp_qrcode_config_t cfg = ESP_QRCODE_CONFIG_DEFAULT();
+    cfg.display_func = esp_qrcode_print_console;
+    cfg.max_qrcode_version = 10;
+    cfg.qrcode_ecc_level = ESP_QRCODE_ECC_LOW;
+    
+    ESP_LOGI(TAG, "Scan this QR code with ESP SoftAP Prov app:");
+    esp_qrcode_generate(&cfg, payload);
+    
+    ESP_LOGI(TAG, "Or manually connect to WiFi: %s", service_name);
+    ESP_LOGI(TAG, "Then open http://192.168.4.1 in browser (or use app)");
+}
+
 esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
                                    httpd_handle_t httpd_handle)
 {
@@ -248,10 +278,11 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     ESP_LOGI(TAG, "====================================");
     ESP_LOGI(TAG, "  Provisioning started!");
     ESP_LOGI(TAG, "  WiFi SSID: %s", service_name);
-    ESP_LOGI(TAG, "  Use ESP SoftAP Prov app or");
-    ESP_LOGI(TAG, "  connect and browse to:");
-    ESP_LOGI(TAG, "  http://192.168.4.1");
+    ESP_LOGI(TAG, "  Security: None (open)");
     ESP_LOGI(TAG, "====================================");
+    
+    // Print QR code for ESP SoftAP Prov app
+    print_qr_code(service_name);
     
     return ESP_OK;
 }
