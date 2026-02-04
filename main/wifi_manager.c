@@ -277,6 +277,26 @@ esp_err_t wifi_manager_init(void) {
         return ret;
     }
     
+    // Set WiFi country code for proper channel and power settings
+    // Using "01" (world safe mode) which supports channels 1-11 at 20dBm
+    // This ensures compatibility with clients from any region
+    // Note: max_tx_power is in 0.25 dBm units, so 20 dBm = 20 * 4 = 80
+    wifi_country_t country_config = {
+        .cc = "01",  // World safe mode
+        .schan = 1,
+        .nchan = 11,
+        .max_tx_power = 20 * 4,  // 20 dBm (value is in 0.25 dBm units)
+        .policy = WIFI_COUNTRY_POLICY_MANUAL,
+    };
+    ret = esp_wifi_set_country(&country_config);
+    if (ret != ESP_OK) {
+        // If country code setting fails, ESP-IDF will use the default country
+        // from NVS or "CN" (China) which may restrict some channels
+        ESP_LOGW(TAG, "Failed to set country code: %s (will use ESP-IDF default)", esp_err_to_name(ret));
+    } else {
+        ESP_LOGI(TAG, "WiFi country set to world-safe mode (channels 1-11)");
+    }
+    
     // Register event handlers
     ret = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
                                                &wifi_event_handler, NULL, NULL);
@@ -416,7 +436,10 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
                         WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN,
             .pmf_cfg = {
                 .required = false,
+                .capable = true,
             },
+            .beacon_interval = 100,  // Default 100ms beacon interval
+            .pairwise_cipher = WIFI_CIPHER_TYPE_CCMP,  // AES for better compatibility
         },
     };
     
@@ -430,6 +453,12 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
         ESP_LOGE(TAG, "Failed to set AP config: %s", esp_err_to_name(ret));
         WIFI_MUTEX_GIVE();
         return ret;
+    }
+    
+    // Set WiFi protocol to 802.11b/g/n for maximum compatibility
+    ret = esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to set WiFi protocol: %s (continuing anyway)", esp_err_to_name(ret));
     }
     
     // Start WiFi
@@ -716,7 +745,7 @@ esp_err_t wifi_manager_start_apsta(const char *ap_ssid, const char *ap_password,
         return ret;
     }
     
-    // Configure AP
+    // Configure AP with enhanced settings for better compatibility
     wifi_config_t ap_config = {
         .ap = {
             .ssid_len = strlen(ap_ssid),
@@ -726,7 +755,10 @@ esp_err_t wifi_manager_start_apsta(const char *ap_ssid, const char *ap_password,
                         WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN,
             .pmf_cfg = {
                 .required = false,
+                .capable = true,
             },
+            .beacon_interval = 100,  // Default 100ms beacon interval
+            .pairwise_cipher = WIFI_CIPHER_TYPE_CCMP,  // AES for better compatibility
         },
     };
     
@@ -742,6 +774,12 @@ esp_err_t wifi_manager_start_apsta(const char *ap_ssid, const char *ap_password,
         ESP_LOGE(TAG, "Failed to set AP config: %s", esp_err_to_name(ret));
         WIFI_MUTEX_GIVE();
         return ret;
+    }
+    
+    // Set WiFi protocol to 802.11b/g/n for maximum compatibility
+    ret = esp_wifi_set_protocol(WIFI_IF_AP, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to set WiFi protocol: %s (continuing anyway)", esp_err_to_name(ret));
     }
     
     // Configure STA
