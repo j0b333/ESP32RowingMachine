@@ -34,6 +34,8 @@ static const char *TAG = "WIFI_PROV";
 static EventGroupHandle_t s_prov_event_group = NULL;
 static bool s_prov_initialized = false;
 static bool s_prov_active = false;
+static wifi_config_t s_ap_cfg;        // desired AP config
+static bool s_ap_cfg_ready = false;   // apply once when AP starts
 
 /**
  * Event handler for provisioning and WiFi events
@@ -107,6 +109,17 @@ static void prov_event_handler(void *arg, esp_event_base_t event_base,
             
         case WIFI_EVENT_AP_START:
             ESP_LOGI(TAG, "SoftAP started - ready for client connections");
+            // Apply our SoftAP configuration once WiFi is up (IDF v6 softAP scheme overwrites)
+            if (s_ap_cfg_ready) {
+                esp_err_t cfg_ret = esp_wifi_set_config(WIFI_IF_AP, &s_ap_cfg);
+                if (cfg_ret == ESP_OK) {
+                    ESP_LOGI(TAG, "SoftAP config applied (authmode=%d, channel=%d, max_conn=%d)",
+                             s_ap_cfg.ap.authmode, s_ap_cfg.ap.channel, s_ap_cfg.ap.max_connection);
+                } else {
+                    ESP_LOGW(TAG, "Failed to apply SoftAP config: %s", esp_err_to_name(cfg_ret));
+                }
+                s_ap_cfg_ready = false; // apply only once
+            }
             break;
             
         case WIFI_EVENT_AP_STOP:
@@ -344,20 +357,22 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     /* esp-idf v6.0 network_provisioning 1.1.x does not expose softap config setter.
      * Configure SoftAP explicitly via esp_wifi APIs before starting provisioning.
      */
-    wifi_config_t ap_cfg = { 0 };
-    strlcpy((char *)ap_cfg.ap.ssid, service_name, sizeof(ap_cfg.ap.ssid));
-    ap_cfg.ap.ssid_len = strlen(service_name);
-    ap_cfg.ap.channel = 1;
-    ap_cfg.ap.max_connection = 4;
-    ap_cfg.ap.authmode = WIFI_AUTH_OPEN;
-    ap_cfg.ap.pmf_cfg.required = false;
+    // Prepare desired SoftAP config; applied on WIFI_EVENT_AP_START to avoid scheme overwrite
+    memset(&s_ap_cfg, 0, sizeof(s_ap_cfg));
+    strlcpy((char *)s_ap_cfg.ap.ssid, service_name, sizeof(s_ap_cfg.ap.ssid));
+    s_ap_cfg.ap.ssid_len = strlen(service_name);
+    s_ap_cfg.ap.channel = 1;
+    s_ap_cfg.ap.max_connection = 4;
+    s_ap_cfg.ap.authmode = WIFI_AUTH_OPEN;
+    s_ap_cfg.ap.pmf_cfg.required = false;
+    s_ap_cfg.ap.pmf_cfg.capable = false;
     if (service_key && strlen(service_key) >= 8) {
-        strlcpy((char *)ap_cfg.ap.password, service_key, sizeof(ap_cfg.ap.password));
-        ap_cfg.ap.authmode = WIFI_AUTH_WPA2_PSK;
+        strlcpy((char *)s_ap_cfg.ap.password, service_key, sizeof(s_ap_cfg.ap.password));
+        s_ap_cfg.ap.authmode = WIFI_AUTH_WPA2_PSK;
     }
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap_cfg));
-    ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &s_ap_cfg)); // initial config (may be overridden)
+    s_ap_cfg_ready = true;
 
     ret = network_prov_mgr_start_provisioning(security, NULL, service_name, service_key);
     if (ret != ESP_OK) {
