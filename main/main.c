@@ -256,19 +256,9 @@ static esp_err_t init_subsystems(void) {
         if (!provisioned) {
             ESP_LOGI(TAG, "Starting WiFi provisioning via softAP...");
             
-            // Start web server first (provisioning will share it)
-            ESP_LOGI(TAG, "Starting web server...");
-            ret = web_server_start(&g_metrics, &g_config);
-            if (ret != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to start web server");
-                return ret;
-            }
-            
-            // Get the HTTP server handle to share with provisioning
-            httpd_handle_t httpd_handle = web_server_get_handle();
-            
-            // Start provisioning with the device's WiFi SSID
-            ret = wifi_provisioning_start(g_config.wifi_ssid, NULL, httpd_handle);
+            // Start provisioning - it will create its own HTTP server
+            // Our web server will start after WiFi is connected
+            ret = wifi_provisioning_start(g_config.wifi_ssid, NULL, NULL);
             if (ret != ESP_OK) {
                 ESP_LOGE(TAG, "Failed to start provisioning");
                 return ret;
@@ -284,8 +274,8 @@ static esp_err_t init_subsystems(void) {
             ESP_LOGI(TAG, "====================================");
             ESP_LOGI(TAG, "  WiFi Provisioning Mode");
             ESP_LOGI(TAG, "  Connect to: %s", g_config.wifi_ssid);
-            ESP_LOGI(TAG, "  Then open: http://192.168.4.1");
-            ESP_LOGI(TAG, "  Or use ESP SoftAP Prov app");
+            ESP_LOGI(TAG, "  Use ESP SoftAP Prov app to configure");
+            ESP_LOGI(TAG, "  WiFi credentials (iOS/Android)");
             ESP_LOGI(TAG, "====================================");
         }
     }

@@ -218,10 +218,12 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     esp_err_t ret;
     
     // If an HTTP server handle is provided, share it with the provisioning manager
-    // This allows our web UI to work alongside the provisioning endpoints
+    // Otherwise, provisioning will create its own HTTP server
     if (httpd_handle != NULL) {
         ESP_LOGI(TAG, "Sharing existing HTTP server with provisioning manager");
         network_prov_scheme_softap_set_httpd_handle(httpd_handle);
+    } else {
+        ESP_LOGI(TAG, "Provisioning will create its own HTTP server");
     }
     
     // Configure security
