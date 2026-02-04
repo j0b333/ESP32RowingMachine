@@ -409,8 +409,11 @@ void wifi_manager_deinit(void) {
  * Find the best WiFi channel with least congestion
  * Scans nearby networks and returns the least used channel among 1, 6, 11
  * 
+ * NOTE: Currently unused - kept for future use when auto-channel selection is re-enabled
+ * 
  * @return Best channel (1, 6, or 11), or WIFI_AP_CHANNEL as fallback
  */
+__attribute__((unused))
 static uint8_t find_best_channel(void) {
     ESP_LOGI(TAG, "Scanning for least congested channel...");
     

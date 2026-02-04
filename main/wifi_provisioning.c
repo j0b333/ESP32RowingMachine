@@ -90,16 +90,20 @@ static void prov_event_handler(void *arg, esp_event_base_t event_base,
         case WIFI_EVENT_AP_STACONNECTED: {
             wifi_event_ap_staconnected_t *event = 
                 (wifi_event_ap_staconnected_t *)event_data;
-            ESP_LOGI(TAG, "SoftAP: Device connected (MAC: " MACSTR ", AID: %d)",
-                     MAC2STR(event->mac), event->aid);
+            ESP_LOGI(TAG, "SoftAP: Device connected (AID=%d, MAC=%02x:%02x:%02x:%02x:%02x:%02x)",
+                     event->aid,
+                     event->mac[0], event->mac[1], event->mac[2],
+                     event->mac[3], event->mac[4], event->mac[5]);
             break;
         }
         
         case WIFI_EVENT_AP_STADISCONNECTED: {
             wifi_event_ap_stadisconnected_t *event = 
                 (wifi_event_ap_stadisconnected_t *)event_data;
-            ESP_LOGI(TAG, "SoftAP: Device disconnected (MAC: " MACSTR ", AID: %d)",
-                     MAC2STR(event->mac), event->aid);
+            ESP_LOGI(TAG, "SoftAP: Device disconnected (AID=%d, MAC=%02x:%02x:%02x:%02x:%02x:%02x)",
+                     event->aid,
+                     event->mac[0], event->mac[1], event->mac[2],
+                     event->mac[3], event->mac[4], event->mac[5]);
             break;
         }
         
