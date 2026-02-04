@@ -400,6 +400,107 @@ void wifi_manager_deinit(void) {
     ESP_LOGI(TAG, "WiFi manager deinitialized");
 }
 
+// Channel selection constants
+#define MAX_APS_TO_ANALYZE      20      // Maximum APs to analyze for channel selection
+#define STRONG_SIGNAL_RSSI      -60     // RSSI threshold for strong signal (dBm)
+#define MEDIUM_SIGNAL_RSSI      -75     // RSSI threshold for medium signal (dBm)
+
+/**
+ * Find the best WiFi channel with least congestion
+ * Scans nearby networks and returns the least used channel among 1, 6, 11
+ * 
+ * @return Best channel (1, 6, or 11), or WIFI_AP_CHANNEL as fallback
+ */
+static uint8_t find_best_channel(void) {
+    ESP_LOGI(TAG, "Scanning for least congested channel...");
+    
+    // Need to temporarily start WiFi in STA mode to scan
+    esp_err_t ret = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Could not set STA mode for scan, using default channel");
+        return WIFI_AP_CHANNEL;
+    }
+    
+    ret = esp_wifi_start();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Could not start WiFi for scan, using default channel");
+        return WIFI_AP_CHANNEL;
+    }
+    
+    // Configure and start scan
+    wifi_scan_config_t scan_config = {
+        .ssid = NULL,
+        .bssid = NULL,
+        .channel = 0,  // Scan all channels
+        .show_hidden = true,
+        .scan_type = WIFI_SCAN_TYPE_ACTIVE,
+        .scan_time.active.min = 100,
+        .scan_time.active.max = 300,
+    };
+    
+    ret = esp_wifi_scan_start(&scan_config, true);  // Blocking scan
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Scan failed, using default channel");
+        esp_wifi_stop();
+        return WIFI_AP_CHANNEL;
+    }
+    
+    // Get scan results
+    uint16_t ap_count = 0;
+    esp_wifi_scan_get_ap_num(&ap_count);
+    
+    // Count networks on each of the non-overlapping channels (1, 6, 11)
+    // Also count adjacent channels that would cause interference
+    int channel_scores[14] = {0};  // Index 1-13 used
+    
+    if (ap_count > 0) {
+        uint16_t max_aps = (ap_count > MAX_APS_TO_ANALYZE) ? MAX_APS_TO_ANALYZE : ap_count;
+        wifi_ap_record_t *ap_records = malloc(sizeof(wifi_ap_record_t) * max_aps);
+        
+        if (ap_records != NULL) {
+            esp_wifi_scan_get_ap_records(&max_aps, ap_records);
+            
+            for (int i = 0; i < max_aps; i++) {
+                uint8_t ch = ap_records[i].primary;
+                if (ch >= 1 && ch <= 13) {
+                    // Weight by signal strength (stronger = more interference)
+                    int weight = (ap_records[i].rssi > STRONG_SIGNAL_RSSI) ? 3 : 
+                                 (ap_records[i].rssi > MEDIUM_SIGNAL_RSSI) ? 2 : 1;
+                    
+                    // Affect the channel and 2 adjacent channels on each side
+                    for (int offset = -2; offset <= 2; offset++) {
+                        int affected_ch = ch + offset;
+                        if (affected_ch >= 1 && affected_ch <= 13) {
+                            channel_scores[affected_ch] += weight;
+                        }
+                    }
+                }
+            }
+            free(ap_records);
+        }
+    }
+    
+    esp_wifi_stop();
+    
+    // Find the best channel among 1, 6, 11 (non-overlapping)
+    int best_channel = 1;
+    int best_score = channel_scores[1];
+    
+    if (channel_scores[6] < best_score) {
+        best_channel = 6;
+        best_score = channel_scores[6];
+    }
+    if (channel_scores[11] < best_score) {
+        best_channel = 11;
+        best_score = channel_scores[11];
+    }
+    
+    ESP_LOGI(TAG, "Channel analysis: ch1=%d, ch6=%d, ch11=%d -> selected channel %d",
+             channel_scores[1], channel_scores[6], channel_scores[11], best_channel);
+    
+    return (uint8_t)best_channel;
+}
+
 /**
  * Start WiFi in Access Point mode
  */
@@ -416,6 +517,9 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
     
     // Clear previous event bits
     xEventGroupClearBits(s_wifi_event_group, WIFI_STARTED_BIT | WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+    
+    // Find the best channel with least congestion
+    uint8_t best_channel = find_best_channel();
     
     // Set mode to AP
     ret = esp_wifi_set_mode(WIFI_MODE_AP);
@@ -437,7 +541,7 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
     wifi_config_t wifi_config = {
         .ap = {
             .ssid_len = strlen(ssid),
-            .channel = WIFI_AP_CHANNEL,
+            .channel = best_channel,  // Use auto-selected channel
             .max_connection = WIFI_AP_MAX_CONNECTIONS,
             .authmode = (password != NULL && strlen(password) >= 8) ? 
                         WIFI_AUTH_WPA_WPA2_PSK : WIFI_AUTH_OPEN,  // Mixed mode for broader compatibility
@@ -515,10 +619,14 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
     
     s_current_mode = WIFI_OPERATING_MODE_AP;
     
+    // Get the actual channel we're using
+    wifi_config_t current_config;
+    esp_wifi_get_config(WIFI_IF_AP, &current_config);
+    
     // Log detailed AP configuration for debugging
     const char *auth_mode_str = (password != NULL && strlen(password) >= 8) ? "WPA2-PSK" : "OPEN";
-    ESP_LOGI(TAG, "WiFi AP started: SSID=%s, IP=" IPSTR ", Auth=%s, Channel=%d, Bandwidth=HT20", 
-             ssid, IP2STR(&s_ip_info.ip), auth_mode_str, WIFI_AP_CHANNEL);
+    ESP_LOGI(TAG, "WiFi AP started: SSID=%s, IP=" IPSTR ", Auth=%s, Channel=%d (auto-selected), Bandwidth=HT20", 
+             ssid, IP2STR(&s_ip_info.ip), auth_mode_str, current_config.ap.channel);
     if (password == NULL || strlen(password) < 8) {
         ESP_LOGW(TAG, "AP using OPEN authentication - some devices (Windows/Android) may refuse to connect");
         ESP_LOGW(TAG, "Consider setting a password of at least 8 characters for WPA2");
