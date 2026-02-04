@@ -278,13 +278,12 @@ esp_err_t wifi_manager_init(void) {
     }
     
     // Set WiFi country code for proper channel and power settings
-    // Using "01" (world safe mode) which supports channels 1-11 at 20dBm
-    // This ensures compatibility with clients from any region
-    // Note: max_tx_power is in 0.25 dBm units, so 20 dBm = 20 * 4 = 80
+    // Using "NL" (Netherlands/Europe) which supports channels 1-13 at 20dBm
+    // Note: max_tx_power in wifi_country_t is in 0.25 dBm units, so 20 dBm = 20 * 4 = 80
     wifi_country_t country_config = {
-        .cc = "01",  // World safe mode
+        .cc = "NL",  // Netherlands/Europe regulatory domain (channels 1-13)
         .schan = 1,
-        .nchan = 11,
+        .nchan = 13,  // Europe allows channels 1-13
         .max_tx_power = 20 * 4,  // 20 dBm (value is in 0.25 dBm units)
         .policy = WIFI_COUNTRY_POLICY_MANUAL,
     };
@@ -294,7 +293,7 @@ esp_err_t wifi_manager_init(void) {
         // from NVS or "CN" (China) which may restrict some channels
         ESP_LOGW(TAG, "Failed to set country code: %s (will use ESP-IDF default)", esp_err_to_name(ret));
     } else {
-        ESP_LOGI(TAG, "WiFi country set to world-safe mode (channels 1-11)");
+        ESP_LOGI(TAG, "WiFi country set to NL (channels 1-13, 20dBm)");
     }
     
     // Register event handlers
@@ -475,6 +474,16 @@ esp_err_t wifi_manager_start_ap(const char *ssid, const char *password) {
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Failed to set AP bandwidth to HT20: %s", esp_err_to_name(ret));
         // Continue anyway, this is not critical
+    }
+    
+    // Set maximum TX power for better range/reliability
+    // Value is in 0.25 dBm units, so 20 dBm = 80
+    int8_t tx_power = 80;  // 20 dBm
+    ret = esp_wifi_set_max_tx_power(tx_power);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to set TX power: %s", esp_err_to_name(ret));
+    } else {
+        ESP_LOGI(TAG, "WiFi TX power set to 20 dBm");
     }
     
     // Release mutex before waiting (to prevent deadlock)
@@ -822,6 +831,13 @@ esp_err_t wifi_manager_start_apsta(const char *ap_ssid, const char *ap_password,
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Failed to set AP bandwidth to HT20: %s", esp_err_to_name(ret));
         // Continue anyway, this is not critical
+    }
+    
+    // Set maximum TX power for better range/reliability
+    int8_t tx_power = 80;  // 20 dBm (value is in 0.25 dBm units)
+    ret = esp_wifi_set_max_tx_power(tx_power);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to set TX power: %s", esp_err_to_name(ret));
     }
     
     // Release mutex before waiting (to prevent deadlock)
