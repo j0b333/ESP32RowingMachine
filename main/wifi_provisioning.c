@@ -123,7 +123,7 @@ static void prov_event_handler(void *arg, esp_event_base_t event_base,
             
         case WIFI_EVENT_AP_START:
             ESP_LOGI(TAG, "SoftAP started - ready for client connections");
-            // ESP32-S3 FIX: Increase TX power to maximum (20.5 dBm) for better SoftAP visibility
+            // ESP32-S3 FIX: Increase TX power to maximum (19.5 dBm) for better SoftAP visibility
             // This addresses a known issue where ESP32-S3 SoftAP is not visible on mobile devices
             // Reference: https://github.com/espressif/esp-idf/issues/13508
             {

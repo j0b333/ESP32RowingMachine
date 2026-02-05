@@ -52,8 +52,9 @@ CONFIG_ESP_WIFI_AMPDU_RX_ENABLED=y
 CONFIG_ESP_WIFI_SOFTAP_BEACON_MAX_LEN=752
 CONFIG_ESP_WIFI_MGMT_SBUF_NUM=32
 CONFIG_ESP_WIFI_SOFTAP_SUPPORT=y
-# SoftAP PMF (Protected Management Frames) - DISABLED for open network compatibility
-# PMF causes AUTH_EXPIRE disconnects on open networks
+# SoftAP PMF (Protected Management Frames) - SUPPORT ENABLED (but not required)
+# Having PMF support enabled allows clients that want PMF to use it
+# but doesn't require it, so open networks work properly
 CONFIG_ESP_WIFI_SOFTAP_PMF_SUPPORT=y
 # Set default SoftAP settings for better mobile device compatibility
 CONFIG_ESP_WIFI_AP_MAX_INACTIVITY=300
