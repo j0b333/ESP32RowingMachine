@@ -2595,11 +2595,26 @@ esp_err_t web_server_start_captive_portal(void) {
         return ESP_OK;
     }
     
-    // Minimal config - no wildcard matcher, no WebSocket/SSE callbacks
+    // Create mutex for SSE client list (needed for /events endpoint)
+    if (g_sse_mutex == NULL) {
+        g_sse_mutex = xSemaphoreCreateMutex();
+        if (g_sse_mutex == NULL) {
+            ESP_LOGE(TAG, "Failed to create SSE mutex");
+            return ESP_FAIL;
+        }
+    }
+    
+    // Initialize SSE client list
+    sse_init_clients();
+    
+    // Note: g_metrics and g_config may be NULL in captive portal mode
+    // Handlers should check for NULL before dereferencing
+    
+    // Captive portal config - enough handlers for rowing monitor + setup
     httpd_config_t http_config = HTTPD_DEFAULT_CONFIG();
     http_config.server_port = WEB_SERVER_PORT;
-    http_config.max_open_sockets = 7;        // Minimal for provisioning
-    http_config.max_uri_handlers = 20;       // Captive portal + provisioning endpoints
+    http_config.max_open_sockets = 7;        // Minimal for provisioning + rowing
+    http_config.max_uri_handlers = 30;       // Captive portal + rowing monitor endpoints
     http_config.lru_purge_enable = true;
     // NOTE: Do NOT set uri_match_fn to wildcard - it's incompatible with protocomm
     http_config.recv_wait_timeout = 10;
