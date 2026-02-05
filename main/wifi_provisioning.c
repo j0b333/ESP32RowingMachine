@@ -354,6 +354,10 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     
     // Configure SoftAP with optimal settings for open network provisioning
+    // NOTE: This is an OPEN network with no WiFi-layer encryption. Security is
+    // provided at the application layer via NETWORK_PROV_SECURITY_0/1/2 which
+    // encrypts the provisioning protocol. This is intentional for maximum
+    // device compatibility during provisioning.
     wifi_config_t ap_config = {
         .ap = {
             .ssid = {0},
@@ -364,7 +368,9 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
             .authmode = WIFI_AUTH_OPEN,      // Open network
             .ssid_hidden = 0,                // Broadcast SSID
             .beacon_interval = 100,          // Default beacon interval (ms)
-            .pairwise_cipher = WIFI_CIPHER_TYPE_NONE,  // No encryption for open network
+            // SECURITY NOTE: No WiFi-layer encryption for open network.
+            // Provisioning security is at the application layer (NETWORK_PROV_SECURITY).
+            .pairwise_cipher = WIFI_CIPHER_TYPE_NONE,
             .pmf_cfg = {
                 .capable = false,            // PMF not supported (required for OPEN networks)
                 .required = false,           // PMF not required
@@ -372,9 +378,11 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
         },
     };
     
-    // Copy SSID to config
+    // Copy SSID to config (max 32 chars per IEEE 802.11 standard)
     size_t ssid_len = strlen(service_name);
     if (ssid_len > sizeof(ap_config.ap.ssid) - 1) {
+        ESP_LOGW(TAG, "SSID '%s' truncated from %d to %d chars",
+                 service_name, ssid_len, sizeof(ap_config.ap.ssid) - 1);
         ssid_len = sizeof(ap_config.ap.ssid) - 1;
     }
     memcpy(ap_config.ap.ssid, service_name, ssid_len);
@@ -404,7 +412,9 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
         return ret;
     }
     
-    // Small delay to let WiFi stabilize after starting
+    // Allow WiFi stack to stabilize after starting
+    // This 100ms delay is empirically determined to prevent race conditions
+    // between WiFi start and provisioning manager initialization
     vTaskDelay(pdMS_TO_TICKS(100));
     
     // Now start provisioning - it will use the SoftAP we already configured
