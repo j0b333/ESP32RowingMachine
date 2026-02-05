@@ -258,8 +258,8 @@ static esp_err_t init_subsystems(void) {
                 return ret;
             }
             
-            // Wait a moment for AP to fully initialize
-            vTaskDelay(pdMS_TO_TICKS(500));
+            // Wait for AP to fully initialize (same delay as DHCP server init)
+            vTaskDelay(pdMS_TO_TICKS(WIFI_DHCP_INIT_DELAY_MS));
             
             // Start the web server in captive portal mode
             ESP_LOGI(TAG, "Starting web server (captive portal mode)...");
