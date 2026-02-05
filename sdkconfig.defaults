@@ -52,6 +52,11 @@ CONFIG_ESP_WIFI_AMPDU_RX_ENABLED=y
 CONFIG_ESP_WIFI_SOFTAP_BEACON_MAX_LEN=752
 CONFIG_ESP_WIFI_MGMT_SBUF_NUM=32
 CONFIG_ESP_WIFI_SOFTAP_SUPPORT=y
+# SoftAP PMF (Protected Management Frames) - DISABLED for open network compatibility
+# PMF causes AUTH_EXPIRE disconnects on open networks
+CONFIG_ESP_WIFI_SOFTAP_PMF_SUPPORT=y
+# Set default SoftAP settings for better mobile device compatibility
+CONFIG_ESP_WIFI_AP_MAX_INACTIVITY=300
 
 # WiFi Provisioning (ESP-IDF v6.0 network_provisioning)
 # Enable Security Version 0 for simpler provisioning (no encryption)

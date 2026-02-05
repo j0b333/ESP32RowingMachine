@@ -12,6 +12,11 @@
  * - The provisioning manager's scheme_softap internally handles ALL WiFi configuration
  * - Manual WiFi operations cause SoftAP stop/restart cycles and connection issues
  * 
+ * ESP32-S3 SPECIFIC FIX:
+ * There is a known issue where ESP32-S3 SoftAP is not visible on mobile devices
+ * (GitHub Issue: https://github.com/espressif/esp-idf/issues/13508)
+ * The fix is to set maximum WiFi TX power (78 = 19.5 dBm) after SoftAP starts.
+ * 
  * Reference: https://docs.espressif.com/projects/esp-idf/en/release-v6.0/esp32/migration-guides/release-6.x/6.0/provisioning.html
  */
 
@@ -118,6 +123,24 @@ static void prov_event_handler(void *arg, esp_event_base_t event_base,
             
         case WIFI_EVENT_AP_START:
             ESP_LOGI(TAG, "SoftAP started - ready for client connections");
+            // ESP32-S3 FIX: Increase TX power to maximum (20.5 dBm) for better SoftAP visibility
+            // This addresses a known issue where ESP32-S3 SoftAP is not visible on mobile devices
+            // Reference: https://github.com/espressif/esp-idf/issues/13508
+            {
+                int8_t power = 0;
+                esp_wifi_get_max_tx_power(&power);
+                ESP_LOGI(TAG, "Current WiFi TX power: %.2f dBm", power * 0.25);
+                
+                // Set to maximum power (78 = 19.5 dBm, maximum for most ESP32-S3)
+                // Power values: 8-78 (0.5-19.5 dBm in 0.25 dBm steps)
+                esp_err_t ret = esp_wifi_set_max_tx_power(78);
+                if (ret == ESP_OK) {
+                    esp_wifi_get_max_tx_power(&power);
+                    ESP_LOGI(TAG, "WiFi TX power set to maximum: %.2f dBm", power * 0.25);
+                } else {
+                    ESP_LOGW(TAG, "Failed to set TX power: %s", esp_err_to_name(ret));
+                }
+            }
             break;
             
         case WIFI_EVENT_AP_STOP:
