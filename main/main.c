@@ -259,9 +259,9 @@ static esp_err_t init_subsystems(void) {
             // Wait for AP to fully initialize (same delay as DHCP server init)
             vTaskDelay(pdMS_TO_TICKS(WIFI_DHCP_INIT_DELAY_MS));
             
-            // Start the web server in captive portal mode
+            // Start the web server in captive portal mode (pass config for WiFi credential saving)
             ESP_LOGI(TAG, "Starting web server (captive portal mode)...");
-            ret = web_server_start_captive_portal();
+            ret = web_server_start_captive_portal(&g_config);
             if (ret != ESP_OK) {
                 ESP_LOGE(TAG, "Failed to start web server");
                 return ret;

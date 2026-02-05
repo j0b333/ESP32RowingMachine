@@ -2587,13 +2587,17 @@ bool web_server_is_calibrating_inertia(void) {
  * WITHOUT the wildcard URI matcher (which is incompatible with protocomm).
  * This server can be shared with the provisioning manager.
  * 
+ * @param config Configuration pointer (required for saving WiFi credentials)
  * @return ESP_OK on success
  */
-esp_err_t web_server_start_captive_portal(void) {
+esp_err_t web_server_start_captive_portal(config_t *config) {
     if (g_server != NULL) {
         ESP_LOGW(TAG, "Server already running");
         return ESP_OK;
     }
+    
+    // Store config pointer so WiFi handlers can save credentials
+    g_config = config;
     
     // Create mutex for SSE client list (needed for /events endpoint)
     if (g_sse_mutex == NULL) {
@@ -2606,9 +2610,6 @@ esp_err_t web_server_start_captive_portal(void) {
     
     // Initialize SSE client list
     sse_init_clients();
-    
-    // Note: g_metrics and g_config may be NULL in captive portal mode
-    // Handlers should check for NULL before dereferencing
     
     // Captive portal config - enough handlers for rowing monitor + setup
     httpd_config_t http_config = HTTPD_DEFAULT_CONFIG();
