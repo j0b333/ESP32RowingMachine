@@ -5,12 +5,24 @@
  * This module implements WiFi provisioning using the official ESP-IDF v6.0
  * network_provisioning component with softAP transport.
  * 
- * IMPORTANT: According to ESP-IDF v6.0 documentation and official examples:
- * - Do NOT manually call esp_wifi_set_mode() when using the provisioning manager
- * - The provisioning manager internally manages WiFi mode transitions
- * - Manual mode changes interfere with the provisioning flow and cause SoftAP restarts
+ * CRITICAL: SoftAP Configuration for AUTH_EXPIRE Fix
+ * ==================================================
+ * Mobile devices connecting to ESP32 SoftAP often disconnect with reason=2
+ * (AUTH_EXPIRE) when the AP is not configured properly. Key fixes:
  * 
- * Reference: https://docs.espressif.com/projects/esp-idf/en/release-v6.0/esp32/migration-guides/release-6.x/6.0/provisioning.html
+ * 1. Configure SoftAP BEFORE starting provisioning (not after)
+ * 2. Use fixed channel (1) to avoid channel switching issues
+ * 3. Use HT20 bandwidth (20MHz) for better device compatibility
+ * 4. Disable PMF (Protected Management Frames) for OPEN networks
+ * 5. Explicitly set authmode to WIFI_AUTH_OPEN
+ * 
+ * The provisioning manager will use the pre-configured WiFi settings
+ * when starting, avoiding the need to modify settings after start
+ * (which causes SoftAP restarts and client disconnections).
+ * 
+ * References:
+ * - https://docs.espressif.com/projects/esp-idf/en/release-v6.0/esp32/api-guides/wifi-driver/wifi-modes.html
+ * - https://github.com/espressif/esp-idf/tree/master/examples/wifi/getting_started/softAP
  */
 
 #include "wifi_provisioning.h"
@@ -324,38 +336,86 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     xEventGroupClearBits(s_prov_event_group, 
                          WIFI_CONNECTED_BIT | WIFI_FAIL_BIT | PROV_END_BIT);
     
-    // Configure SoftAP for provisioning using OPEN network (no password)
-    // This is Espressif's recommended approach for the ESP SoftAP Provisioning app
-    // 
-    // Why OPEN instead of WPA2:
-    // 1. ESP SoftAP Provisioning app is designed for open networks
-    // 2. iOS cannot programmatically connect to WPA2 APs (requires manual password entry)
-    // 3. WPA2 causes 4-way handshake timeout (reason=15) when phone connects without password
-    // 4. Android/iOS captive portal behavior is handled by the provisioning app itself
-    // 
-    // Security is provided at the application layer via NETWORK_PROV_SECURITY (Security 0/1/2)
-    // The provisioning protocol encrypts credentials during transfer even over open WiFi
+    // =============================================================================
+    // CRITICAL: Configure SoftAP settings BEFORE starting provisioning
+    // =============================================================================
+    // The provisioning manager will use these WiFi settings when it starts the AP.
+    // Key settings to prevent AUTH_EXPIRE (reason=2) disconnects:
+    // 1. Fixed channel (1) - avoids channel switching issues
+    // 2. HT20 bandwidth (20MHz) - better compatibility with all devices
+    // 3. PMF disabled - Required for OPEN networks to work properly
+    // 4. Explicit WIFI_AUTH_OPEN - no authentication required
     //
-    // Note: If users manually connect from phone WiFi settings instead of using the app,
-    // they may see brief disconnect/reconnect behavior due to captive portal detection.
-    // This is normal - instruct users to use the ESP SoftAP Provisioning app.
-    const char *service_key = NULL;  // NULL = open network (no WiFi password)
+    // Reference: https://docs.espressif.com/projects/esp-idf/en/release-v6.0/esp32/api-guides/wifi-driver/wifi-modes.html
+    // =============================================================================
     
-    ESP_LOGI(TAG, "Starting provisioning with SSID: %s (OPEN network - use ESP SoftAP Prov app)", service_name);
+    // First, set WiFi mode to APSTA (provisioning manager expects this)
+    // NOTE: This is done BEFORE provisioning starts, not after
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
     
-    ret = network_prov_mgr_start_provisioning(security, NULL, service_name, service_key);
+    // Configure SoftAP with optimal settings for open network provisioning
+    wifi_config_t ap_config = {
+        .ap = {
+            .ssid = {0},
+            .ssid_len = 0,
+            .channel = 1,                    // Fixed channel for stability
+            .password = {0},                 // Empty for open network
+            .max_connection = 4,             // Up to 4 clients
+            .authmode = WIFI_AUTH_OPEN,      // Open network
+            .ssid_hidden = 0,                // Broadcast SSID
+            .beacon_interval = 100,          // Default beacon interval (ms)
+            .pairwise_cipher = WIFI_CIPHER_TYPE_NONE,  // No encryption for open network
+            .pmf_cfg = {
+                .capable = false,            // PMF not supported (required for OPEN networks)
+                .required = false,           // PMF not required
+            },
+        },
+    };
+    
+    // Copy SSID to config
+    size_t ssid_len = strlen(service_name);
+    if (ssid_len > sizeof(ap_config.ap.ssid) - 1) {
+        ssid_len = sizeof(ap_config.ap.ssid) - 1;
+    }
+    memcpy(ap_config.ap.ssid, service_name, ssid_len);
+    ap_config.ap.ssid_len = ssid_len;
+    
+    // Apply the SoftAP configuration
+    ret = esp_wifi_set_config(WIFI_IF_AP, &ap_config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set AP config: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    
+    // Set bandwidth to HT20 (20MHz) for better compatibility
+    // HT40 (40MHz) can cause issues with some mobile devices
+    ret = esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to set HT20 bandwidth: %s (continuing)", esp_err_to_name(ret));
+    }
+    
+    ESP_LOGI(TAG, "SoftAP pre-configured: SSID=%s, channel=%d, auth=OPEN, PMF=disabled, BW=HT20",
+             service_name, ap_config.ap.channel);
+    
+    // Start WiFi (this applies our configuration)
+    ret = esp_wifi_start();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start WiFi: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    
+    // Small delay to let WiFi stabilize after starting
+    vTaskDelay(pdMS_TO_TICKS(100));
+    
+    // Now start provisioning - it will use the SoftAP we already configured
+    // service_key = NULL means open network (no WiFi password)
+    ESP_LOGI(TAG, "Starting provisioning with SSID: %s (OPEN network)", service_name);
+    
+    ret = network_prov_mgr_start_provisioning(security, NULL, service_name, NULL);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start provisioning: %s", esp_err_to_name(ret));
         return ret;
     }
-    
-    // IMPORTANT: Do NOT manually call esp_wifi_set_mode() here!
-    // The provisioning manager internally manages WiFi mode transitions.
-    // Manual mode changes cause SoftAP stop/restart cycles which destabilize
-    // the AP and cause client disconnect issues.
-    // 
-    // Reference: ESP-IDF v6.0 migration guide:
-    // https://docs.espressif.com/projects/esp-idf/en/release-v6.0/esp32/migration-guides/release-6.x/6.0/provisioning.html
     
     s_prov_active = true;
     
@@ -363,6 +423,8 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     ESP_LOGI(TAG, "  Provisioning started!");
     ESP_LOGI(TAG, "  WiFi SSID: %s", service_name);
     ESP_LOGI(TAG, "  WiFi Password: (none - open network)");
+    ESP_LOGI(TAG, "  Channel: 1 (fixed)");
+    ESP_LOGI(TAG, "  Bandwidth: 20MHz (HT20)");
     ESP_LOGI(TAG, "  Use: ESP SoftAP Provisioning app");
     ESP_LOGI(TAG, "====================================");
     
