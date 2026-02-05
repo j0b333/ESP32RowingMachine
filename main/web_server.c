@@ -101,35 +101,73 @@ extern const char favicon_ico_end[]   asm("_binary_favicon_ico_end");
 
 /**
  * Serve main HTML page (rowing monitor) or redirect to setup in AP mode
+ * 
+ * In AP mode (WiFi setup):
+ * - First-time visitors are redirected to /setup for captive portal
+ * - Users who click "Skip" from setup page (have Referer: /setup) get the monitor
+ * - Users with ?skip=1 query parameter get the monitor
  */
 static esp_err_t index_handler(httpd_req_t *req) {
-    // In AP mode, redirect to setup page for captive portal
+    // In AP mode, check if user explicitly wants to skip setup
     if (wifi_manager_get_mode() == WIFI_OPERATING_MODE_AP) {
-        ESP_LOGI(TAG, "AP mode: redirecting / to /setup");
+        bool skip_setup = false;
         
-        // Return a simple HTML page that auto-redirects to setup
-        // This triggers captive portal detection on phones
-        static const char captive_response[] = 
-            "<!DOCTYPE html>"
-            "<html><head>"
-            "<meta http-equiv=\"refresh\" content=\"0; url=/setup\">"
-            "<title>WiFi Setup</title>"
-            "</head><body>"
-            "<h1>Redirecting to WiFi Setup...</h1>"
-            "<p><a href=\"/setup\">Click here if not redirected</a></p>"
-            "</body></html>";
+        // Check for ?skip=1 query parameter
+        size_t buf_len = httpd_req_get_url_query_len(req) + 1;
+        if (buf_len > 1) {
+            char *buf = malloc(buf_len);
+            if (buf && httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
+                char param[8];
+                if (httpd_query_key_value(buf, "skip", param, sizeof(param)) == ESP_OK) {
+                    if (strcmp(param, "1") == 0) {
+                        skip_setup = true;
+                    }
+                }
+            }
+            free(buf);
+        }
         
-        httpd_resp_set_type(req, "text/html");
-        httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
-        httpd_resp_set_hdr(req, "Pragma", "no-cache");
-        httpd_resp_set_hdr(req, "Expires", "0");
-        HTTPD_RESP_SET_CLOSE(req);
-        httpd_resp_send(req, captive_response, sizeof(captive_response) - 1);
+        // Check for Referer from setup page (user clicked "Skip" link)
+        if (!skip_setup) {
+            char referer[128] = {0};
+            if (httpd_req_get_hdr_value_str(req, "Referer", referer, sizeof(referer)) == ESP_OK) {
+                if (strstr(referer, "/setup") != NULL) {
+                    skip_setup = true;
+                }
+            }
+        }
         
-        return ESP_OK;
+        if (!skip_setup) {
+            // First-time visitor - redirect to setup for captive portal
+            ESP_LOGI(TAG, "AP mode: redirecting / to /setup");
+            
+            // Return a simple HTML page that auto-redirects to setup
+            // This triggers captive portal detection on phones
+            static const char captive_response[] = 
+                "<!DOCTYPE html>"
+                "<html><head>"
+                "<meta http-equiv=\"refresh\" content=\"0; url=/setup\">"
+                "<title>WiFi Setup</title>"
+                "</head><body>"
+                "<h1>Redirecting to WiFi Setup...</h1>"
+                "<p><a href=\"/setup\">Click here if not redirected</a></p>"
+                "</body></html>";
+            
+            httpd_resp_set_type(req, "text/html");
+            httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
+            httpd_resp_set_hdr(req, "Pragma", "no-cache");
+            httpd_resp_set_hdr(req, "Expires", "0");
+            HTTPD_RESP_SET_CLOSE(req);
+            httpd_resp_send(req, captive_response, sizeof(captive_response) - 1);
+            
+            return ESP_OK;
+        }
+        
+        // User explicitly skipped setup - show the rowing monitor
+        ESP_LOGI(TAG, "AP mode: user skipped setup, showing monitor");
     }
     
-    // In STA mode, serve the rowing monitor
+    // Serve the rowing monitor
     const size_t index_html_size = (index_html_end - index_html_start);
     
     httpd_resp_set_type(req, "text/html");
@@ -2589,7 +2627,14 @@ esp_err_t web_server_start_captive_portal(void) {
     REGISTER_CAPTIVE_URI(uri_index);          // /
     REGISTER_CAPTIVE_URI(uri_setup);          // /setup
     REGISTER_CAPTIVE_URI(uri_style);          // /style.css
+    REGISTER_CAPTIVE_URI(uri_app_js);         // /app.js
     REGISTER_CAPTIVE_URI(uri_favicon);        // /favicon.ico
+    
+    // Rowing monitor API endpoints (needed for index.html to work in AP mode)
+    REGISTER_CAPTIVE_URI(uri_api_metrics);    // /api/metrics
+    REGISTER_CAPTIVE_URI(uri_api_status);     // /api/status
+    REGISTER_CAPTIVE_URI(uri_events);         // /events (SSE)
+    REGISTER_CAPTIVE_URI(uri_api_config_get); // /api/config (GET)
     
     // WiFi provisioning API endpoints (needed for setup.html)
     REGISTER_CAPTIVE_URI(uri_api_wifi_scan);       // /api/wifi/scan
