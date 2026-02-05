@@ -127,16 +127,23 @@ esp_err_t config_manager_load(config_t *config) {
     nvs_get_u8(handle, "sta_cfg", &sta_cfg);
     config->sta_configured = (sta_cfg != 0);
     
+    ESP_LOGI(TAG, "STA config flag from NVS: %d", sta_cfg);
+    
     // Then load the credentials if configured
     if (config->sta_configured) {
         len = sizeof(config->sta_ssid);
-        nvs_get_str(handle, "sta_ssid", config->sta_ssid, &len);
+        ret = nvs_get_str(handle, "sta_ssid", config->sta_ssid, &len);
+        ESP_LOGI(TAG, "Loaded STA SSID: '%s' (ret=%s, len=%d)", 
+                 config->sta_ssid, esp_err_to_name(ret), (int)len);
         
         len = sizeof(config->sta_password);
-        nvs_get_str(handle, "sta_pass", config->sta_password, &len);
+        ret = nvs_get_str(handle, "sta_pass", config->sta_password, &len);
+        ESP_LOGI(TAG, "Loaded STA password length: %d (ret=%s)", 
+                 (int)strlen(config->sta_password), esp_err_to_name(ret));
         
         // Double-check: if SSID is empty, it's not really configured
         if (strlen(config->sta_ssid) == 0) {
+            ESP_LOGW(TAG, "STA SSID is empty, marking as not configured");
             config->sta_configured = false;
         }
     }
@@ -212,6 +219,8 @@ esp_err_t config_manager_save(const config_t *config) {
     nvs_set_str(handle, "wifi_pass", config->wifi_password);
     
     // Save network settings - STA mode
+    ESP_LOGI(TAG, "Saving STA config: ssid='%s', configured=%d", 
+             config->sta_ssid, config->sta_configured);
     nvs_set_str(handle, "sta_ssid", config->sta_ssid);
     nvs_set_str(handle, "sta_pass", config->sta_password);
     nvs_set_u8(handle, "sta_cfg", config->sta_configured ? 1 : 0);

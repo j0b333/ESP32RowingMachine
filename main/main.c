@@ -216,6 +216,9 @@ static esp_err_t init_subsystems(void) {
         // Check if STA credentials are configured
         provisioned = g_config.sta_configured && strlen(g_config.sta_ssid) > 0;
         
+        ESP_LOGI(TAG, "WiFi config check: sta_configured=%d, sta_ssid='%s', provisioned=%d",
+                 g_config.sta_configured, g_config.sta_ssid, provisioned);
+        
         if (provisioned) {
             ESP_LOGI(TAG, "WiFi credentials configured - connecting to: %s", g_config.sta_ssid);
             
