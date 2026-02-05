@@ -395,14 +395,14 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
         return ret;
     }
     
-    // Set bandwidth to HT20 (20MHz) for better compatibility
-    // HT40 (40MHz) can cause issues with some mobile devices
-    ret = esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW_HT20);
+    // Set bandwidth to 20MHz (HT20) for better compatibility
+    // 40MHz (HT40) can cause issues with some mobile devices
+    ret = esp_wifi_set_bandwidth(WIFI_IF_AP, WIFI_BW20);
     if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to set HT20 bandwidth: %s (continuing)", esp_err_to_name(ret));
+        ESP_LOGW(TAG, "Failed to set 20MHz bandwidth: %s (continuing)", esp_err_to_name(ret));
     }
     
-    ESP_LOGI(TAG, "SoftAP pre-configured: SSID=%s, channel=%d, auth=OPEN, PMF=disabled, BW=HT20",
+    ESP_LOGI(TAG, "SoftAP pre-configured: SSID=%s, channel=%d, auth=OPEN, PMF=disabled, BW=20MHz",
              service_name, ap_config.ap.channel);
     
     // Start WiFi (this applies our configuration)
