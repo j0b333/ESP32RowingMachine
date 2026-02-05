@@ -263,7 +263,7 @@ static esp_err_t init_subsystems(void) {
             
             // Start the web server in captive portal mode
             ESP_LOGI(TAG, "Starting web server (captive portal mode)...");
-            ret = web_server_start_captive_portal(&g_metrics, &g_config);
+            ret = web_server_start_captive_portal();
             if (ret != ESP_OK) {
                 ESP_LOGE(TAG, "Failed to start web server");
                 return ret;
