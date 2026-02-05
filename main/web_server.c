@@ -2591,6 +2591,13 @@ esp_err_t web_server_start_captive_portal(void) {
     REGISTER_CAPTIVE_URI(uri_style);          // /style.css
     REGISTER_CAPTIVE_URI(uri_favicon);        // /favicon.ico
     
+    // WiFi provisioning API endpoints (needed for setup.html)
+    REGISTER_CAPTIVE_URI(uri_api_wifi_scan);       // /api/wifi/scan
+    REGISTER_CAPTIVE_URI(uri_api_wifi_connect);    // /api/wifi/connect
+    REGISTER_CAPTIVE_URI(uri_api_wifi_status);     // /api/wifi/status
+    REGISTER_CAPTIVE_URI(uri_api_wifi_disconnect); // /api/wifi/disconnect
+    REGISTER_CAPTIVE_URI(uri_api_reboot);          // /api/reboot
+    
     // Captive portal detection URLs
     REGISTER_CAPTIVE_URI(uri_generate_204);   // /generate_204 (Android)
     REGISTER_CAPTIVE_URI(uri_gen_204);        // /gen_204 (Android)
