@@ -2635,6 +2635,13 @@ esp_err_t web_server_start_captive_portal(void) {
     REGISTER_CAPTIVE_URI(uri_api_status);     // /api/status
     REGISTER_CAPTIVE_URI(uri_events);         // /events (SSE)
     REGISTER_CAPTIVE_URI(uri_api_config_get); // /api/config (GET)
+    REGISTER_CAPTIVE_URI(uri_api_sessions);   // /api/sessions (GET)
+    
+    // Workout control endpoints (needed for rowing in AP mode)
+    REGISTER_CAPTIVE_URI(uri_workout_start);  // /workout/start
+    REGISTER_CAPTIVE_URI(uri_workout_stop);   // /workout/stop
+    REGISTER_CAPTIVE_URI(uri_workout_pause);  // /workout/pause
+    REGISTER_CAPTIVE_URI(uri_workout_resume); // /workout/resume
     
     // WiFi provisioning API endpoints (needed for setup.html)
     REGISTER_CAPTIVE_URI(uri_api_wifi_scan);       // /api/wifi/scan
