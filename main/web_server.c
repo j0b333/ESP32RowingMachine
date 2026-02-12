@@ -2590,14 +2590,24 @@ bool web_server_is_calibrating_inertia(void) {
  * @param config Configuration pointer (required for saving WiFi credentials)
  * @return ESP_OK on success
  */
-esp_err_t web_server_start_captive_portal(config_t *config) {
+esp_err_t web_server_start_captive_portal(rowing_metrics_t *metrics, config_t *config) {
     if (g_server != NULL) {
         ESP_LOGW(TAG, "Server already running");
         return ESP_OK;
     }
     
-    // Store config pointer so WiFi handlers can save credentials
+    // Store pointers so handlers can access metrics and config
+    g_metrics = metrics;
     g_config = config;
+    
+    // Create mutex for WebSocket client list
+    if (g_ws_mutex == NULL) {
+        g_ws_mutex = xSemaphoreCreateMutex();
+        if (g_ws_mutex == NULL) {
+            ESP_LOGE(TAG, "Failed to create WebSocket mutex");
+            return ESP_FAIL;
+        }
+    }
     
     // Create mutex for SSE client list (needed for /events endpoint)
     if (g_sse_mutex == NULL) {
@@ -2606,6 +2616,11 @@ esp_err_t web_server_start_captive_portal(config_t *config) {
             ESP_LOGE(TAG, "Failed to create SSE mutex");
             return ESP_FAIL;
         }
+    }
+    
+    // Reset WebSocket client list
+    for (int i = 0; i < MAX_WS_CLIENTS; i++) {
+        g_ws_fds[i] = -1;
     }
     
     // Initialize SSE client list
