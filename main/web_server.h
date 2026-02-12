@@ -24,9 +24,10 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config);
  * This creates a lightweight HTTP server with only captive portal handlers,
  * suitable for sharing with the provisioning manager (no wildcard URI matcher).
  * 
+ * @param config Configuration pointer (for saving WiFi credentials)
  * @return ESP_OK on success
  */
-esp_err_t web_server_start_captive_portal(void);
+esp_err_t web_server_start_captive_portal(config_t *config);
 
 /**
  * Stop HTTP server

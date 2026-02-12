@@ -4,6 +4,20 @@
  * 
  * This module implements WiFi provisioning using the official ESP-IDF v6.0
  * network_provisioning component with softAP transport.
+ * 
+ * IMPORTANT: According to ESP-IDF v6.0 documentation and official examples:
+ * - Do NOT manually call esp_wifi_set_mode() when using the provisioning manager
+ * - Do NOT manually call esp_wifi_start() when using the provisioning manager
+ * - Do NOT manually configure WiFi AP settings - they will be OVERWRITTEN
+ * - The provisioning manager's scheme_softap internally handles ALL WiFi configuration
+ * - Manual WiFi operations cause SoftAP stop/restart cycles and connection issues
+ * 
+ * ESP32-S3 SPECIFIC FIX:
+ * There is a known issue where ESP32-S3 SoftAP is not visible on mobile devices
+ * (GitHub Issue: https://github.com/espressif/esp-idf/issues/13508)
+ * The fix is to set maximum WiFi TX power (78 = 19.5 dBm) after SoftAP starts.
+ * 
+ * Reference: https://docs.espressif.com/projects/esp-idf/en/release-v6.0/esp32/migration-guides/release-6.x/6.0/provisioning.html
  */
 
 #include "wifi_provisioning.h"
@@ -57,6 +71,8 @@ static void prov_event_handler(void *arg, esp_event_base_t event_base,
             wifi_sta_config_t *wifi_sta_cfg = (wifi_sta_config_t *)event_data;
             ESP_LOGI(TAG, "Received WiFi credentials: SSID=%s", 
                      (const char *)wifi_sta_cfg->ssid);
+            // NOTE: Do NOT manually switch WiFi modes here
+            // The provisioning manager handles mode transitions internally
             break;
         }
         
@@ -107,6 +123,24 @@ static void prov_event_handler(void *arg, esp_event_base_t event_base,
             
         case WIFI_EVENT_AP_START:
             ESP_LOGI(TAG, "SoftAP started - ready for client connections");
+            // ESP32-S3 FIX: Increase TX power to maximum (19.5 dBm) for better SoftAP visibility
+            // This addresses a known issue where ESP32-S3 SoftAP is not visible on mobile devices
+            // Reference: https://github.com/espressif/esp-idf/issues/13508
+            {
+                int8_t power = 0;
+                esp_wifi_get_max_tx_power(&power);
+                ESP_LOGI(TAG, "Current WiFi TX power: %.2f dBm", power * 0.25);
+                
+                // Set to maximum power (78 = 19.5 dBm, maximum for most ESP32-S3)
+                // Power values: 8-78 (0.5-19.5 dBm in 0.25 dBm steps)
+                esp_err_t ret = esp_wifi_set_max_tx_power(78);
+                if (ret == ESP_OK) {
+                    esp_wifi_get_max_tx_power(&power);
+                    ESP_LOGI(TAG, "WiFi TX power set to maximum: %.2f dBm", power * 0.25);
+                } else {
+                    ESP_LOGW(TAG, "Failed to set TX power: %s", esp_err_to_name(ret));
+                }
+            }
             break;
             
         case WIFI_EVENT_AP_STOP:
@@ -213,16 +247,9 @@ esp_err_t wifi_provisioning_init(void)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
     
-    // Set WiFi country code for Netherlands (Europe)
-    wifi_country_t country = {
-        .cc = "NL",
-        .schan = 1,
-        .nchan = 13,
-        .max_tx_power = 20,
-        .policy = WIFI_COUNTRY_POLICY_MANUAL,  // Don't auto-change during provisioning
-    };
-    ESP_ERROR_CHECK(esp_wifi_set_country(&country));
-    ESP_LOGI(TAG, "WiFi country set to NL (channels 1-13, 20dBm)");
+    // NOTE: WiFi country code is not set manually here.
+    // The provisioning manager and WiFi driver handle region settings automatically.
+    // Manual country configuration can cause "ap start fail" errors in some cases.
     
     // Configure provisioning manager with softAP scheme
     network_prov_mgr_config_t prov_config = {
@@ -322,26 +349,29 @@ esp_err_t wifi_provisioning_start(const char *service_name, const char *pop,
     xEventGroupClearBits(s_prov_event_group, 
                          WIFI_CONNECTED_BIT | WIFI_FAIL_BIT | PROV_END_BIT);
     
-    // Configure SoftAP for provisioning using OPEN network (no password)
-    // This is Espressif's recommended approach for the ESP SoftAP Provisioning app
-    // 
-    // Why OPEN instead of WPA2:
-    // 1. ESP SoftAP Provisioning app is designed for open networks
-    // 2. iOS cannot programmatically connect to WPA2 APs (requires manual password entry)
-    // 3. WPA2 causes 4-way handshake timeout (reason=15) when phone connects without password
-    // 4. Android/iOS captive portal behavior is handled by the provisioning app itself
-    // 
-    // Security is provided at the application layer via NETWORK_PROV_SECURITY (Security 0/1/2)
-    // The provisioning protocol encrypts credentials during transfer even over open WiFi
+    // =============================================================================
+    // IMPORTANT: Do NOT manually configure or start WiFi before provisioning!
+    // =============================================================================
+    // The network_provisioning manager's scheme_softap internally handles ALL
+    // WiFi configuration and startup. It will:
+    // 1. Call esp_wifi_set_mode(WIFI_MODE_APSTA)
+    // 2. Call esp_wifi_set_config() with its own AP config
+    // 3. Start WiFi and manage the SoftAP
     //
-    // Note: If users manually connect from phone WiFi settings instead of using the app,
-    // they may see brief disconnect/reconnect behavior due to captive portal detection.
-    // This is normal - instruct users to use the ESP SoftAP Provisioning app.
-    const char *service_key = NULL;  // NULL = open network (no WiFi password)
+    // Any manual WiFi configuration done here will be OVERWRITTEN by the
+    // provisioning manager, causing SoftAP stop/restart cycles and making
+    // the AP invisible to clients.
+    //
+    // Reference: ESP-IDF v6.0 migration guide states:
+    // "Do not manually call esp_wifi_set_mode() when using the provisioning manager"
+    // https://docs.espressif.com/projects/esp-idf/en/release-v6.0/esp32/migration-guides/release-6.x/6.0/provisioning.html
+    // =============================================================================
     
-    ESP_LOGI(TAG, "Starting provisioning with SSID: %s (OPEN network - use ESP SoftAP Prov app)", service_name);
+    ESP_LOGI(TAG, "Starting provisioning with SSID: %s (OPEN network)", service_name);
     
-    ret = network_prov_mgr_start_provisioning(security, NULL, service_name, service_key);
+    // Let the provisioning manager handle ALL WiFi configuration
+    // service_key = NULL means open network (no WiFi password)
+    ret = network_prov_mgr_start_provisioning(security, NULL, service_name, NULL);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start provisioning: %s", esp_err_to_name(ret));
         return ret;
