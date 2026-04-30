@@ -4,194 +4,289 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Crivit Rower - WiFi Setup</title>
+    <meta name="theme-color" content="#0b1020" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#f4f6fb" media="(prefers-color-scheme: light)">
+    <script>
+        // Apply persisted theme before paint to avoid flash of incorrect theme.
+        (function () {
+            try {
+                var stored = localStorage.getItem('theme');
+                if (stored === 'light' || stored === 'dark') {
+                    document.documentElement.setAttribute('data-theme', stored);
+                }
+            } catch (e) { /* ignore */ }
+        })();
+    </script>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root, :root[data-theme="dark"] {
+            --bg: #0b1020;
+            --bg-page: radial-gradient(1100px 700px at 0% -10%, #1a224a 0%, transparent 60%),
+                       radial-gradient(900px 700px at 110% 0%, #0e2a4a 0%, transparent 55%),
+                       linear-gradient(160deg, #070b1c 0%, #0e1330 100%);
+            --card: rgba(255, 255, 255, 0.06);
+            --card-border: rgba(255, 255, 255, 0.10);
+            --input-bg: rgba(0, 0, 0, 0.30);
+            --input-border: rgba(255, 255, 255, 0.18);
+            --text: #f4f6fb;
+            --text-muted: #94a3b8;
+            --accent: #38bdf8;
+            --accent-strong: #0ea5e9;
+            --on-accent: #07192b;
+            --success: #4ade80;
+            --warning: #fbbf24;
+            --danger: #f87171;
+            --shadow-lg: 0 18px 48px rgba(2, 6, 23, 0.4);
+            color-scheme: dark;
+        }
+        :root[data-theme="light"] {
+            --bg: #f4f6fb;
+            --bg-page: radial-gradient(1100px 700px at 0% -10%, #e0f2fe 0%, transparent 60%),
+                       radial-gradient(900px 700px at 110% 0%, #ecfeff 0%, transparent 55%),
+                       linear-gradient(180deg, #f7f9fd 0%, #eef2f9 100%);
+            --card: #ffffff;
+            --card-border: rgba(15, 23, 42, 0.08);
+            --input-bg: #ffffff;
+            --input-border: rgba(15, 23, 42, 0.18);
+            --text: #0f172a;
+            --text-muted: #4b5563;
+            --accent: #0284c7;
+            --accent-strong: #0369a1;
+            --on-accent: #ffffff;
+            --success: #16a34a;
+            --warning: #d97706;
+            --danger: #dc2626;
+            --shadow-lg: 0 18px 48px rgba(15, 23, 42, 0.12);
+            color-scheme: light;
+        }
+        @media (prefers-color-scheme: light) {
+            :root:not([data-theme]) {
+                --bg: #f4f6fb;
+                --bg-page: radial-gradient(1100px 700px at 0% -10%, #e0f2fe 0%, transparent 60%),
+                           radial-gradient(900px 700px at 110% 0%, #ecfeff 0%, transparent 55%),
+                           linear-gradient(180deg, #f7f9fd 0%, #eef2f9 100%);
+                --card: #ffffff;
+                --card-border: rgba(15, 23, 42, 0.08);
+                --input-bg: #ffffff;
+                --input-border: rgba(15, 23, 42, 0.18);
+                --text: #0f172a;
+                --text-muted: #4b5563;
+                --accent: #0284c7;
+                --accent-strong: #0369a1;
+                --on-accent: #ffffff;
+                --success: #16a34a;
+                --warning: #d97706;
+                --danger: #dc2626;
+                --shadow-lg: 0 18px 48px rgba(15, 23, 42, 0.12);
+                color-scheme: light;
+            }
+        }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-page);
+            background-attachment: fixed;
             min-height: 100vh;
-            color: #fff;
-            padding: 20px;
+            color: var(--text);
+            padding: 24px 16px 32px;
+            -webkit-font-smoothing: antialiased;
+            transition: background-color 0.3s ease, color 0.3s ease;
         }
-        .container {
-            max-width: 400px;
-            margin: 0 auto;
+        .container { max-width: 440px; margin: 0 auto; }
+        header { text-align: center; margin-bottom: 28px; position: relative; }
+        header h1 { font-size: 1.5rem; margin-bottom: 6px; letter-spacing: -0.01em; }
+        header p { color: var(--text-muted); font-size: 0.9rem; }
+
+        .theme-toggle {
+            position: absolute;
+            top: -4px;
+            right: 0;
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            color: var(--text);
+            width: 40px;
+            height: 40px;
+            border-radius: 999px;
+            cursor: pointer;
+            font-size: 1.05rem;
+            transition: transform 0.1s ease, border-color 0.2s ease, background 0.2s ease;
         }
-        header {
-            text-align: center;
-            margin-bottom: 30px;
+        .theme-toggle:hover { border-color: var(--accent); transform: translateY(-1px); }
+        .theme-toggle .theme-icon-light,
+        .theme-toggle .theme-icon-dark { display: none; }
+        :root[data-theme="dark"] .theme-toggle .theme-icon-light { display: inline; }
+        :root[data-theme="light"] .theme-toggle .theme-icon-dark { display: inline; }
+        :root:not([data-theme]) .theme-toggle .theme-icon-light { display: inline; }
+        @media (prefers-color-scheme: light) {
+            :root:not([data-theme]) .theme-toggle .theme-icon-light { display: none; }
+            :root:not([data-theme]) .theme-toggle .theme-icon-dark { display: inline; }
         }
-        header h1 {
-            font-size: 1.5em;
-            margin-bottom: 10px;
-        }
-        header p {
-            color: #94a3b8;
-            font-size: 0.9em;
-        }
+
         .card {
-            background: rgba(255,255,255,0.1);
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 20px;
+            background: var(--card);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 22px;
+            margin-bottom: 18px;
             backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            box-shadow: var(--shadow-lg);
         }
         .card h2 {
-            font-size: 1.1em;
-            margin-bottom: 15px;
-            color: #60a5fa;
+            font-size: 1.1rem;
+            margin-bottom: 14px;
+            color: var(--accent);
+            font-weight: 700;
+            letter-spacing: -0.01em;
         }
-        .network-list {
-            max-height: 200px;
-            overflow-y: auto;
-        }
+        .network-list { max-height: 220px; overflow-y: auto; }
         .network-item {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 12px;
-            border-radius: 8px;
+            padding: 12px 14px;
+            border-radius: 10px;
             cursor: pointer;
-            transition: background 0.2s;
+            transition: background 0.2s ease, border-color 0.2s ease;
             margin-bottom: 8px;
-            background: rgba(255,255,255,0.05);
+            background: transparent;
+            border: 1px solid transparent;
         }
-        .network-item:hover {
-            background: rgba(255,255,255,0.15);
-        }
+        .network-item:hover { background: var(--card); border-color: var(--card-border); }
         .network-item.selected {
-            background: rgba(96, 165, 250, 0.3);
-            border: 1px solid #60a5fa;
+            background: rgba(56, 189, 248, 0.15);
+            border-color: var(--accent);
         }
-        .network-name {
-            font-weight: 500;
-        }
+        .network-name { font-weight: 500; }
         .network-info {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            color: #94a3b8;
-            font-size: 0.85em;
+            display: flex; align-items: center; gap: 10px;
+            color: var(--text-muted); font-size: 0.85rem;
         }
-        .signal-strength {
-            display: flex;
-            gap: 2px;
-        }
-        .signal-bar {
-            width: 4px;
-            background: #4ade80;
-            border-radius: 1px;
-        }
+        .signal-strength { display: flex; gap: 2px; }
+        .signal-bar { width: 4px; background: var(--success); border-radius: 1px; }
         .signal-bar.weak { height: 6px; }
         .signal-bar.medium { height: 10px; }
         .signal-bar.strong { height: 14px; }
-        .signal-bar.inactive { background: #475569; }
-        .lock-icon { font-size: 0.9em; }
-        .form-group {
-            margin-bottom: 15px;
-        }
-        label {
-            display: block;
-            margin-bottom: 5px;
-            color: #94a3b8;
-            font-size: 0.9em;
-        }
+        .signal-bar.inactive { background: rgba(148, 163, 184, 0.4); }
+        .lock-icon { font-size: 0.9rem; }
+
+        .form-group { margin-bottom: 14px; }
+        label { display: block; margin-bottom: 6px; color: var(--text-muted); font-size: 0.9rem; font-weight: 500; }
         input[type="text"], input[type="password"] {
             width: 100%;
-            padding: 12px;
-            border: 1px solid rgba(255,255,255,0.2);
-            border-radius: 8px;
-            background: rgba(0,0,0,0.3);
-            color: #fff;
-            font-size: 1em;
+            padding: 12px 14px;
+            border: 1px solid var(--input-border);
+            border-radius: 10px;
+            background: var(--input-bg);
+            color: var(--text);
+            font-size: 1rem;
+            font-family: inherit;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
         }
         input:focus {
             outline: none;
-            border-color: #60a5fa;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.18);
         }
         .btn {
             width: 100%;
             padding: 14px;
-            border: none;
-            border-radius: 8px;
-            font-size: 1em;
+            border: 1px solid transparent;
+            border-radius: 10px;
+            font-size: 1rem;
             font-weight: 600;
             cursor: pointer;
-            transition: transform 0.1s, opacity 0.2s;
+            font-family: inherit;
+            transition: transform 0.1s ease, opacity 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
         }
         .btn:active { transform: scale(0.98); }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-primary {
-            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-            color: #fff;
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+            color: var(--on-accent);
+            box-shadow: 0 6px 20px rgba(14, 165, 233, 0.28);
         }
+        .btn-primary:hover { box-shadow: 0 8px 26px rgba(14, 165, 233, 0.38); }
         .btn-secondary {
-            background: rgba(255,255,255,0.1);
-            color: #fff;
+            background: var(--card);
+            border-color: var(--card-border);
+            color: var(--text);
             margin-top: 10px;
         }
         .btn-scan {
-            background: rgba(255,255,255,0.1);
-            color: #60a5fa;
-            margin-bottom: 15px;
+            background: var(--card);
+            border-color: var(--card-border);
+            color: var(--accent);
+            margin-bottom: 14px;
         }
         .status-message {
             text-align: center;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 15px;
+            padding: 14px;
+            border-radius: 10px;
+            margin-bottom: 14px;
             display: none;
+            font-weight: 500;
         }
         .status-message.success {
-            background: rgba(74, 222, 128, 0.2);
-            color: #4ade80;
+            background: rgba(74, 222, 128, 0.15);
+            color: var(--success);
+            border: 1px solid rgba(74, 222, 128, 0.3);
             display: block;
         }
         .status-message.error {
-            background: rgba(248, 113, 113, 0.2);
-            color: #f87171;
+            background: rgba(248, 113, 113, 0.15);
+            color: var(--danger);
+            border: 1px solid rgba(248, 113, 113, 0.3);
             display: block;
         }
         .status-message.info {
-            background: rgba(96, 165, 250, 0.2);
-            color: #60a5fa;
+            background: rgba(96, 165, 250, 0.15);
+            color: var(--accent);
+            border: 1px solid rgba(96, 165, 250, 0.3);
             display: block;
         }
         .current-status {
             text-align: center;
-            padding: 10px;
-            background: rgba(74, 222, 128, 0.1);
-            border-radius: 8px;
-            margin-bottom: 15px;
+            padding: 12px;
+            background: rgba(74, 222, 128, 0.10);
+            border-color: rgba(74, 222, 128, 0.25);
+            border-radius: 12px;
+            margin-bottom: 16px;
+            font-weight: 500;
         }
         .current-status.ap-mode {
-            background: rgba(251, 191, 36, 0.1);
-            color: #fbbf24;
+            background: rgba(251, 191, 36, 0.10);
+            border-color: rgba(251, 191, 36, 0.25);
+            color: var(--warning);
         }
         .loading {
             display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 2px solid rgba(255,255,255,0.3);
-            border-top-color: #fff;
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(148, 163, 184, 0.35);
+            border-top-color: currentColor;
             border-radius: 50%;
-            animation: spin 1s linear infinite;
+            animation: spin 0.8s linear infinite;
             margin-right: 10px;
             vertical-align: middle;
         }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
+        @keyframes spin { to { transform: rotate(360deg); } }
         .skip-link {
             display: block;
             text-align: center;
-            color: #94a3b8;
+            color: var(--text-muted);
             text-decoration: none;
-            margin-top: 20px;
-            font-size: 0.9em;
+            margin-top: 22px;
+            font-size: 0.9rem;
+            transition: color 0.15s ease;
         }
-        .skip-link:hover {
-            color: #60a5fa;
+        .skip-link:hover { color: var(--accent); }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                transition-duration: 0.01ms !important;
+                animation-duration: 0.01ms !important;
+            }
         }
     </style>
 </head>
@@ -200,6 +295,11 @@
         <header>
             <h1>🚣 Crivit Rowing Monitor</h1>
             <p>WiFi Setup</p>
+            <button id="btn-theme-toggle" class="theme-toggle" type="button"
+                    aria-label="Toggle color theme" title="Toggle light/dark theme">
+                <span class="theme-icon-light" aria-hidden="true">🌙</span>
+                <span class="theme-icon-dark" aria-hidden="true">☀️</span>
+            </button>
         </header>
 
         <div id="status-message" class="status-message"></div>
@@ -216,7 +316,7 @@
             </button>
 
             <div id="network-list" class="network-list">
-                <p style="color: #94a3b8; text-align: center;">Click "Scan" to find networks</p>
+                <p style="color: var(--text-muted); text-align: center;">Click "Scan" to find networks</p>
             </div>
         </div>
 
@@ -239,7 +339,7 @@
 
         <div class="card" id="forget-card" style="display: none;">
             <h2>Forget Saved Network</h2>
-            <p style="color: #94a3b8; margin-bottom: 15px; font-size: 0.9em;">
+            <p style="color: var(--text-muted); margin-bottom: 15px; font-size: 0.9em;">
                 Clear saved WiFi credentials and stay in AP mode.
             </p>
             <button id="btn-forget" class="btn btn-secondary">
@@ -258,6 +358,27 @@
         document.addEventListener('DOMContentLoaded', function() {
             checkStatus();
             
+            // Theme toggle
+            const themeBtn = document.getElementById('btn-theme-toggle');
+            if (themeBtn) {
+                const updateLabel = () => {
+                    const stored = (function () { try { return localStorage.getItem('theme'); } catch (e) { return null; } })();
+                    const effective = stored || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+                    const next = effective === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
+                    themeBtn.setAttribute('aria-label', next);
+                    themeBtn.setAttribute('title', next);
+                };
+                updateLabel();
+                themeBtn.addEventListener('click', function () {
+                    const stored = (function () { try { return localStorage.getItem('theme'); } catch (e) { return null; } })();
+                    const effective = stored || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+                    const next = effective === 'dark' ? 'light' : 'dark';
+                    try { localStorage.setItem('theme', next); } catch (e) { /* ignore */ }
+                    document.documentElement.setAttribute('data-theme', next);
+                    updateLabel();
+                });
+            }
+
             // Scan button
             document.getElementById('btn-scan').addEventListener('click', scanNetworks);
             
@@ -309,7 +430,7 @@
             
             btn.disabled = true;
             btn.innerHTML = '<span class="loading"></span>Scanning...';
-            listEl.innerHTML = '<p style="color: #94a3b8; text-align: center;">Scanning...</p>';
+            listEl.innerHTML = '<p style="color: var(--text-muted); text-align: center;">Scanning...</p>';
             
             try {
                 const response = await fetch('/api/wifi/scan');
@@ -337,10 +458,10 @@
                         listEl.appendChild(item);
                     });
                 } else {
-                    listEl.innerHTML = '<p style="color: #94a3b8; text-align: center;">No networks found</p>';
+                    listEl.innerHTML = '<p style="color: var(--text-muted); text-align: center;">No networks found</p>';
                 }
             } catch (e) {
-                listEl.innerHTML = '<p style="color: #f87171; text-align: center;">Scan failed: ' + e.message + '</p>';
+                listEl.innerHTML = '<p style="color: var(--danger); text-align: center;">Scan failed: ' + e.message + '</p>';
             }
             
             btn.disabled = false;

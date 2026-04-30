@@ -6,6 +6,19 @@
     <title>Crivit Rowing Monitor</title>
     <link rel="stylesheet" href="/style.css">
     <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <meta name="theme-color" content="#0b1020" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#f4f6fb" media="(prefers-color-scheme: light)">
+    <script>
+        // Apply persisted theme before paint to avoid flash of incorrect theme.
+        (function () {
+            try {
+                var stored = localStorage.getItem('theme');
+                if (stored === 'light' || stored === 'dark') {
+                    document.documentElement.setAttribute('data-theme', stored);
+                }
+            } catch (e) { /* ignore */ }
+        })();
+    </script>
 </head>
 <body>
     <div class="container">
@@ -285,6 +298,11 @@
                 <button class="btn btn-tab" data-tab="history">History</button>
                 <button class="btn btn-tab" data-tab="settings">Settings</button>
             </div>
+            <button id="btn-theme-toggle" class="btn btn-theme" type="button"
+                    aria-label="Toggle color theme" title="Toggle light/dark theme">
+                <span class="theme-icon-light" aria-hidden="true">🌙</span>
+                <span class="theme-icon-dark" aria-hidden="true">☀️</span>
+            </button>
         </nav>
     </div>
 
