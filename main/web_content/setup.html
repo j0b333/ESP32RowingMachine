@@ -7,13 +7,15 @@
     <meta name="theme-color" content="#0b1020" media="(prefers-color-scheme: dark)">
     <meta name="theme-color" content="#f4f6fb" media="(prefers-color-scheme: light)">
     <script>
-        // Apply persisted theme before paint to avoid flash of incorrect theme.
+        // Apply theme as early as possible to avoid flash of incorrect theme.
         (function () {
             try {
                 var stored = localStorage.getItem('theme');
-                if (stored === 'light' || stored === 'dark') {
-                    document.documentElement.setAttribute('data-theme', stored);
-                }
+                var theme = (stored === 'light' || stored === 'dark')
+                    ? stored
+                    : (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+                        ? 'light' : 'dark');
+                document.documentElement.setAttribute('data-theme', theme);
             } catch (e) { /* ignore */ }
         })();
     </script>
@@ -60,28 +62,8 @@
             --shadow-lg: 0 18px 48px rgba(15, 23, 42, 0.12);
             color-scheme: light;
         }
-        @media (prefers-color-scheme: light) {
-            :root:not([data-theme]) {
-                --bg: #f4f6fb;
-                --bg-page: radial-gradient(1100px 700px at 0% -10%, #e0f2fe 0%, transparent 60%),
-                           radial-gradient(900px 700px at 110% 0%, #ecfeff 0%, transparent 55%),
-                           linear-gradient(180deg, #f7f9fd 0%, #eef2f9 100%);
-                --card: #ffffff;
-                --card-border: rgba(15, 23, 42, 0.08);
-                --input-bg: #ffffff;
-                --input-border: rgba(15, 23, 42, 0.18);
-                --text: #0f172a;
-                --text-muted: #4b5563;
-                --accent: #0284c7;
-                --accent-strong: #0369a1;
-                --on-accent: #ffffff;
-                --success: #16a34a;
-                --warning: #d97706;
-                --danger: #dc2626;
-                --shadow-lg: 0 18px 48px rgba(15, 23, 42, 0.12);
-                color-scheme: light;
-            }
-        }
+        /* Theme is set by the inline <head> script before paint, so no
+           prefers-color-scheme duplication is needed here. */
 
         body {
             font-family: "Inter", -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -117,11 +99,6 @@
         .theme-toggle .theme-icon-dark { display: none; }
         :root[data-theme="dark"] .theme-toggle .theme-icon-light { display: inline; }
         :root[data-theme="light"] .theme-toggle .theme-icon-dark { display: inline; }
-        :root:not([data-theme]) .theme-toggle .theme-icon-light { display: inline; }
-        @media (prefers-color-scheme: light) {
-            :root:not([data-theme]) .theme-toggle .theme-icon-light { display: none; }
-            :root:not([data-theme]) .theme-toggle .theme-icon-dark { display: inline; }
-        }
 
         .card {
             background: var(--card);

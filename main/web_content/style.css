@@ -105,41 +105,9 @@
     color-scheme: light;
 }
 
-/* Honor OS preference when the user hasn't picked a theme. */
-@media (prefers-color-scheme: light) {
-    :root:not([data-theme]) {
-        --bg-primary: #f4f6fb;
-        --bg-secondary: #ffffff;
-        --bg-card: #ffffff;
-        --bg-elevated: #ffffff;
-        --bg-overlay: rgba(15, 23, 42, 0.45);
-        --text-primary: #0f172a;
-        --text-secondary: #4b5563;
-        --text-muted: #6b7280;
-        --accent-primary: #0284c7;
-        --accent-primary-strong: #0369a1;
-        --accent-secondary: #0d9488;
-        --accent-on-primary: #ffffff;
-        --danger: #dc2626;
-        --success: #16a34a;
-        --warning: #d97706;
-        --info: #2563eb;
-        --border-subtle: rgba(15, 23, 42, 0.08);
-        --border-strong: rgba(15, 23, 42, 0.16);
-        --glass-bg: rgba(15, 23, 42, 0.03);
-        --glass-bg-strong: rgba(15, 23, 42, 0.06);
-        --chart-bg: rgba(255, 255, 255, 0.7);
-        --chart-grid: rgba(15, 23, 42, 0.08);
-        --chart-text: rgba(15, 23, 42, 0.7);
-        --chart-target: rgba(15, 23, 42, 0.55);
-        --chart-axis-text: rgba(15, 23, 42, 0.6);
-        --chart-zone-label: rgba(15, 23, 42, 0.65);
-        --page-bg: radial-gradient(1100px 700px at 0% -10%, #e0f2fe 0%, transparent 60%),
-                   radial-gradient(900px 700px at 110% 10%, #ecfeff 0%, transparent 55%),
-                   linear-gradient(180deg, #f7f9fd 0%, #eef2f9 100%);
-        color-scheme: light;
-    }
-}
+/* Honor OS preference at first paint via the inline script in <head>; it sets
+   data-theme to "light" or "dark" so the [data-theme] selectors above always
+   resolve. No `@media (prefers-color-scheme)` duplication needed here. */
 
 :root {
     /* Scale, radii, shadows, motion — shared across themes */
@@ -624,11 +592,6 @@ main {
 .btn-theme .theme-icon-dark { display: none; }
 :root[data-theme="dark"] .btn-theme .theme-icon-light { display: inline; }
 :root[data-theme="light"] .btn-theme .theme-icon-dark { display: inline; }
-:root:not([data-theme]) .btn-theme .theme-icon-light { display: inline; }
-@media (prefers-color-scheme: light) {
-    :root:not([data-theme]) .btn-theme .theme-icon-light { display: none; }
-    :root:not([data-theme]) .btn-theme .theme-icon-dark { display: inline; }
-}
 
 /* -----------------------------------------------------------------------------
    Settings tab

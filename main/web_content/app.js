@@ -1843,12 +1843,12 @@ function getChartTheme() {
         return v || fallback;
     };
     return {
-        bg:        read('--chart-bg',        'rgba(15, 52, 96, 0.5)'),
-        grid:      read('--chart-grid',      'rgba(255, 255, 255, 0.1)'),
-        text:      read('--chart-text',      'rgba(255, 255, 255, 0.6)'),
-        axisText:  read('--chart-axis-text', 'rgba(255, 255, 255, 0.5)'),
-        target:    read('--chart-target',    'rgba(255, 255, 255, 0.8)'),
-        zoneLabel: read('--chart-zone-label','rgba(255, 255, 255, 0.6)')
+        bg:        read('--chart-bg',        'transparent'),
+        grid:      read('--chart-grid',      'rgba(127, 127, 127, 0.18)'),
+        text:      read('--chart-text',      'rgba(127, 127, 127, 0.75)'),
+        axisText:  read('--chart-axis-text', 'rgba(127, 127, 127, 0.7)'),
+        target:    read('--chart-target',    'rgba(127, 127, 127, 0.85)'),
+        zoneLabel: read('--chart-zone-label','rgba(127, 127, 127, 0.75)')
     };
 }
 
