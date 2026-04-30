@@ -14,8 +14,14 @@ choice ROWING_AUDIO_DRIVER
     config ROWING_AUDIO_ACTIVE_BUZZER
         bool "Active buzzer (GPIO on/off)"
     config ROWING_AUDIO_INTERNAL_DAC
-        bool "ESP32 internal DAC (8-bit, ESP32 only)"
+        bool "ESP32 internal DAC (8-bit, ESP32 only) — basic I2S only"
         depends on IDF_TARGET_ESP32
+        help
+          Routes I2S output to the on-chip DAC pins (GPIO 25/26).
+          Requires that you wire BOARD_I2S_BCLK / LRCLK / DOUT to
+          dummy GPIOs and use the external pull-down/up combinations
+          documented for your board. Most users prefer ROWING_AUDIO_I2S_DAC
+          with a small MAX98357A breakout.
     config ROWING_AUDIO_I2S_DAC
         bool "I2S DAC: MAX98357A / PCM5102 (no codec)"
     config ROWING_AUDIO_ES8388

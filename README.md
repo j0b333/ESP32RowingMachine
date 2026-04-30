@@ -20,6 +20,25 @@ A smart rowing machine monitor firmware for ESP32-S3 that transforms a rowing ma
 | Flywheel reed switch | GPIO 15 + GND |
 | Seat reed switch | GPIO 16 + GND |
 
+### Optional peripherals (configurable via `idf.py menuconfig`)
+
+A modular hardware abstraction layer lets you build the same firmware
+for many boards by toggling Kconfig options. No code changes required.
+
+| Category | Options |
+|----------|---------|
+| Board profile | ESP32 DevKit, ESP32-S3 DevKit, LilyGO T-Display / T-Display-S3, ESP32-2432S028 ("CYD"), WT32-SC01 / SC01-Plus, M5Stack Core2, Waveshare LCD 1.28, ESP-Box, headless |
+| Display | SSD1306, SH1106 (I²C OLEDs); ST7789, ILI9341, ILI9488, GC9A01, ST7796 (SPI TFTs) |
+| Touch | XPT2046 (resistive SPI); GT911, FT5x06 / FT6236, CST816S (capacitive I²C) |
+| Buttons | 1–4 programmable GPIO buttons with short / long / double-press → mappable UI action |
+| Rotary encoder | Quadrature via PCNT, optional push-button, configurable per-detent action |
+| Audio | Passive piezo (LEDC PWM), active buzzer (GPIO), I²S DAC (MAX98357A / PCM5102), I²S codec (ES8388), ESP32 internal DAC |
+| Status indicator | Plain GPIO LED, PWM LED, RGB-PWM, WS2812 / NeoPixel (single pixel) |
+
+All peripherals are *optional*. With every option set to "None" the
+firmware behaves exactly as before and consumes no extra flash.
+
+
 ### Build & Flash
 
 Requires [ESP-IDF v6.0+](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/get-started/).

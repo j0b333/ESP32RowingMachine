@@ -19,6 +19,8 @@
 #include "audio.h"
 #include "indicator_led.h"
 #include "app_config.h"
+#include "session_manager.h"
+#include "hr_receiver.h"
 
 static const char *TAG = "hardware";
 
@@ -71,14 +73,33 @@ static void on_action(ui_action_t a, void *user)
         break;
     }
     case UI_ACTION_START_STOP:
+        if (s_metrics) {
+            if (session_manager_get_current_session_id() > 0) {
+                session_manager_end_session(s_metrics);
+                audio_beep(AUDIO_BEEP_WARN);
+            } else {
+                session_manager_start_session(s_metrics);
+                audio_beep(AUDIO_BEEP_OK);
+            }
+        }
+        break;
     case UI_ACTION_PAUSE_RESUME:
+        if (s_metrics) {
+            s_metrics->is_paused = !s_metrics->is_paused;
+            audio_beep(s_metrics->is_paused ? AUDIO_BEEP_WARN : AUDIO_BEEP_OK);
+        }
+        break;
     case UI_ACTION_LAP:
+        /* No native lap concept yet — emit a confirmation tone so the
+         * user knows the press registered, and reset the lap pointer
+         * the renderer can use later. */
+        audio_beep(AUDIO_BEEP_INTERVAL);
+        break;
     case UI_ACTION_RESET_SESSION:
-        /* These require coordination with session_manager. For now we
-         * just emit a beep; the session_manager already has its own
-         * activity-driven start/stop. A future change can wire these
-         * into session_manager_force_start/stop/lap. */
-        audio_beep(AUDIO_BEEP_OK);
+        if (s_metrics) {
+            session_manager_end_session(s_metrics);
+            audio_beep(AUDIO_BEEP_WARN);
+        }
         break;
     case UI_ACTION_TOGGLE_HR_SCAN:
     case UI_ACTION_WIFI_PROVISION:
@@ -143,7 +164,7 @@ void hardware_render_metrics(const rowing_metrics_t *m)
         .stroke_count                = m->stroke_count,
         .total_calories              = (uint32_t)m->total_calories,
         .drag_calibration_samples    = m->drag_calibration_samples,
-        .heart_rate_bpm              = m->heart_rate_bpm,
+        .heart_rate_bpm              = hr_receiver_get_current(),
         .current_phase               = (uint8_t)m->current_phase,
         .is_active                   = m->is_active,
         .is_paused                   = m->is_paused,
