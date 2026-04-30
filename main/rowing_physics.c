@@ -100,40 +100,85 @@ void rowing_physics_update_elapsed_time(rowing_metrics_t *metrics) {
  * Called from sensor task when pulse detected
  */
 void rowing_physics_process_flywheel_pulse(rowing_metrics_t *metrics, int64_t current_time_us) {
+    if (metrics == NULL) {
+        return;  // Defensive: never crash on NULL
+    }
+
     int64_t previous_time_us = metrics->last_flywheel_time_us;
-    
-    // Update pulse count
-    metrics->flywheel_pulse_count++;
-    
+
+    // Defensive: reject obviously bogus timestamps from possibly-torn 64-bit reads
+    // esp_timer_get_time() returns positive values; a negative or absurdly large
+    // delta indicates a torn read between ISR write and task read.
+    if (current_time_us <= 0) {
+        return;
+    }
+    if (previous_time_us != 0 && current_time_us < previous_time_us) {
+        // Time went backwards (torn read or counter wrap) — resync, drop this pulse
+        metrics->last_flywheel_time_us = current_time_us;
+        metrics->prev_angular_velocity_rad_s = 0;  // Invalidate accel calculation
+        return;
+    }
+
+    // Update pulse count (uint32 — wraps after ~4 billion pulses, which would take
+    // years at realistic rowing rates, but guard against overflow-driven reset of
+    // flags by saturating at UINT32_MAX-1)
+    if (metrics->flywheel_pulse_count < 0xFFFFFFFEu) {
+        metrics->flywheel_pulse_count++;
+    }
+
     // Skip first pulse (no delta time yet)
     if (previous_time_us == 0) {
         metrics->last_flywheel_time_us = current_time_us;
         return;
     }
-    
+
     // Calculate time delta (seconds)
     float delta_time_s = (float)(current_time_us - previous_time_us) / 1000000.0f;
-    
-    // Sanity check: ignore if delta time too short or too long
-    if (delta_time_s < 0.001f || delta_time_s > 10.0f) {
+
+    // Sanity check: ignore if delta time too short or too long.
+    // Also reject NaN/Inf from any downstream arithmetic.
+    if (!isfinite(delta_time_s) || delta_time_s < 0.001f || delta_time_s > 10.0f) {
         ESP_LOGW(TAG, "Invalid delta time: %.6f s", delta_time_s);
         metrics->last_flywheel_time_us = current_time_us;
+        // Invalidate previous velocity so we don't compute a wild acceleration on the
+        // next valid pulse (which can blow past stroke detection thresholds).
+        metrics->prev_angular_velocity_rad_s = 0;
         return;
     }
-    
+
     // Calculate angular velocity (rad/s)
     // With multiple magnets: each pulse = 2π/magnets radians
     // MAGNETS_PER_REV is configured at compile time in app_config.h
     float radians_per_pulse = TWO_PI / (float)DEFAULT_MAGNETS_PER_REV;
     float angular_velocity = radians_per_pulse / delta_time_s;
-    
-    // Calculate angular acceleration (rad/s²)
+
+    // Clamp angular velocity to a physically reasonable upper bound (well above
+    // any real flywheel) to prevent NaN/Inf propagation if delta_time_s is tiny
+    // due to noise.
+    if (!isfinite(angular_velocity) || angular_velocity < 0.0f) {
+        metrics->last_flywheel_time_us = current_time_us;
+        metrics->prev_angular_velocity_rad_s = 0;
+        return;
+    }
+    if (angular_velocity > 500.0f) {
+        angular_velocity = 500.0f;
+    }
+
+    // Calculate angular acceleration (rad/s²) using a sane delta_time floor.
     float angular_acceleration = 0.0f;
     if (metrics->prev_angular_velocity_rad_s > 0) {
-        angular_acceleration = (angular_velocity - metrics->prev_angular_velocity_rad_s) 
+        angular_acceleration = (angular_velocity - metrics->prev_angular_velocity_rad_s)
                              / delta_time_s;
+        // Clamp to avoid wild values driving false stroke detection
+        if (!isfinite(angular_acceleration)) {
+            angular_acceleration = 0.0f;
+        } else if (angular_acceleration > 5000.0f) {
+            angular_acceleration = 5000.0f;
+        } else if (angular_acceleration < -5000.0f) {
+            angular_acceleration = -5000.0f;
+        }
     }
-    
+
     // Update metrics
     metrics->prev_angular_velocity_rad_s = metrics->angular_velocity_rad_s;
     metrics->angular_velocity_rad_s = angular_velocity;
@@ -229,43 +274,69 @@ void rowing_physics_calculate_power(rowing_metrics_t *metrics) {
     float alpha = metrics->angular_acceleration_rad_s2;
     float I = metrics->moment_of_inertia;
     float k = metrics->drag_coefficient;
-    
+
+    // Defensive: guard against NaN/Inf in any input (a single torn read or a
+    // mis-calibrated drag coefficient can otherwise propagate forever and
+    // poison the JSON output).
+    if (!isfinite(omega) || !isfinite(alpha) || !isfinite(I) || !isfinite(k)) {
+        return;
+    }
+
     // Calculate power components (physics-based instantaneous power)
     float accel_power = I * alpha * omega;
     float drag_power = k * omega * omega * omega;
     float total_power = accel_power + drag_power;
-    
+
+    if (!isfinite(total_power)) {
+        total_power = 0;
+    }
+
     // Clamp to reasonable range (0 to 2000W)
     if (total_power < 0) total_power = 0;
     if (total_power > 2000) total_power = 2000;
-    
+
     metrics->instantaneous_power_watts = total_power;
-    
+
     // Update peak power (for internal tracking)
     if (total_power > metrics->peak_power_watts) {
         metrics->peak_power_watts = total_power;
     }
-    
-    // Accumulate work during drive phase (for energy calculations)
-    if (metrics->current_phase == STROKE_PHASE_DRIVE && total_power > 0) {
-        // Approximate time step (assume 50ms between updates for simplicity)
-        float dt = 0.05f;
-        metrics->drive_phase_work_joules += total_power * dt;
-        metrics->total_work_joules += total_power * dt;
+
+    // Accumulate work during drive phase (for energy calculations) using the
+    // actual time delta between pulses, not a hardcoded 50 ms which silently
+    // over- or under-counts energy depending on stroke rate.
+    if (metrics->current_phase == STROKE_PHASE_DRIVE && total_power > 0 &&
+        metrics->prev_flywheel_time_us > 0 &&
+        metrics->last_flywheel_time_us > metrics->prev_flywheel_time_us) {
+        int64_t dt_us = metrics->last_flywheel_time_us - metrics->prev_flywheel_time_us;
+        if (dt_us > 0 && dt_us < 1000000) {  // Only accept 0..1s gaps as work intervals
+            float dt = (float)dt_us / 1000000.0f;
+            float work = total_power * dt;
+            // Cap per-stroke work to avoid runaway accumulation if anything misfires
+            if (metrics->drive_phase_work_joules + work < 100000.0f) {
+                metrics->drive_phase_work_joules += work;
+                metrics->total_work_joules += work;
+            }
+        }
     }
-    
+
     // Display power is calculated using Concept2-style formula based on pace
     // This gives smooth, stable readings that match expected rowing power output
     // Formula: Watts = 2.80 / (pace_per_meter)³
     // Only update display power when we have valid pace data
-    if (metrics->average_pace_sec_500m > 60.0f && metrics->average_pace_sec_500m < 9999.0f) {
+    if (isfinite(metrics->average_pace_sec_500m) &&
+        metrics->average_pace_sec_500m > 60.0f && metrics->average_pace_sec_500m < 9999.0f) {
         float pace_per_meter = metrics->average_pace_sec_500m / 500.0f;  // seconds per meter
         float concept2_power = 2.80f / (pace_per_meter * pace_per_meter * pace_per_meter);
-        
+
+        if (!isfinite(concept2_power)) {
+            concept2_power = 0;
+        }
+
         // Clamp to reasonable range
         if (concept2_power < 0) concept2_power = 0;
         if (concept2_power > 1000) concept2_power = 1000;  // Elite rowers max ~500W sustained
-        
+
         // Smooth the display power with exponential moving average
         if (metrics->display_power_watts == 0) {
             metrics->display_power_watts = concept2_power;
@@ -273,10 +344,15 @@ void rowing_physics_calculate_power(rowing_metrics_t *metrics) {
             // 30% new, 70% old for stability
             metrics->display_power_watts = 0.7f * metrics->display_power_watts + 0.3f * concept2_power;
         }
-        
+
         // Also update average power to match Concept2-style
         metrics->average_power_watts = metrics->display_power_watts;
     }
+
+    // Final NaN/Inf scrub on outward-facing fields
+    if (!isfinite(metrics->display_power_watts)) metrics->display_power_watts = 0;
+    if (!isfinite(metrics->average_power_watts)) metrics->average_power_watts = 0;
+    if (!isfinite(metrics->peak_power_watts)) metrics->peak_power_watts = 0;
 }
 
 /**
@@ -334,22 +410,29 @@ void rowing_physics_calculate_pace(rowing_metrics_t *metrics) {
     // Use elapsed_time_ms which already accounts for pause time
     // This ensures pace freezes when paused
     float elapsed_s = (float)metrics->elapsed_time_ms / 1000.0f;
-    
-    if (metrics->total_distance_meters < 1.0f || elapsed_s < 0.1f) {
+
+    if (!isfinite(metrics->total_distance_meters) ||
+        metrics->total_distance_meters < 1.0f || elapsed_s < 0.1f) {
         metrics->instantaneous_pace_sec_500m = 999999.0f;
         metrics->average_pace_sec_500m = 999999.0f;
         return;
     }
-    
+
     // Average pace for entire session: (time / distance) * 500
-    metrics->average_pace_sec_500m = (elapsed_s / metrics->total_distance_meters) * 500.0f;
-    
+    float avg_pace = (elapsed_s / metrics->total_distance_meters) * 500.0f;
+    if (!isfinite(avg_pace) || avg_pace < 0) {
+        avg_pace = 999999.0f;
+    } else if (avg_pace > 999999.0f) {
+        avg_pace = 999999.0f;
+    }
+    metrics->average_pace_sec_500m = avg_pace;
+
     // Instantaneous pace - use average for now
     // TODO: Implement rolling window for instantaneous pace
     metrics->instantaneous_pace_sec_500m = metrics->average_pace_sec_500m;
-    
+
     // Update best pace
-    if (metrics->instantaneous_pace_sec_500m < metrics->best_pace_sec_500m && 
+    if (metrics->instantaneous_pace_sec_500m < metrics->best_pace_sec_500m &&
         metrics->instantaneous_pace_sec_500m > 60.0f) {  // Sanity check: at least 1 min/500m
         metrics->best_pace_sec_500m = metrics->instantaneous_pace_sec_500m;
     }
