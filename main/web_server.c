@@ -57,6 +57,26 @@ static config_t *g_config = NULL;
 // Inertia calibration state
 static inertia_calibration_t g_inertia_calibration = {0};
 
+// Mutex for thread-safe access to g_inertia_calibration. Touched from the
+// sensor task (every flywheel pulse / event-loop tick) and from HTTP handlers
+// (start / cancel / status / apply). On 32-bit ESP32 even reading int64_t
+// timestamps unsynchronised can return torn values.
+static SemaphoreHandle_t g_calibration_mutex = NULL;
+
+#define CAL_MUTEX_TAKE() \
+    do { \
+        if (g_calibration_mutex != NULL) { \
+            xSemaphoreTake(g_calibration_mutex, portMAX_DELAY); \
+        } \
+    } while(0)
+
+#define CAL_MUTEX_GIVE() \
+    do { \
+        if (g_calibration_mutex != NULL) { \
+            xSemaphoreGive(g_calibration_mutex); \
+        } \
+    } while(0)
+
 // Mutex helper macros
 #define WS_MUTEX_TAKE() \
     do { \
@@ -358,20 +378,43 @@ static esp_err_t api_calibrate_inertia_start_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
     
+    bool drag_was_uncalibrated = false;
+
+    CAL_MUTEX_TAKE();
+
     // Use default drag coefficient if not yet calibrated
     // This allows inertia calibration before rowing
     if (g_metrics->drag_calibration_samples < 10) {
         g_metrics->drag_coefficient = g_config->initial_drag_coefficient;
-        ESP_LOGI(TAG, "Using default drag coefficient %.6f for inertia calibration", 
+        drag_was_uncalibrated = true;
+        ESP_LOGI(TAG, "Using default drag coefficient %.6f for inertia calibration",
                  g_metrics->drag_coefficient);
     }
-    
+
     rowing_physics_start_inertia_calibration(&g_inertia_calibration, g_metrics);
-    
+
+    // Snapshot fields we need for the JSON response so we don't hold the mutex
+    // across cJSON allocations / network I/O.
+    char message_copy[sizeof(g_inertia_calibration.status_message)];
+    strncpy(message_copy, g_inertia_calibration.status_message, sizeof(message_copy));
+    message_copy[sizeof(message_copy) - 1] = '\0';
+
+    CAL_MUTEX_GIVE();
+
     cJSON *root = cJSON_CreateObject();
     cJSON_AddBoolToObject(root, "success", true);
-    cJSON_AddStringToObject(root, "message", g_inertia_calibration.status_message);
+    cJSON_AddStringToObject(root, "message", message_copy);
     cJSON_AddStringToObject(root, "state", "waiting");
+    // Surface a clear warning to the UI when drag hasn't converged yet — the
+    // result will only be as accurate as the default drag coefficient. Without
+    // this users see "impossible" inertia numbers and cannot tell why.
+    cJSON_AddBoolToObject(root, "dragUncalibrated", drag_was_uncalibrated);
+    if (drag_was_uncalibrated) {
+        cJSON_AddStringToObject(root, "warning",
+            "Drag coefficient has not been auto-calibrated yet. "
+            "Row at least ~50 strokes first, then re-run inertia calibration "
+            "for an accurate result.");
+    }
     
     char *json_string = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
@@ -390,9 +433,26 @@ static esp_err_t api_calibrate_inertia_start_handler(httpd_req_t *req) {
  */
 static esp_err_t api_calibrate_inertia_status_handler(httpd_req_t *req) {
     cJSON *root = cJSON_CreateObject();
-    
+
+    // Snapshot the calibration struct under the mutex, then release it before
+    // doing JSON serialisation / network I/O.
+    calibration_state_t state_snap;
+    char message_snap[sizeof(g_inertia_calibration.status_message)];
+    float peak_snap;
+    uint32_t samples_snap;
+    float inertia_snap;
+
+    CAL_MUTEX_TAKE();
+    state_snap = g_inertia_calibration.state;
+    strncpy(message_snap, g_inertia_calibration.status_message, sizeof(message_snap));
+    message_snap[sizeof(message_snap) - 1] = '\0';
+    peak_snap = g_inertia_calibration.peak_velocity_rad_s;
+    samples_snap = g_inertia_calibration.sample_count;
+    inertia_snap = g_inertia_calibration.calculated_inertia;
+    CAL_MUTEX_GIVE();
+
     const char *state_str;
-    switch (g_inertia_calibration.state) {
+    switch (state_snap) {
         case CALIBRATION_WAITING:   state_str = "waiting"; break;
         case CALIBRATION_SPINUP:    state_str = "spinup"; break;
         case CALIBRATION_SPINDOWN:  state_str = "spindown"; break;
@@ -400,14 +460,14 @@ static esp_err_t api_calibrate_inertia_status_handler(httpd_req_t *req) {
         case CALIBRATION_FAILED:    state_str = "failed"; break;
         default:                    state_str = "idle"; break;
     }
-    
+
     cJSON_AddStringToObject(root, "state", state_str);
-    cJSON_AddStringToObject(root, "message", g_inertia_calibration.status_message);
-    cJSON_AddNumberToObject(root, "peakVelocity", g_inertia_calibration.peak_velocity_rad_s);
-    cJSON_AddNumberToObject(root, "sampleCount", g_inertia_calibration.sample_count);
-    
-    if (g_inertia_calibration.state == CALIBRATION_COMPLETE) {
-        cJSON_AddNumberToObject(root, "calculatedInertia", g_inertia_calibration.calculated_inertia);
+    cJSON_AddStringToObject(root, "message", message_snap);
+    cJSON_AddNumberToObject(root, "peakVelocity", peak_snap);
+    cJSON_AddNumberToObject(root, "sampleCount", samples_snap);
+
+    if (state_snap == CALIBRATION_COMPLETE) {
+        cJSON_AddNumberToObject(root, "calculatedInertia", inertia_snap);
     }
     
     char *json_string = cJSON_PrintUnformatted(root);
@@ -425,7 +485,9 @@ static esp_err_t api_calibrate_inertia_status_handler(httpd_req_t *req) {
  * POST /api/calibrate/inertia/cancel
  */
 static esp_err_t api_calibrate_inertia_cancel_handler(httpd_req_t *req) {
+    CAL_MUTEX_TAKE();
     rowing_physics_cancel_inertia_calibration(&g_inertia_calibration);
+    CAL_MUTEX_GIVE();
     
     cJSON *root = cJSON_CreateObject();
     cJSON_AddBoolToObject(root, "success", true);
@@ -447,7 +509,10 @@ static esp_err_t api_calibrate_inertia_cancel_handler(httpd_req_t *req) {
  * POST /api/calibrate/inertia/apply
  */
 static esp_err_t api_calibrate_inertia_apply_handler(httpd_req_t *req) {
+    // Atomically check state and consume the calibrated value.
+    CAL_MUTEX_TAKE();
     if (g_inertia_calibration.state != CALIBRATION_COMPLETE) {
+        CAL_MUTEX_GIVE();
         cJSON *root = cJSON_CreateObject();
         cJSON_AddBoolToObject(root, "success", false);
         cJSON_AddStringToObject(root, "error", "No calibration result to apply");
@@ -466,11 +531,13 @@ static esp_err_t api_calibrate_inertia_apply_handler(httpd_req_t *req) {
     g_config->moment_of_inertia = new_inertia;
     g_metrics->moment_of_inertia = new_inertia;
     
-    // Save to NVS
-    config_manager_save(g_config);
-    
-    // Reset calibration state
+    // Reset calibration state inside the mutex so an in-flight sensor task
+    // tick can never race with the apply.
     g_inertia_calibration.state = CALIBRATION_IDLE;
+    CAL_MUTEX_GIVE();
+
+    // Save to NVS (outside mutex — NVS write may block)
+    config_manager_save(g_config);
     
     cJSON *root = cJSON_CreateObject();
     cJSON_AddBoolToObject(root, "success", true);
@@ -2202,6 +2269,17 @@ esp_err_t web_server_start(rowing_metrics_t *metrics, config_t *config) {
             return ESP_FAIL;
         }
     }
+
+    // Create mutex for inertia calibration state. Created lazily before any
+    // calibration code runs, so the sensor task and HTTP handlers always see
+    // a non-NULL mutex when they touch g_inertia_calibration.
+    if (g_calibration_mutex == NULL) {
+        g_calibration_mutex = xSemaphoreCreateMutex();
+        if (g_calibration_mutex == NULL) {
+            ESP_LOGE(TAG, "Failed to create calibration mutex");
+            return ESP_FAIL;
+        }
+    }
     
     g_metrics = metrics;
     g_config = config;
@@ -2562,22 +2640,49 @@ int web_server_get_connection_count(void) {
  * Update inertia calibration with flywheel data
  */
 bool web_server_update_inertia_calibration(float angular_velocity, int64_t current_time_us) {
-    if (g_inertia_calibration.state == CALIBRATION_IDLE ||
-        g_inertia_calibration.state == CALIBRATION_COMPLETE ||
-        g_inertia_calibration.state == CALIBRATION_FAILED) {
-        return false;
+    bool changed = false;
+    CAL_MUTEX_TAKE();
+    if (g_inertia_calibration.state != CALIBRATION_IDLE &&
+        g_inertia_calibration.state != CALIBRATION_COMPLETE &&
+        g_inertia_calibration.state != CALIBRATION_FAILED) {
+        changed = rowing_physics_update_inertia_calibration(&g_inertia_calibration,
+                                                            angular_velocity,
+                                                            current_time_us);
     }
-    
-    return rowing_physics_update_inertia_calibration(&g_inertia_calibration, angular_velocity, current_time_us);
+    CAL_MUTEX_GIVE();
+    return changed;
+}
+
+/**
+ * Time-driven tick for inertia calibration.
+ *
+ * Call from the sensor task whenever its event-group wait times out (i.e.
+ * when no flywheel pulses have been received). Without this the SPINDOWN
+ * state can never complete after the flywheel fully halts.
+ */
+bool web_server_tick_inertia_calibration(int64_t current_time_us) {
+    bool changed = false;
+    CAL_MUTEX_TAKE();
+    if (g_inertia_calibration.state != CALIBRATION_IDLE &&
+        g_inertia_calibration.state != CALIBRATION_COMPLETE &&
+        g_inertia_calibration.state != CALIBRATION_FAILED) {
+        changed = rowing_physics_tick_inertia_calibration(&g_inertia_calibration,
+                                                          current_time_us);
+    }
+    CAL_MUTEX_GIVE();
+    return changed;
 }
 
 /**
  * Check if inertia calibration is currently active
  */
 bool web_server_is_calibrating_inertia(void) {
-    return (g_inertia_calibration.state == CALIBRATION_WAITING ||
-            g_inertia_calibration.state == CALIBRATION_SPINUP ||
-            g_inertia_calibration.state == CALIBRATION_SPINDOWN);
+    CAL_MUTEX_TAKE();
+    calibration_state_t s = g_inertia_calibration.state;
+    CAL_MUTEX_GIVE();
+    return (s == CALIBRATION_WAITING ||
+            s == CALIBRATION_SPINUP ||
+            s == CALIBRATION_SPINDOWN);
 }
 
 /**

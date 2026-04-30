@@ -70,6 +70,19 @@ int web_server_get_connection_count(void);
 bool web_server_update_inertia_calibration(float angular_velocity, int64_t current_time_us);
 
 /**
+ * Time-driven tick for inertia calibration.
+ *
+ * Call this from the sensor task on every loop iteration (including ones
+ * where no flywheel pulse arrived) so the SPINDOWN state machine can detect
+ * the "flywheel fully stopped" condition even when no more pulses are being
+ * generated. Safe to call frequently; cheap when calibration is idle.
+ *
+ * @param current_time_us Current timestamp in microseconds
+ * @return true if the calibration state changed as a result of this tick
+ */
+bool web_server_tick_inertia_calibration(int64_t current_time_us);
+
+/**
  * Check if inertia calibration is currently active
  * @return true if calibration is in progress
  */

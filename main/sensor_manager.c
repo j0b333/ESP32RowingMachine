@@ -143,6 +143,13 @@ static void sensor_processing_task(void *arg) {
                 stroke_detector_process_seat_trigger(metrics);
             }
         }
+
+        // Drive the calibration state machine on a timer too, so SPINDOWN can
+        // complete after the flywheel has fully stopped (and thus no more
+        // FLYWHEEL_EVENT_BITs are arriving). Safe & cheap when idle.
+        if (is_calibrating) {
+            web_server_tick_inertia_calibration(esp_timer_get_time());
+        }
         
         // Check for idle timeout (skip during calibration)
         if (!is_calibrating) {
