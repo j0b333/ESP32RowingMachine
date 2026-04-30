@@ -155,13 +155,16 @@
 // ============================================================================
 // TASK CONFIGURATION
 // ============================================================================
-#define SENSOR_TASK_STACK_SIZE          4096
+#define SENSOR_TASK_STACK_SIZE          5120
 #define SENSOR_TASK_PRIORITY            10      // High priority for sensor processing
 
-#define METRICS_TASK_STACK_SIZE         4096
+#define METRICS_TASK_STACK_SIZE         6144
 #define METRICS_TASK_PRIORITY           5
 
-#define BLE_TASK_STACK_SIZE             4096
+// Broadcast task allocates JSON + SSE buffers on stack and calls into the
+// HTTP server / NimBLE host stacks; 4 KB was previously tight enough that a
+// long-running session could overflow the stack and crash silently.
+#define BLE_TASK_STACK_SIZE             6144
 #define BLE_TASK_PRIORITY               4
 
 #define WEB_TASK_STACK_SIZE             8192
@@ -170,7 +173,10 @@
 // ============================================================================
 // BUFFER SIZES
 // ============================================================================
-#define JSON_BUFFER_SIZE                512
+// JSON buffer for /api/metrics and broadcast — sized to comfortably hold the
+// full payload (21+ keys with floats and strings); 512 was on the edge of
+// truncation which produced unterminated/invalid JSON intermittently.
+#define JSON_BUFFER_SIZE                1024
 #define PACE_STRING_BUFFER_SIZE         16
 
 // ============================================================================

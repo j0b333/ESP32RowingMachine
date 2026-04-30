@@ -25,6 +25,7 @@
 #include "hr_receiver.h"
 
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -54,6 +55,37 @@ static bool s_initialized = false;
 
 // Discovered characteristic handles
 static uint16_t s_hr_measurement_handle = 0;
+
+// Reconnect backoff state — prevents reconnect storms when the HR strap is
+// out of range or its battery dies mid-session. Without backoff the device
+// would loop scan→fail→scan at full speed, starving the rest of the system
+// (notably WiFi which shares the 2.4 GHz radio).
+static uint8_t  s_reconnect_attempts = 0;
+static int64_t  s_last_disconnect_time_us = 0;
+#define RECONNECT_BACKOFF_INITIAL_MS  1000
+#define RECONNECT_BACKOFF_MAX_MS      60000
+static TaskHandle_t s_reconnect_task = NULL;
+
+static void reconnect_task_fn(void *arg) {
+    (void)arg;
+    /* Exponential backoff capped at RECONNECT_BACKOFF_MAX_MS */
+    uint32_t delay_ms = RECONNECT_BACKOFF_INITIAL_MS;
+    for (uint8_t i = 0; i < s_reconnect_attempts && i < 8; i++) {
+        delay_ms *= 2;
+        if (delay_ms > RECONNECT_BACKOFF_MAX_MS) {
+            delay_ms = RECONNECT_BACKOFF_MAX_MS;
+            break;
+        }
+    }
+    ESP_LOGI(TAG, "HR reconnect backoff: waiting %u ms before scan (attempt #%u)",
+             (unsigned)delay_ms, (unsigned)s_reconnect_attempts);
+    vTaskDelay(pdMS_TO_TICKS(delay_ms));
+    if (s_initialized && s_state == BLE_HR_STATE_IDLE) {
+        ble_hr_client_start_scan();
+    }
+    s_reconnect_task = NULL;
+    vTaskDelete(NULL);
+}
 
 // ============================================================================
 // Forward declarations
@@ -270,6 +302,8 @@ static int ble_hr_gap_event(struct ble_gap_event *event, void *arg) {
             if (event->connect.status == 0) {
                 ESP_LOGI(TAG, "Connected to HR monitor");
                 s_conn_handle = event->connect.conn_handle;
+                /* Reset reconnect backoff — the strap is back. */
+                s_reconnect_attempts = 0;
                 
                 // Get connection info
                 rc = ble_gap_conn_find(s_conn_handle, &desc);
@@ -300,11 +334,19 @@ static int ble_hr_gap_event(struct ble_gap_event *event, void *arg) {
             s_conn_handle = 0;
             s_hr_measurement_handle = 0;
             s_state = BLE_HR_STATE_IDLE;
-            
-            // Attempt to reconnect by starting scan again (only if still initialized)
+
+            // Attempt to reconnect with exponential backoff. Doing this
+            // synchronously from inside the GAP callback (the previous
+            // behavior) creates a tight reconnect storm if the strap is
+            // unreachable, which competes with WiFi for the radio and was
+            // a plausible cause of long-session lockups.
             if (s_initialized) {
-                ESP_LOGI(TAG, "Restarting scan for HR monitors...");
-                ble_hr_client_start_scan();
+                s_reconnect_attempts++;
+                s_last_disconnect_time_us = esp_timer_get_time();
+                if (s_reconnect_task == NULL) {
+                    xTaskCreate(reconnect_task_fn, "hr_reconn", 2560, NULL, 3,
+                                &s_reconnect_task);
+                }
             }
             break;
             

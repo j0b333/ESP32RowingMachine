@@ -26,6 +26,8 @@
 #include "esp_system.h"
 #include "esp_chip_info.h"
 #include "esp_wifi.h"
+#include "esp_heap_caps.h"
+#include "esp_task_wdt.h"
 
 // Application modules
 #include "app_config.h"
@@ -58,13 +60,85 @@ static TaskHandle_t broadcast_task_handle = NULL;
 static volatile bool g_running = true;
 
 /**
- * Print startup banner
+ * Print startup banner.
+ *
+ * Also logs the previous reset reason and detailed heap stats so that silent
+ * crashes (which previously left no trail) are surfaced on the next boot.
+ * If the device crashed mid-session, this is the only practical way to
+ * diagnose the cause after the fact.
  */
 static void print_banner(void) {
     ESP_LOGI(TAG, "====================================");
     ESP_LOGI(TAG, "  ESP32 Rowing Monitor v%s", APP_VERSION_STRING);
     ESP_LOGI(TAG, "====================================");
-    ESP_LOGI(TAG, "Free heap: %lu bytes", (unsigned long)utils_get_free_heap());
+
+    // Reset reason — the most important diagnostic for "device just crashed"
+    esp_reset_reason_t reason = esp_reset_reason();
+    const char *reason_str;
+    switch (reason) {
+        case ESP_RST_POWERON:    reason_str = "POWERON (cold boot)"; break;
+        case ESP_RST_EXT:        reason_str = "EXT (external pin)"; break;
+        case ESP_RST_SW:         reason_str = "SW (esp_restart called)"; break;
+        case ESP_RST_PANIC:      reason_str = "PANIC (exception/abort) — CRASH!"; break;
+        case ESP_RST_INT_WDT:    reason_str = "INT_WDT (interrupt watchdog) — CRASH!"; break;
+        case ESP_RST_TASK_WDT:   reason_str = "TASK_WDT (task watchdog) — CRASH!"; break;
+        case ESP_RST_WDT:        reason_str = "WDT (other watchdog) — CRASH!"; break;
+        case ESP_RST_DEEPSLEEP:  reason_str = "DEEPSLEEP wakeup"; break;
+        case ESP_RST_BROWNOUT:   reason_str = "BROWNOUT (under-voltage) — CRASH!"; break;
+        case ESP_RST_SDIO:       reason_str = "SDIO"; break;
+        default:                 reason_str = "UNKNOWN"; break;
+    }
+    ESP_LOGI(TAG, "Reset reason: %s (%d)", reason_str, (int)reason);
+
+    if (reason == ESP_RST_PANIC || reason == ESP_RST_INT_WDT ||
+        reason == ESP_RST_TASK_WDT || reason == ESP_RST_WDT ||
+        reason == ESP_RST_BROWNOUT) {
+        ESP_LOGW(TAG, "*** Previous boot ended in a crash. Check serial log /");
+        ESP_LOGW(TAG, "*** coredump partition for the panic backtrace.");
+    }
+
+    // Detailed heap stats — fragmentation & largest free block are the best
+    // early-warning indicators of the kind of slow leak that can take down
+    // a long-running session.
+    size_t free_heap = esp_get_free_heap_size();
+    size_t min_free = esp_get_minimum_free_heap_size();
+    size_t largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
+    ESP_LOGI(TAG, "Heap: free=%u min_free=%u largest_block=%u",
+             (unsigned)free_heap, (unsigned)min_free, (unsigned)largest_block);
+}
+
+/**
+ * Periodic heap monitor (called from metrics task).
+ *
+ * Logs heap stats on a long interval and explicitly warns when the heap is
+ * trending towards exhaustion or fragmentation. Catches slow leaks that
+ * eventually take down the session save.
+ */
+static void monitor_heap(void) {
+    static uint32_t monitor_counter = 0;
+    monitor_counter++;
+    // metrics task runs at 10Hz, log every 60 seconds (600 ticks)
+    if (monitor_counter >= 600) {
+        monitor_counter = 0;
+        size_t free_heap = esp_get_free_heap_size();
+        size_t min_free = esp_get_minimum_free_heap_size();
+        size_t largest_block = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
+
+        ESP_LOGI(TAG, "Heap monitor: free=%u min=%u largest_block=%u",
+                 (unsigned)free_heap, (unsigned)min_free, (unsigned)largest_block);
+
+        if (free_heap < 20000) {
+            ESP_LOGW(TAG, "LOW HEAP: %u bytes free — risk of allocation failure",
+                     (unsigned)free_heap);
+        }
+        // If the largest free block is much smaller than total free heap, we're
+        // fragmented and a large allocation (like the session JSON or NVS save)
+        // will fail even though "enough" memory is technically available.
+        if (free_heap > 0 && largest_block < free_heap / 4 && largest_block < 8192) {
+            ESP_LOGW(TAG, "HEAP FRAGMENTED: free=%u largest_block=%u",
+                     (unsigned)free_heap, (unsigned)largest_block);
+        }
+    }
 }
 
 /**
@@ -99,6 +173,9 @@ static void metrics_update_task(void *arg) {
             }
             // Refresh the optional display once per second.
             hardware_render_metrics(&g_metrics);
+
+            // Periodic heap monitor — surfaces slow leaks before they crash a session
+            monitor_heap();
         }
         
         vTaskDelayUntil(&last_wake_time, update_period);

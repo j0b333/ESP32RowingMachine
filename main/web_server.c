@@ -27,6 +27,7 @@
 #include "cJSON.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -1536,6 +1537,17 @@ static esp_err_t api_wifi_disconnect_handler(httpd_req_t *req) {
 }
 
 /**
+ * Deferred reboot helper task — runs the delay outside the HTTP worker so
+ * we don't block other handlers for 2 seconds (which previously could mean
+ * that a /workout/stop request issued during shutdown got stuck in queue).
+ */
+static void reboot_task(void *arg) {
+    (void)arg;
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    esp_restart();
+}
+
+/**
  * POST /api/reboot - Reboot the device
  */
 static esp_err_t api_reboot_handler(httpd_req_t *req) {
@@ -1563,11 +1575,11 @@ static esp_err_t api_reboot_handler(httpd_req_t *req) {
     
     free(json_string);
     
-    // Schedule reboot after response is sent
-    vTaskDelay(pdMS_TO_TICKS(2000));
-    esp_restart();
+    // Schedule reboot in a separate short-lived task so this HTTP worker
+    // returns immediately and other handlers can still run during the delay.
+    xTaskCreate(reboot_task, "reboot_task", 2048, NULL, 5, NULL);
     
-    return ESP_OK;  // Won't reach here
+    return ESP_OK;
 }
 
 // ============================================================================
@@ -2384,11 +2396,26 @@ esp_err_t web_server_broadcast_metrics(const rowing_metrics_t *metrics) {
         return ESP_ERR_INVALID_STATE;
     }
     
-    // Build JSON
-    char buffer[JSON_BUFFER_SIZE];
-    int len = metrics_calculator_to_json(metrics, buffer, sizeof(buffer));
+    // Build JSON. Allocate buffers from the heap (not stack) to avoid stack
+    // overflow in the broadcast task — historically two JSON_BUFFER_SIZE
+    // buffers were stack-allocated here, which combined with cJSON internals
+    // and httpd send buffers was tight on a 4 KB task stack.
+    char *buffer = malloc(JSON_BUFFER_SIZE);
+    if (buffer == NULL) {
+        ESP_LOGW(TAG, "Failed to allocate broadcast JSON buffer");
+        return ESP_ERR_NO_MEM;
+    }
+    int len = metrics_calculator_to_json(metrics, buffer, JSON_BUFFER_SIZE);
     if (len <= 0) {
+        free(buffer);
         return ESP_FAIL;
+    }
+    // Defend against snprintf truncation: clamp len to written bytes so we
+    // never send unterminated data over the wire.
+    if (len >= JSON_BUFFER_SIZE) {
+        len = JSON_BUFFER_SIZE - 1;
+        buffer[len] = '\0';
+        ESP_LOGW(TAG, "Broadcast JSON was truncated to %d bytes", len);
     }
     
     // Prepare WebSocket frame
@@ -2454,8 +2481,20 @@ esp_err_t web_server_broadcast_metrics(const rowing_metrics_t *metrics) {
     
     // Also broadcast to SSE clients
     // SSE format: "data: <json>\n\n"
-    char sse_buffer[JSON_BUFFER_SIZE + 16];
-    int sse_len = snprintf(sse_buffer, sizeof(sse_buffer), "data: %s\n\n", buffer);
+    // Use a heap allocation to avoid pushing the broadcast task stack over
+    // its limit on top of the WS code path above.
+    size_t sse_buf_size = (size_t)len + 16;
+    char *sse_buffer = malloc(sse_buf_size);
+    if (sse_buffer == NULL) {
+        ESP_LOGW(TAG, "Failed to allocate SSE buffer");
+        free(buffer);
+        return (sent_count > 0) ? ESP_OK : ESP_ERR_NO_MEM;
+    }
+    int sse_len = snprintf(sse_buffer, sse_buf_size, "data: %s\n\n", buffer);
+    if (sse_len < 0 || (size_t)sse_len >= sse_buf_size) {
+        sse_len = (int)sse_buf_size - 1;
+        sse_buffer[sse_len] = '\0';
+    }
     
     // Take a snapshot of SSE client fds
     int sse_fds_to_send[MAX_SSE_CLIENTS];
@@ -2486,6 +2525,15 @@ esp_err_t web_server_broadcast_metrics(const rowing_metrics_t *metrics) {
                     ESP_LOGD(TAG, "SSE send failed for fd %d: errno %d", fd, errno);
                     sse_dead_fds[sse_dead_count++] = fd;
                 }
+                // EAGAIN/EWOULDBLOCK: client is just slow, drop this update,
+                // keep client connected.
+            } else if (written < sse_len) {
+                // Partial write — the next event would resume in the middle of
+                // the previous frame, corrupting the SSE stream. Drop the
+                // client cleanly so it can reconnect.
+                ESP_LOGD(TAG, "SSE partial write fd %d: %d/%d bytes; closing",
+                         fd, written, sse_len);
+                sse_dead_fds[sse_dead_count++] = fd;
             } else {
                 sent_count++;
             }
@@ -2496,7 +2544,9 @@ esp_err_t web_server_broadcast_metrics(const rowing_metrics_t *metrics) {
     for (int d = 0; d < sse_dead_count; d++) {
         sse_remove_client(sse_dead_fds[d]);
     }
-    
+
+    free(sse_buffer);
+    free(buffer);
     return (sent_count > 0) ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
 

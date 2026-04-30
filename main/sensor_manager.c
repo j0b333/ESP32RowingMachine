@@ -29,12 +29,46 @@ static const char *TAG = "SENSOR";
 #define FLYWHEEL_EVENT_BIT  BIT0
 #define SEAT_EVENT_BIT      BIT1
 
-// Global volatile counters (accessed from ISR and main tasks)
+// Global volatile counters (accessed from ISR and main tasks).
+//
+// The 64-bit timestamp is updated from the ISR; on the 32-bit Xtensa core a
+// task reading it could observe a torn value (low 32 bits of one update with
+// high 32 bits of the previous). The ISR runs to completion atomically with
+// respect to itself and protects against by other CPUs by `portENTER_CRITICAL_ISR`,
+// but tasks must use a critical section to read the pair atomically.
 static volatile uint32_t g_flywheel_pulse_count = 0;
 static volatile int64_t g_last_flywheel_time_us = 0;
 
 static volatile uint32_t g_seat_trigger_count = 0;
 static volatile int64_t g_last_seat_time_us = 0;
+
+// Spinlock for atomic 64-bit reads from tasks
+static portMUX_TYPE g_sensor_mux = portMUX_INITIALIZER_UNLOCKED;
+
+/* Atomic snapshot helpers. The ISR briefly enters the critical section so a
+ * task reading the timestamp + count cannot observe a torn or mismatched
+ * pair. */
+static inline int64_t sensor_atomic_read_flywheel_time(void) {
+    int64_t t;
+    portENTER_CRITICAL(&g_sensor_mux);
+    t = g_last_flywheel_time_us;
+    portEXIT_CRITICAL(&g_sensor_mux);
+    return t;
+}
+static inline uint32_t sensor_atomic_read_flywheel_count(void) {
+    uint32_t c;
+    portENTER_CRITICAL(&g_sensor_mux);
+    c = g_flywheel_pulse_count;
+    portEXIT_CRITICAL(&g_sensor_mux);
+    return c;
+}
+static inline int64_t sensor_atomic_read_seat_time(void) {
+    int64_t t;
+    portENTER_CRITICAL(&g_sensor_mux);
+    t = g_last_seat_time_us;
+    portEXIT_CRITICAL(&g_sensor_mux);
+    return t;
+}
 
 // Event group for signaling tasks
 static EventGroupHandle_t sensor_event_group = NULL;
@@ -60,8 +94,10 @@ static void IRAM_ATTR flywheel_isr_handler(void* arg) {
     
     // Debounce: ignore if too soon after last pulse
     if ((now - g_last_flywheel_time_us) > FLYWHEEL_DEBOUNCE_US) {
+        portENTER_CRITICAL_ISR(&g_sensor_mux);
         g_last_flywheel_time_us = now;
         g_flywheel_pulse_count++;
+        portEXIT_CRITICAL_ISR(&g_sensor_mux);
         
         // Signal processing task (non-blocking)
         if (sensor_event_group != NULL) {
@@ -84,8 +120,10 @@ static void IRAM_ATTR seat_isr_handler(void* arg) {
     
     // Debounce: ignore if too soon after last trigger
     if ((now - g_last_seat_time_us) > SEAT_DEBOUNCE_US) {
+        portENTER_CRITICAL_ISR(&g_sensor_mux);
         g_last_seat_time_us = now;
         g_seat_trigger_count++;
+        portEXIT_CRITICAL_ISR(&g_sensor_mux);
         
         // Signal processing task (non-blocking)
         if (sensor_event_group != NULL) {
@@ -125,7 +163,8 @@ static void sensor_processing_task(void *arg) {
         
         if (bits & FLYWHEEL_EVENT_BIT) {
             // Flywheel pulse detected - process physics
-            int64_t pulse_time = g_last_flywheel_time_us;
+            // Use atomic snapshot to avoid torn 64-bit read
+            int64_t pulse_time = sensor_atomic_read_flywheel_time();
             rowing_physics_process_flywheel_pulse(metrics, pulse_time);
             
             // Update inertia calibration if active
@@ -147,7 +186,8 @@ static void sensor_processing_task(void *arg) {
         // Check for idle timeout (skip during calibration)
         if (!is_calibrating) {
             int64_t now = esp_timer_get_time();
-            int64_t time_since_last_pulse = now - g_last_flywheel_time_us;
+            int64_t last_pulse = sensor_atomic_read_flywheel_time();
+            int64_t time_since_last_pulse = now - last_pulse;
             
             if (time_since_last_pulse > (IDLE_TIMEOUT_MS * 1000LL)) {
                 // Mark as idle
@@ -156,7 +196,7 @@ static void sensor_processing_task(void *arg) {
                     metrics->current_phase = STROKE_PHASE_IDLE;
                     ESP_LOGI(TAG, "Rowing stopped (idle timeout)");
                 }
-            } else if (g_flywheel_pulse_count > 0) {
+            } else if (sensor_atomic_read_flywheel_count() > 0) {
                 if (!metrics->is_active) {
                     metrics->is_active = true;
                     ESP_LOGI(TAG, "Rowing started");
@@ -300,32 +340,39 @@ void sensor_manager_stop_task(void) {
     sensor_task_handle = NULL;
 }
 
-// Accessor functions for ISR data (thread-safe reads)
+// Accessor functions for ISR data (thread-safe atomic reads)
 uint32_t sensor_get_flywheel_count(void) {
-    return g_flywheel_pulse_count;
+    return sensor_atomic_read_flywheel_count();
 }
 
 int64_t sensor_get_last_flywheel_time(void) {
-    return g_last_flywheel_time_us;
+    return sensor_atomic_read_flywheel_time();
 }
 
 uint32_t sensor_get_seat_count(void) {
-    return g_seat_trigger_count;
+    uint32_t c;
+    portENTER_CRITICAL(&g_sensor_mux);
+    c = g_seat_trigger_count;
+    portEXIT_CRITICAL(&g_sensor_mux);
+    return c;
 }
 
 int64_t sensor_get_last_seat_time(void) {
-    return g_last_seat_time_us;
+    return sensor_atomic_read_seat_time();
 }
 
 bool sensor_manager_is_active(void) {
     int64_t now = esp_timer_get_time();
-    return (now - g_last_flywheel_time_us) < (IDLE_TIMEOUT_MS * 1000LL);
+    int64_t last = sensor_atomic_read_flywheel_time();
+    return (now - last) < (IDLE_TIMEOUT_MS * 1000LL);
 }
 
 void sensor_manager_reset_counters(void) {
+    portENTER_CRITICAL(&g_sensor_mux);
     g_flywheel_pulse_count = 0;
     g_last_flywheel_time_us = 0;
     g_seat_trigger_count = 0;
     g_last_seat_time_us = 0;
+    portEXIT_CRITICAL(&g_sensor_mux);
     ESP_LOGI(TAG, "Sensor counters reset");
 }

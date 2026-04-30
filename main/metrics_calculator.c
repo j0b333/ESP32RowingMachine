@@ -12,10 +12,24 @@
 #include "esp_timer.h"
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 static const char *TAG = "METRICS";
 
 static float g_user_weight_kg = DEFAULT_USER_WEIGHT_KG;
+
+/* Replace NaN/Inf with 0. snprintf("%f", NaN) emits literal "nan" which is
+ * NOT valid JSON and will silently break every client that consumes /events
+ * or /api/metrics — including the in-page UI that "looked fine" while the
+ * device was actually wedged. */
+static inline float safe_f(float v) {
+    return isfinite(v) ? v : 0.0f;
+}
+static inline float safe_pace(float v) {
+    /* For pace, sentinel "no data" value is a large finite float, not NaN. */
+    if (!isfinite(v) || v < 0 || v > 999999.0f) return 999999.0f;
+    return v;
+}
 
 /**
  * Initialize metrics calculator
@@ -139,21 +153,21 @@ int metrics_calculator_to_json(const rowing_metrics_t *metrics, char *buffer, si
         "\"hrStatus\":\"%s\""
         "}",
         (unsigned long)session_id,
-        metrics->total_distance_meters,
-        metrics->instantaneous_pace_sec_500m,
+        safe_f(metrics->total_distance_meters),
+        safe_pace(metrics->instantaneous_pace_sec_500m),
         pace_str,
-        metrics->average_pace_sec_500m,
+        safe_pace(metrics->average_pace_sec_500m),
         avg_pace_str,
-        display_power,
-        metrics->average_power_watts,
-        metrics->peak_power_watts,
-        metrics->stroke_rate_spm,
-        metrics->avg_stroke_rate_spm,
+        safe_f(display_power),
+        safe_f(metrics->average_power_watts),
+        safe_f(metrics->peak_power_watts),
+        safe_f(metrics->stroke_rate_spm),
+        safe_f(metrics->avg_stroke_rate_spm),
         (unsigned long)metrics->stroke_count,
         (unsigned long)metrics->total_calories,
-        metrics->calories_per_hour,
+        safe_f(metrics->calories_per_hour),
         (unsigned long)(metrics->elapsed_time_ms / 1000),
-        metrics->drag_factor,
+        safe_f(metrics->drag_factor),
         metrics->is_active ? "true" : "false",
         metrics->is_paused ? "true" : "false",
         metrics->current_phase == STROKE_PHASE_IDLE ? "idle" : 

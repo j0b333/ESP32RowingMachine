@@ -30,6 +30,13 @@ static hr_sample_t *s_hr_buffer = NULL;
 static volatile int s_buffer_index = 0;
 static volatile bool s_recording = false;
 
+// Incremental running stats (maintained on each sample insert) so that
+// hr_receiver_get_stats() is O(1). Previously this scanned the entire buffer
+// on every call, and since the broadcast task calls it at 5 Hz, an hour-long
+// session could spend a non-trivial fraction of CPU time inside the HR mutex.
+static uint32_t s_hr_sum = 0;
+static uint8_t  s_hr_max = 0;
+
 // Mutex for thread safety
 static SemaphoreHandle_t s_hr_mutex = NULL;
 
@@ -107,6 +114,9 @@ esp_err_t hr_receiver_update(uint8_t bpm) {
         s_hr_buffer[s_buffer_index].timestamp_ms = now;
         s_hr_buffer[s_buffer_index].bpm = bpm;
         s_buffer_index++;
+        // Maintain incremental stats so get_stats() is O(1)
+        s_hr_sum += bpm;
+        if (bpm > s_hr_max) s_hr_max = bpm;
     }
     
     xSemaphoreGive(s_hr_mutex);
@@ -117,20 +127,31 @@ esp_err_t hr_receiver_update(uint8_t bpm) {
 }
 
 /**
- * Get current heart rate
- * Note: For simplicity, reads s_current_hr without mutex since uint8_t read is atomic
- * on most platforms. If stricter thread safety is needed, add mutex protection.
+ * Get current heart rate.
+ * Returns 0 if no recent valid update has been received.
+ *
+ * Single mutex acquisition (was previously two — this function called
+ * is_valid() which itself takes the mutex, doubling lock traffic on a hot
+ * path called from the broadcast task at 5 Hz).
  */
 uint8_t hr_receiver_get_current(void) {
-    if (!hr_receiver_is_valid()) {
-        return 0;
-    }
-    
     uint8_t hr;
+    int64_t last_update;
+
     xSemaphoreTake(s_hr_mutex, portMAX_DELAY);
     hr = s_current_hr;
+    last_update = s_last_update_time_ms;
     xSemaphoreGive(s_hr_mutex);
-    
+
+    if (last_update == 0) {
+        return 0;
+    }
+
+    int64_t now = get_time_ms();
+    if ((now - last_update) >= HR_STALE_TIMEOUT_MS) {
+        return 0;
+    }
+
     return hr;
 }
 
@@ -165,6 +186,8 @@ int64_t hr_receiver_get_last_update_time(void) {
 void hr_receiver_start_recording(void) {
     xSemaphoreTake(s_hr_mutex, portMAX_DELAY);
     s_buffer_index = 0;
+    s_hr_sum = 0;
+    s_hr_max = 0;
     s_recording = true;
     xSemaphoreGive(s_hr_mutex);
     
@@ -209,25 +232,21 @@ int hr_receiver_get_samples(hr_sample_t *samples, int max_samples) {
  * Get HR statistics from current recording
  */
 void hr_receiver_get_stats(uint8_t *avg_hr, uint8_t *max_hr, uint16_t *sample_count) {
-    uint32_t sum = 0;
-    uint8_t max = 0;
-    int count = 0;
-    
+    uint32_t sum;
+    uint8_t max;
+    int count;
+
+    /* O(1): use the incrementally-maintained running sum/max instead of
+     * scanning the entire 7200-element buffer on every call. The previous
+     * implementation was the dominant CPU cost in long sessions. */
     xSemaphoreTake(s_hr_mutex, portMAX_DELAY);
-    
     count = s_buffer_index;
-    
-    for (int i = 0; i < count; i++) {
-        sum += s_hr_buffer[i].bpm;
-        if (s_hr_buffer[i].bpm > max) {
-            max = s_hr_buffer[i].bpm;
-        }
-    }
-    
+    sum = s_hr_sum;
+    max = s_hr_max;
     xSemaphoreGive(s_hr_mutex);
-    
+
     if (avg_hr) {
-        *avg_hr = (count > 0) ? (uint8_t)(sum / count) : 0;
+        *avg_hr = (count > 0) ? (uint8_t)(sum / (uint32_t)count) : 0;
     }
     if (max_hr) {
         *max_hr = max;
@@ -243,5 +262,7 @@ void hr_receiver_get_stats(uint8_t *avg_hr, uint8_t *max_hr, uint16_t *sample_co
 void hr_receiver_clear_samples(void) {
     xSemaphoreTake(s_hr_mutex, portMAX_DELAY);
     s_buffer_index = 0;
+    s_hr_sum = 0;
+    s_hr_max = 0;
     xSemaphoreGive(s_hr_mutex);
 }

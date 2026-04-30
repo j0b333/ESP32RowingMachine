@@ -16,6 +16,7 @@
 
 #include <string.h>
 #include <time.h>
+#include <math.h>
 
 static const char *TAG = "SESSION";
 
@@ -207,17 +208,76 @@ esp_err_t session_manager_end_session(rowing_metrics_t *metrics) {
     if (s_sample_count > 0 && s_sample_buffer != NULL) {
         char samples_key[16];
         snprintf(samples_key, sizeof(samples_key), "d%lu", (unsigned long)(s_current_session_id % MAX_STORED_SESSIONS));
-        
-        // Save all samples - NVS will return error if storage is full
-        // With 8 bytes per sample, a 2-hour session is ~57KB
-        ret = nvs_set_blob(handle, samples_key, s_sample_buffer, s_sample_count * sizeof(sample_data_t));
+
+        // NVS has practical limits on blob size — large blobs require contiguous
+        // free space in the partition and may fail late in long sessions, which
+        // historically caused the "tried to stop and save and it hung" symptom.
+        // Cap the saved sample count to a value that comfortably fits in NVS
+        // (sub-sample longer sessions). Each sample is 8 bytes; 4000 samples =
+        // 32 KB which still requires a healthy partition but is well within the
+        // 64 KB practical max. If still too large, drop to every-Nth sample.
+        const uint32_t MAX_SAMPLES_TO_SAVE = 4000;
+        uint32_t samples_to_save = s_sample_count;
+        uint32_t stride = 1;
+        if (samples_to_save > MAX_SAMPLES_TO_SAVE) {
+            stride = (samples_to_save + MAX_SAMPLES_TO_SAVE - 1) / MAX_SAMPLES_TO_SAVE;
+            samples_to_save = (s_sample_count + stride - 1) / stride;
+            ESP_LOGW(TAG, "Sample count %lu exceeds NVS-safe limit; saving every %luth sample (%lu total)",
+                     (unsigned long)s_sample_count, (unsigned long)stride,
+                     (unsigned long)samples_to_save);
+        }
+
+        // If we need to subsample, build a temporary compacted buffer.
+        // Allocate from PSRAM if available to avoid fragmenting internal heap
+        // at the worst possible time (right when we need to commit the session).
+        sample_data_t *save_buf = s_sample_buffer;
+        sample_data_t *tmp_buf = NULL;
+        if (stride > 1) {
+            size_t tmp_size = samples_to_save * sizeof(sample_data_t);
+#ifdef CONFIG_SPIRAM
+            tmp_buf = heap_caps_malloc(tmp_size, MALLOC_CAP_SPIRAM);
+#endif
+            if (tmp_buf == NULL) {
+                tmp_buf = malloc(tmp_size);
+            }
+            if (tmp_buf != NULL) {
+                uint32_t out = 0;
+                for (uint32_t i = 0; i < s_sample_count && out < samples_to_save; i += stride) {
+                    tmp_buf[out++] = s_sample_buffer[i];
+                }
+                samples_to_save = out;
+                save_buf = tmp_buf;
+            } else {
+                ESP_LOGW(TAG, "Could not allocate compaction buffer; saving truncated samples");
+                samples_to_save = MAX_SAMPLES_TO_SAVE;  // Save first N only
+            }
+        }
+
+        size_t blob_size = (size_t)samples_to_save * sizeof(sample_data_t);
+        ret = nvs_set_blob(handle, samples_key, save_buf, blob_size);
         if (ret != ESP_OK) {
-            ESP_LOGW(TAG, "Failed to save samples: %s", esp_err_to_name(ret));
+            ESP_LOGW(TAG, "Failed to save samples (%u bytes): %s",
+                     (unsigned)blob_size, esp_err_to_name(ret));
+            // Update record to reflect we did NOT save samples, so the UI
+            // doesn't try to fetch missing sample data.
+            record.sample_count = 0;
+            // Re-save the corrected record
+            nvs_set_blob(handle, key, &record, sizeof(record));
             // Continue anyway - session record is saved
         } else {
-            ESP_LOGI(TAG, "Saved %lu samples for session (%lu bytes)", 
-                     (unsigned long)s_sample_count,
-                     (unsigned long)(s_sample_count * sizeof(sample_data_t)));
+            ESP_LOGI(TAG, "Saved %lu samples for session (%u bytes)",
+                     (unsigned long)samples_to_save,
+                     (unsigned)blob_size);
+            // Update record's sample_count to reflect what we actually saved
+            // (so reads return the right amount).
+            if (samples_to_save != record.sample_count) {
+                record.sample_count = samples_to_save;
+                nvs_set_blob(handle, key, &record, sizeof(record));
+            }
+        }
+
+        if (tmp_buf != NULL) {
+            free(tmp_buf);
         }
     }
     
@@ -441,19 +501,32 @@ esp_err_t session_manager_delete_synced(void) {
  * Stores velocity (m/s) instead of pace for Health Connect compatibility
  */
 esp_err_t session_manager_record_sample(rowing_metrics_t *metrics, uint8_t heart_rate) {
+    if (metrics == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
     if (s_current_session_id == 0 || s_sample_buffer == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
-    
+
     if (s_sample_count >= SAMPLE_BUFFER_SIZE) {
-        // Buffer full - could implement circular buffer or stop recording
+        // Buffer full — drop new samples instead of silently corrupting memory.
+        // (A 2-hour session at 1Hz fits; longer sessions just stop graphing
+        //  but still finalize cleanly.)
+        static bool warned = false;
+        if (!warned) {
+            ESP_LOGW(TAG, "Sample buffer full at %u samples; further samples dropped",
+                     (unsigned)SAMPLE_BUFFER_SIZE);
+            warned = true;
+        }
         return ESP_ERR_NO_MEM;
     }
-    
+
     sample_data_t *sample = &s_sample_buffer[s_sample_count];
-    
-    // Convert values to packed format with proper clamping before cast
+
+    // Convert values to packed format with proper clamping before cast.
+    // Reject NaN/Inf which would otherwise produce undefined cast behavior.
     float power = metrics->instantaneous_power_watts;
+    if (!isfinite(power)) power = 0;
     if (power < 0) power = 0;
     if (power > 65535) power = 65535;
     sample->power_watts = (uint16_t)power;
@@ -463,9 +536,10 @@ esp_err_t session_manager_record_sample(rowing_metrics_t *metrics, uint8_t heart
     // velocity (cm/s) = 50000 / pace (sec/500m)
     float pace = metrics->instantaneous_pace_sec_500m;
     float velocity_cm_s = 0;
-    if (pace > 0 && pace < 9999) {
+    if (isfinite(pace) && pace > 0 && pace < 9999) {
         velocity_cm_s = 50000.0f / pace;
     }
+    if (!isfinite(velocity_cm_s) || velocity_cm_s < 0) velocity_cm_s = 0;
     if (velocity_cm_s > 65535) velocity_cm_s = 65535;
     sample->velocity_cm_s = (uint16_t)velocity_cm_s;
     
@@ -474,9 +548,11 @@ esp_err_t session_manager_record_sample(rowing_metrics_t *metrics, uint8_t heart
     
     // Calculate distance delta since last sample
     float distance_delta = metrics->total_distance_meters - s_last_distance;
-    if (distance_delta < 0) distance_delta = 0;  // Handle reset
+    if (!isfinite(distance_delta) || distance_delta < 0) distance_delta = 0;  // Handle reset/NaN
     s_last_distance = metrics->total_distance_meters;
+    if (!isfinite(s_last_distance)) s_last_distance = 0;
     float distance_dm = distance_delta * 10.0f;
+    if (!isfinite(distance_dm) || distance_dm < 0) distance_dm = 0;
     if (distance_dm > 65535) distance_dm = 65535;
     sample->distance_dm = (uint16_t)distance_dm;
     
