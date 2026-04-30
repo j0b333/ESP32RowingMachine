@@ -486,9 +486,9 @@ static void finalize_inertia_calibration(inertia_calibration_t *cal)
     if (result >= INERTIA_RESULT_MIN && result <= INERTIA_RESULT_MAX) {
         cal->state = CALIBRATION_COMPLETE;
         snprintf(cal->status_message, sizeof(cal->status_message),
-                 "Calibration complete! Inertia: %.4f kg.m^2", result);
+                 "Calibration complete! Inertia: %.4f kg⋅m²", result);
         ESP_LOGI(TAG,
-                 "Inertia calibration complete: %.4f kg.m^2 "
+                 "Inertia calibration complete: %.4f kg⋅m² "
                  "(peak %.2f rad/s @ %lld us, final %.2f rad/s @ %lld us, k=%.6f)",
                  result, cal->peak_velocity_rad_s, (long long)cal->peak_time_us,
                  cal->final_velocity_rad_s, (long long)cal->final_time_us,
