@@ -101,7 +101,9 @@ const elements = {
     tabRow: document.getElementById('tab-row'),
     tabChart: document.getElementById('tab-chart'),
     tabHistory: document.getElementById('tab-history'),
-    tabSettings: document.getElementById('tab-settings')
+    tabSettings: document.getElementById('tab-settings'),
+    // Theme toggle
+    btnThemeToggle: document.getElementById('btn-theme-toggle')
 };
 
 // Workout state
@@ -1108,7 +1110,8 @@ async function showWorkoutCharts(session) {
         const padding = 10;
         
         // Background
-        ctx.fillStyle = 'rgba(15, 52, 96, 0.5)';
+        const ct = getChartTheme();
+        ctx.fillStyle = ct.bg;
         ctx.fillRect(0, 0, width, height);
         
         // Find min/max for scaling (needed for HR zones too)
@@ -1171,7 +1174,7 @@ async function showWorkoutCharts(session) {
             ctx.lineTo(width - padding, height / 2);
             ctx.stroke();
             
-            ctx.fillStyle = '#fff';
+            ctx.fillStyle = ct.text;
             ctx.font = 'bold 14px sans-serif';
             ctx.textAlign = 'center';
             ctx.fillText(`Avg: ${formatFn ? formatFn(avgValue) : avgValue}`, width / 2, height / 2 + 5);
@@ -1203,7 +1206,7 @@ async function showWorkoutCharts(session) {
         // Draw average line (dotted)
         const avgY = height - padding - ((avgValue - minVal) / range) * (height - 2 * padding);
         ctx.setLineDash([4, 4]);
-        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.strokeStyle = ct.target;
         ctx.beginPath();
         ctx.moveTo(padding, avgY);
         ctx.lineTo(width - padding, avgY);
@@ -1211,7 +1214,7 @@ async function showWorkoutCharts(session) {
         ctx.setLineDash([]);
         
         // Show average label
-        ctx.fillStyle = '#fff';
+        ctx.fillStyle = ct.text;
         ctx.font = '11px sans-serif';
         ctx.textAlign = 'right';
         ctx.fillText(`Avg: ${formatFn ? formatFn(avgValue) : avgValue}`, width - padding, avgY - 3);
@@ -1537,11 +1540,14 @@ function renderChart(canvasId, dataArray, timestamps, color, target = null, inve
     const width = canvas.width / (window.devicePixelRatio || 1);
     const height = canvas.height / (window.devicePixelRatio || 1);
     
+    // Theme-aware colors
+    const ct = getChartTheme();
+    
     // Clear canvas
     ctx.clearRect(0, 0, width, height);
     
     // Background
-    ctx.fillStyle = 'rgba(15, 52, 96, 0.5)';
+    ctx.fillStyle = ct.bg;
     ctx.fillRect(0, 0, width, height);
     
     // Calculate time range (5-minute intervals)
@@ -1604,7 +1610,7 @@ function renderChart(canvasId, dataArray, timestamps, color, target = null, inve
                 
                 // Draw zone label on left edge if zone is large enough
                 if (yBottom - yTop > 15) {
-                    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+                    ctx.fillStyle = ct.zoneLabel;
                     ctx.font = 'bold 10px sans-serif';
                     ctx.textAlign = 'left';
                     ctx.fillText(zone.label, padding.left + 3, (yTop + yBottom) / 2 + 3);
@@ -1614,9 +1620,9 @@ function renderChart(canvasId, dataArray, timestamps, color, target = null, inve
     }
     
     // Draw grid lines and time labels
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.strokeStyle = ct.grid;
     ctx.lineWidth = 1;
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.fillStyle = ct.axisText;
     ctx.font = '10px sans-serif';
     ctx.textAlign = 'center';
     
@@ -1658,7 +1664,7 @@ function renderChart(canvasId, dataArray, timestamps, color, target = null, inve
             ? padding.top + ((target - minVal) / (maxVal - minVal)) * chartHeight
             : height - padding.bottom - ((target - minVal) / (maxVal - minVal)) * chartHeight;
         
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.strokeStyle = ct.target;
         ctx.lineWidth = 2;
         ctx.setLineDash([5, 5]);
         ctx.beginPath();
@@ -1735,7 +1741,7 @@ function renderChart(canvasId, dataArray, timestamps, color, target = null, inve
     
     // Draw "No data" message if empty
     if (dataArray.length === 0) {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.fillStyle = ct.text;
         ctx.font = '14px sans-serif';
         ctx.textAlign = 'center';
         ctx.fillText('Start rowing to see data', width / 2, height / 2);
@@ -1760,9 +1766,105 @@ async function pollMetrics() {
 }
 
 /**
+ * ============================================================================
+ * Theme management (light / dark)
+ * ============================================================================
+ */
+const THEME_STORAGE_KEY = 'theme';
+
+function getStoredTheme() {
+    try {
+        const v = localStorage.getItem(THEME_STORAGE_KEY);
+        return v === 'light' || v === 'dark' ? v : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function getEffectiveTheme() {
+    const stored = getStoredTheme();
+    if (stored) return stored;
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+        return 'light';
+    }
+    return 'dark';
+}
+
+function applyTheme(theme) {
+    if (theme === 'light' || theme === 'dark') {
+        document.documentElement.setAttribute('data-theme', theme);
+    } else {
+        document.documentElement.removeAttribute('data-theme');
+    }
+
+    // Update aria/title on toggle button to reflect next action.
+    if (elements.btnThemeToggle) {
+        const effective = getEffectiveTheme();
+        const nextLabel = effective === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
+        elements.btnThemeToggle.setAttribute('aria-label', nextLabel);
+        elements.btnThemeToggle.setAttribute('title', nextLabel);
+    }
+
+    // Re-render charts so canvas colors pick up the new theme.
+    if (typeof renderAllCharts === 'function') {
+        try { renderAllCharts(); } catch (e) { /* charts may not be initialised */ }
+    }
+}
+
+function toggleTheme() {
+    const next = getEffectiveTheme() === 'dark' ? 'light' : 'dark';
+    try { localStorage.setItem(THEME_STORAGE_KEY, next); } catch (e) { /* ignore */ }
+    applyTheme(next);
+}
+
+function initTheme() {
+    const stored = getStoredTheme();
+    applyTheme(stored || getEffectiveTheme());
+
+    // React to OS preference changes when the user has no explicit choice.
+    if (window.matchMedia) {
+        const mq = window.matchMedia('(prefers-color-scheme: light)');
+        const handler = () => {
+            if (!getStoredTheme()) applyTheme(getEffectiveTheme());
+        };
+        if (mq.addEventListener) mq.addEventListener('change', handler);
+        else if (mq.addListener) mq.addListener(handler);
+    }
+}
+
+/**
+ * Read theme-aware chart colors from CSS custom properties so canvas
+ * drawings react to light/dark mode.
+ */
+function getChartTheme() {
+    const cs = getComputedStyle(document.documentElement);
+    const read = (name, fallback) => {
+        const v = cs.getPropertyValue(name).trim();
+        return v || fallback;
+    };
+    return {
+        bg:        read('--chart-bg',        'transparent'),
+        grid:      read('--chart-grid',      'rgba(127, 127, 127, 0.18)'),
+        text:      read('--chart-text',      'rgba(127, 127, 127, 0.75)'),
+        axisText:  read('--chart-axis-text', 'rgba(127, 127, 127, 0.7)'),
+        target:    read('--chart-target',    'rgba(127, 127, 127, 0.85)'),
+        zoneLabel: read('--chart-zone-label','rgba(127, 127, 127, 0.75)')
+    };
+}
+
+
+/**
  * Initialize the application
  */
 function init() {
+    // Apply theme as early as possible.
+    initTheme();
+
+    // Theme toggle handler
+    if (elements.btnThemeToggle) {
+        elements.btnThemeToggle.addEventListener('click', toggleTheme);
+    }
+
     // Set up workout control event listeners
     elements.btnStartPause.addEventListener('click', toggleStartPause);
     elements.btnResetWorkout.addEventListener('click', resetWorkout);
