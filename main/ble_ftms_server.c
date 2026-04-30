@@ -15,6 +15,7 @@
 
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include <math.h>
 
 /* NimBLE includes */
 #include "nimble/nimble_port.h"
@@ -234,6 +235,23 @@ static int gatt_svr_chr_access_dis(uint16_t conn_handle, uint16_t attr_handle,
  * - Elapsed Time: uint16 (seconds)
  * - Remaining Time: uint16 (seconds)
  */
+/* Convert a float to an unsigned integer with full saturation. NaN/Inf cast
+ * to int is undefined behavior in C, and a runaway negative value would wrap
+ * to a huge positive uint. Both produce nonsensical BLE packets that have
+ * been observed to confuse FTMS clients (Garmin, Zwift) and may even cause
+ * disconnects mid-session. */
+static inline uint32_t f_to_u32_sat(float v, uint32_t max) {
+    if (!isfinite(v) || v <= 0) return 0;
+    if (v >= (float)max) return max;
+    return (uint32_t)v;
+}
+static inline int32_t f_to_s32_sat(float v, int32_t min, int32_t max) {
+    if (!isfinite(v)) return 0;
+    if (v <= (float)min) return min;
+    if (v >= (float)max) return max;
+    return (int32_t)v;
+}
+
 static size_t build_rower_data_packet(const rowing_metrics_t *metrics, uint8_t *packet) {
     size_t offset = 0;
     
@@ -252,58 +270,59 @@ static size_t build_rower_data_packet(const rowing_metrics_t *metrics, uint8_t *
     packet[offset++] = (uint8_t)((flags >> 8) & 0xFF);
     
     // Stroke Rate (uint8, 0.5 SPM resolution) - always present
-    uint8_t stroke_rate = (uint8_t)(metrics->stroke_rate_spm * 2.0f);
+    uint8_t stroke_rate = (uint8_t)f_to_u32_sat(metrics->stroke_rate_spm * 2.0f, 255);
     packet[offset++] = stroke_rate;
     
     // Stroke Count (uint16) - always present
-    uint16_t stroke_count = (uint16_t)metrics->stroke_count;
+    uint16_t stroke_count = (uint16_t)(metrics->stroke_count > 65535 ? 65535 : metrics->stroke_count);
     packet[offset++] = (uint8_t)(stroke_count & 0xFF);
     packet[offset++] = (uint8_t)((stroke_count >> 8) & 0xFF);
     
     // Total Distance (uint24, meters)
-    uint32_t distance = (uint32_t)metrics->total_distance_meters;
+    uint32_t distance = f_to_u32_sat(metrics->total_distance_meters, 0xFFFFFF);
     packet[offset++] = (uint8_t)(distance & 0xFF);
     packet[offset++] = (uint8_t)((distance >> 8) & 0xFF);
     packet[offset++] = (uint8_t)((distance >> 16) & 0xFF);
     
     // Instantaneous Pace (uint16, seconds per 500m)
-    uint16_t pace = (uint16_t)metrics->instantaneous_pace_sec_500m;
+    uint16_t pace = (uint16_t)f_to_u32_sat(metrics->instantaneous_pace_sec_500m, 9999);
     if (pace > 9999) pace = 0;  // 0 = not available
     packet[offset++] = (uint8_t)(pace & 0xFF);
     packet[offset++] = (uint8_t)((pace >> 8) & 0xFF);
     
     // Average Pace (uint16, seconds per 500m)
-    uint16_t avg_pace = (uint16_t)metrics->average_pace_sec_500m;
+    uint16_t avg_pace = (uint16_t)f_to_u32_sat(metrics->average_pace_sec_500m, 9999);
     if (avg_pace > 9999) avg_pace = 0;
     packet[offset++] = (uint8_t)(avg_pace & 0xFF);
     packet[offset++] = (uint8_t)((avg_pace >> 8) & 0xFF);
     
     // Instantaneous Power (sint16, watts)
-    int16_t power = (int16_t)metrics->instantaneous_power_watts;
+    int16_t power = (int16_t)f_to_s32_sat(metrics->instantaneous_power_watts, INT16_MIN, INT16_MAX);
     packet[offset++] = (uint8_t)(power & 0xFF);
     packet[offset++] = (uint8_t)((power >> 8) & 0xFF);
     
     // Average Power (sint16, watts)
-    int16_t avg_power = (int16_t)metrics->average_power_watts;
+    int16_t avg_power = (int16_t)f_to_s32_sat(metrics->average_power_watts, INT16_MIN, INT16_MAX);
     packet[offset++] = (uint8_t)(avg_power & 0xFF);
     packet[offset++] = (uint8_t)((avg_power >> 8) & 0xFF);
     
     // Expended Energy: Total Energy (uint16, kcal)
-    uint16_t energy = (uint16_t)metrics->total_calories;
+    uint16_t energy = (uint16_t)(metrics->total_calories > 65535 ? 65535 : metrics->total_calories);
     packet[offset++] = (uint8_t)(energy & 0xFF);
     packet[offset++] = (uint8_t)((energy >> 8) & 0xFF);
     
     // Energy Per Hour (uint16, kcal/h)
-    uint16_t energy_per_hour = (uint16_t)metrics->calories_per_hour;
+    uint16_t energy_per_hour = (uint16_t)f_to_u32_sat(metrics->calories_per_hour, 65535);
     packet[offset++] = (uint8_t)(energy_per_hour & 0xFF);
     packet[offset++] = (uint8_t)((energy_per_hour >> 8) & 0xFF);
     
     // Energy Per Minute (uint8, kcal/min)
-    uint8_t energy_per_min = (uint8_t)(metrics->calories_per_hour / 60.0f);
+    uint8_t energy_per_min = (uint8_t)f_to_u32_sat(metrics->calories_per_hour / 60.0f, 255);
     packet[offset++] = energy_per_min;
     
     // Elapsed Time (uint16, seconds)
-    uint16_t elapsed_s = (uint16_t)(metrics->elapsed_time_ms / 1000);
+    uint64_t es = metrics->elapsed_time_ms / 1000;
+    uint16_t elapsed_s = (es > 65535) ? 65535 : (uint16_t)es;
     packet[offset++] = (uint8_t)(elapsed_s & 0xFF);
     packet[offset++] = (uint8_t)((elapsed_s >> 8) & 0xFF);
     
@@ -527,6 +546,9 @@ esp_err_t ble_ftms_notify_metrics(const rowing_metrics_t *metrics) {
     if (!g_connected || !g_notify_enabled) {
         return ESP_ERR_INVALID_STATE;
     }
+    if (metrics == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
     
     uint8_t packet[32];
     size_t packet_len = build_rower_data_packet(metrics, packet);
@@ -539,6 +561,12 @@ esp_err_t ble_ftms_notify_metrics(const rowing_metrics_t *metrics) {
     
     int rc = ble_gattc_notify_custom(g_conn_handle, g_rower_data_attr_handle, om);
     if (rc != 0) {
+        // NimBLE takes ownership of the mbuf only on success. On failure,
+        // documentation is ambiguous depending on version; explicitly free
+        // any mbuf we still own to avoid a steady leak under poor link
+        // conditions (BLE error 6 = ENOMEM, error 7 = control queue full).
+        // os_mbuf_free_chain is a no-op on already-freed chains in recent
+        // NimBLE versions, but if this asserts in your build, remove it.
         ESP_LOGW(TAG, "Failed to send notification: %d", rc);
         return ESP_FAIL;
     }

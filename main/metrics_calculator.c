@@ -62,11 +62,26 @@ void metrics_calculator_update(rowing_metrics_t *metrics, const config_t *config
 }
 
 /**
- * Get metrics as a thread-safe snapshot
+ * Get metrics as a thread-safe snapshot.
+ *
+ * The metrics struct is mutated by both the sensor task (flywheel processing)
+ * and the metrics task (derived calculations). On a 32-bit core, an int64_t
+ * or even a float can be read torn while another task is mid-write.
+ *
+ * Use a short critical section to take an atomic copy. Since this is just a
+ * memcpy of <1 KB, holding the spinlock briefly is acceptable and far less
+ * disruptive than the consequences of a torn read corrupting the broadcast
+ * JSON or a downstream calculation.
  */
+static portMUX_TYPE s_metrics_mux = portMUX_INITIALIZER_UNLOCKED;
+
 void metrics_calculator_get_snapshot(const rowing_metrics_t *metrics, rowing_metrics_t *snapshot) {
-    // Simple copy - in a multi-threaded environment, this should use a mutex
+    if (metrics == NULL || snapshot == NULL) {
+        return;
+    }
+    portENTER_CRITICAL(&s_metrics_mux);
     memcpy(snapshot, metrics, sizeof(rowing_metrics_t));
+    portEXIT_CRITICAL(&s_metrics_mux);
 }
 
 /**

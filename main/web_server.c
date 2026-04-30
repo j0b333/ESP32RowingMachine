@@ -28,6 +28,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "esp_heap_caps.h"
+#include <math.h>
 
 #include <string.h>
 #include <stdlib.h>
@@ -279,8 +281,14 @@ static esp_err_t api_metrics_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
     
+    // Take an atomic snapshot rather than reading directly from the live
+    // struct (which other tasks are concurrently mutating and could produce
+    // torn 64-bit / float values).
+    rowing_metrics_t snapshot;
+    metrics_calculator_get_snapshot(g_metrics, &snapshot);
+    
     char buffer[JSON_BUFFER_SIZE];
-    metrics_calculator_to_json(g_metrics, buffer, sizeof(buffer));
+    metrics_calculator_to_json(&snapshot, buffer, sizeof(buffer));
     
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
@@ -704,12 +712,19 @@ static esp_err_t api_sessions_list_handler(httpd_req_t *req) {
 }
 
 /**
- * GET /api/sessions/{id} - Get session details
+ * GET /api/sessions/{id} - Get full session details with sample arrays.
  * Returns data in Health Connect compatible format:
  * - heartRateSamples: [{time, bpm}]
  * - powerSamples: [{time, watts}]
  * - speedSamples: [{time, metersPerSecond}]
- * Also provides legacy format for internal UI: paceSamples[], hrSamples[], powerSamplesArray[]
+ *
+ * The session may contain thousands of samples. Building the entire JSON
+ * tree in cJSON before sending was the largest single allocation in the
+ * server (3600 × 3 objects + their name strings + the printed buffer)
+ * and could fail in heap-constrained or fragmented states. Now we stream
+ * the response in chunks: build the metadata header, then emit each sample
+ * subarray directly with chunked transfer encoding so peak memory usage
+ * stays bounded regardless of session length.
  */
 static esp_err_t api_session_detail_handler(httpd_req_t *req) {
     // Parse session ID from URI: /api/sessions/123
@@ -742,94 +757,129 @@ static esp_err_t api_session_detail_handler(httpd_req_t *req) {
         httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Session not found");
         return ESP_FAIL;
     }
-    
-    cJSON *root = cJSON_CreateObject();
-    cJSON_AddNumberToObject(root, "id", record.session_id);
-    cJSON_AddNumberToObject(root, "startTime", (double)record.start_timestamp);
-    cJSON_AddNumberToObject(root, "duration", record.duration_seconds);
-    cJSON_AddNumberToObject(root, "distance", record.total_distance_meters);
-    cJSON_AddNumberToObject(root, "strokes", record.stroke_count);
-    cJSON_AddNumberToObject(root, "calories", record.total_calories);
-    cJSON_AddNumberToObject(root, "avgPower", record.average_power_watts);
-    cJSON_AddNumberToObject(root, "avgPace", record.average_pace_sec_500m);
-    cJSON_AddNumberToObject(root, "dragFactor", record.drag_factor);
-    cJSON_AddNumberToObject(root, "avgHeartRate", record.average_heart_rate);
-    cJSON_AddNumberToObject(root, "maxHeartRate", record.max_heart_rate);
-    cJSON_AddBoolToObject(root, "synced", record.synced);
-    
-    // Sample arrays for companion app (Health Connect format with time/value objects)
-    cJSON *heartRateSamples = cJSON_CreateArray();
-    cJSON *powerSamples = cJSON_CreateArray();
-    cJSON *speedSamples = cJSON_CreateArray();
-    
-    // Load per-second sample data if available
-    if (record.sample_count > 0) {
-        // Allocate buffer for samples (limit to avoid memory issues)
-        uint32_t max_samples = record.sample_count;
-        if (max_samples > 3600) max_samples = 3600;  // Limit to 1 hour for JSON response
-        
-        sample_data_t *samples = malloc(max_samples * sizeof(sample_data_t));
-        if (samples != NULL) {
-            uint32_t actual_count = 0;
-            if (session_manager_get_samples(session_id, samples, max_samples, &actual_count) == ESP_OK && actual_count > 0) {
-                // start_timestamp is now Unix epoch milliseconds (when SNTP is synced)
-                // or milliseconds since boot (fallback when SNTP not available)
-                // The companion app receives this directly as the base time
-                int64_t base_time_ms = record.start_timestamp;  // Already in milliseconds
-                
-                for (uint32_t i = 0; i < actual_count; i++) {
-                    int64_t sample_time_ms = base_time_ms + (i * 1000);  // 1 second per sample
-                    
-                    // Convert velocity from cm/s to m/s
-                    float velocity_m_s = samples[i].velocity_cm_s / 100.0f;
-                    
-                    // Heart rate samples (Health Connect format)
-                    if (samples[i].heart_rate > 0) {
-                        cJSON *hrSample = cJSON_CreateObject();
-                        cJSON_AddNumberToObject(hrSample, "time", (double)sample_time_ms);
-                        cJSON_AddNumberToObject(hrSample, "bpm", samples[i].heart_rate);
-                        cJSON_AddItemToArray(heartRateSamples, hrSample);
-                    }
-                    
-                    // Power samples (Health Connect format)
-                    {
-                        cJSON *pwrSample = cJSON_CreateObject();
-                        cJSON_AddNumberToObject(pwrSample, "time", (double)sample_time_ms);
-                        cJSON_AddNumberToObject(pwrSample, "watts", samples[i].power_watts);
-                        cJSON_AddItemToArray(powerSamples, pwrSample);
-                    }
-                    
-                    // Speed samples (Health Connect format)
-                    {
-                        cJSON *spdSample = cJSON_CreateObject();
-                        cJSON_AddNumberToObject(spdSample, "time", (double)sample_time_ms);
-                        cJSON_AddNumberToObject(spdSample, "metersPerSecond", velocity_m_s);
-                        cJSON_AddItemToArray(speedSamples, spdSample);
-                    }
-                }
-            }
-            free(samples);
-        }
-    }
-    
-    // Add sample arrays (Health Connect format)
-    cJSON_AddItemToObject(root, "heartRateSamples", heartRateSamples);
-    cJSON_AddItemToObject(root, "powerSamples", powerSamples);
-    cJSON_AddItemToObject(root, "speedSamples", speedSamples);
-    
-    char *json_string = cJSON_PrintUnformatted(root);
-    cJSON_Delete(root);
-    
-    if (json_string == NULL) {
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+
+    // --- Header (small, safe) ---
+    char header[384];
+    int hlen = snprintf(header, sizeof(header),
+        "{"
+        "\"id\":%lu,"
+        "\"startTime\":%lld,"
+        "\"duration\":%lu,"
+        "\"distance\":%.1f,"
+        "\"strokes\":%lu,"
+        "\"calories\":%lu,"
+        "\"avgPower\":%.1f,"
+        "\"avgPace\":%.1f,"
+        "\"dragFactor\":%.1f,"
+        "\"avgHeartRate\":%.1f,"
+        "\"maxHeartRate\":%u,"
+        "\"synced\":%s",
+        (unsigned long)record.session_id,
+        (long long)record.start_timestamp,
+        (unsigned long)record.duration_seconds,
+        record.total_distance_meters,
+        (unsigned long)record.stroke_count,
+        (unsigned long)record.total_calories,
+        record.average_power_watts,
+        record.average_pace_sec_500m,
+        record.drag_factor,
+        record.average_heart_rate,
+        (unsigned)record.max_heart_rate,
+        record.synced ? "true" : "false");
+    if (hlen <= 0 || hlen >= (int)sizeof(header)) {
         httpd_resp_send_500(req);
         return ESP_FAIL;
     }
-    
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    httpd_resp_sendstr(req, json_string);
-    
-    free(json_string);
+    if (httpd_resp_send_chunk(req, header, hlen) != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    // --- Samples (streamed) ---
+    // Cap to a hard limit so a single oversized session can never run the
+    // device out of heap.
+    const uint32_t MAX_SAMPLES = 3600;
+    uint32_t requested = record.sample_count > MAX_SAMPLES ? MAX_SAMPLES : record.sample_count;
+
+    sample_data_t *samples = NULL;
+    uint32_t actual_count = 0;
+    if (requested > 0) {
+        // Refuse the allocation if heap is too tight, rather than crashing.
+        size_t need = requested * sizeof(sample_data_t);
+        if (heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT) > need + HEAP_SAFETY_MARGIN_BYTES) {
+            samples = malloc(need);
+        }
+        if (samples != NULL) {
+            if (session_manager_get_samples(session_id, samples, requested, &actual_count) != ESP_OK) {
+                actual_count = 0;
+            }
+        } else {
+            ESP_LOGW(TAG, "Skipping sample arrays for session %lu (low heap)",
+                     (unsigned long)session_id);
+        }
+    }
+
+    int64_t base_time_ms = record.start_timestamp;
+
+    // Emit three sample arrays. We re-iterate the buffer for each — cheap,
+    // and avoids needing 3 separate buffers.
+    const char *array_names[] = { "heartRateSamples", "powerSamples", "speedSamples" };
+    for (int arr = 0; arr < 3; arr++) {
+        char prefix[64];
+        int plen = snprintf(prefix, sizeof(prefix), ",\"%s\":[", array_names[arr]);
+        if (httpd_resp_send_chunk(req, prefix, plen) != ESP_OK) {
+            free(samples);
+            return ESP_FAIL;
+        }
+
+        bool first = true;
+        for (uint32_t i = 0; i < actual_count; i++) {
+            int64_t t = base_time_ms + ((int64_t)i * 1000);
+            char buf[96];
+            int blen = 0;
+
+            if (arr == 0) {
+                if (samples[i].heart_rate == 0) continue;  // Skip empty HR
+                blen = snprintf(buf, sizeof(buf),
+                    "%s{\"time\":%lld,\"bpm\":%u}",
+                    first ? "" : ",",
+                    (long long)t, (unsigned)samples[i].heart_rate);
+            } else if (arr == 1) {
+                blen = snprintf(buf, sizeof(buf),
+                    "%s{\"time\":%lld,\"watts\":%u}",
+                    first ? "" : ",",
+                    (long long)t, (unsigned)samples[i].power_watts);
+            } else {
+                float v = samples[i].velocity_cm_s / 100.0f;
+                blen = snprintf(buf, sizeof(buf),
+                    "%s{\"time\":%lld,\"metersPerSecond\":%.2f}",
+                    first ? "" : ",",
+                    (long long)t, v);
+            }
+            if (blen > 0 && blen < (int)sizeof(buf)) {
+                if (httpd_resp_send_chunk(req, buf, blen) != ESP_OK) {
+                    free(samples);
+                    return ESP_FAIL;
+                }
+                first = false;
+            }
+        }
+
+        if (httpd_resp_send_chunk(req, "]", 1) != ESP_OK) {
+            free(samples);
+            return ESP_FAIL;
+        }
+    }
+
+    free(samples);
+
+    // Close JSON object and signal end of stream
+    if (httpd_resp_send_chunk(req, "}", 1) != ESP_OK) {
+        return ESP_FAIL;
+    }
+    httpd_resp_send_chunk(req, NULL, 0);
     return ESP_OK;
 }
 
@@ -1096,15 +1146,29 @@ static esp_err_t workout_stop_handler(httpd_req_t *req) {
     
     uint32_t session_id = session_manager_get_current_session_id();
     
-    // End the session and save
+    // Take an atomic snapshot of metrics BEFORE saving and BEFORE building
+    // the response, so the response is consistent with what was saved (and
+    // we don't read torn float/int64 values while the sensor task continues
+    // to mutate the live struct).
+    rowing_metrics_t snap;
+    metrics_calculator_get_snapshot(g_metrics, &snap);
+    
+    // End the session and save (this is the call the user reported as
+    // "hanging" — it does NVS I/O. We've added safeguards in
+    // session_manager_end_session to bound the work it performs.)
     session_manager_end_session(g_metrics);
     
     cJSON *root = cJSON_CreateObject();
+    if (root == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
     cJSON_AddStringToObject(root, "status", "stopped");
     cJSON_AddNumberToObject(root, "sessionId", session_id);
-    cJSON_AddNumberToObject(root, "distance", g_metrics->total_distance_meters);
-    cJSON_AddNumberToObject(root, "strokes", g_metrics->stroke_count);
-    cJSON_AddNumberToObject(root, "calories", g_metrics->total_calories);
+    cJSON_AddNumberToObject(root, "distance",
+        isfinite(snap.total_distance_meters) ? snap.total_distance_meters : 0);
+    cJSON_AddNumberToObject(root, "strokes", snap.stroke_count);
+    cJSON_AddNumberToObject(root, "calories", snap.total_calories);
     
     uint8_t avg_hr, max_hr;
     uint16_t hr_count;
@@ -1115,13 +1179,24 @@ static esp_err_t workout_stop_handler(httpd_req_t *req) {
     
     char *json_string = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
-    
+
+    if (json_string == NULL) {
+        // Heap exhausted while building response. Send a minimal fixed
+        // response so the client doesn't hang waiting forever — the actual
+        // session save above has already succeeded.
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+        httpd_resp_sendstr(req, "{\"status\":\"stopped\"}");
+        ESP_LOGW(TAG, "workout/stop: cJSON_PrintUnformatted failed; sent minimal response");
+        return ESP_OK;
+    }
+
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_sendstr(req, json_string);
-    
+
     free(json_string);
-    
+
     ESP_LOGI(TAG, "Workout stopped via API, session #%lu", (unsigned long)session_id);
     return ESP_OK;
 }
@@ -1577,7 +1652,8 @@ static esp_err_t api_reboot_handler(httpd_req_t *req) {
     
     // Schedule reboot in a separate short-lived task so this HTTP worker
     // returns immediately and other handlers can still run during the delay.
-    xTaskCreate(reboot_task, "reboot_task", 2048, NULL, 5, NULL);
+    xTaskCreate(reboot_task, "reboot_task", REBOOT_TASK_STACK_SIZE, NULL,
+                REBOOT_TASK_PRIORITY, NULL);
     
     return ESP_OK;
 }
@@ -2395,7 +2471,12 @@ esp_err_t web_server_broadcast_metrics(const rowing_metrics_t *metrics) {
     if (g_server == NULL || metrics == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
-    
+
+    // Atomic snapshot to prevent torn reads while other tasks mutate the
+    // shared struct (the broadcast task runs at 5 Hz against three writers).
+    rowing_metrics_t snapshot;
+    metrics_calculator_get_snapshot(metrics, &snapshot);
+
     // Build JSON. Allocate buffers from the heap (not stack) to avoid stack
     // overflow in the broadcast task — historically two JSON_BUFFER_SIZE
     // buffers were stack-allocated here, which combined with cJSON internals
@@ -2405,7 +2486,7 @@ esp_err_t web_server_broadcast_metrics(const rowing_metrics_t *metrics) {
         ESP_LOGW(TAG, "Failed to allocate broadcast JSON buffer");
         return ESP_ERR_NO_MEM;
     }
-    int len = metrics_calculator_to_json(metrics, buffer, JSON_BUFFER_SIZE);
+    int len = metrics_calculator_to_json(&snapshot, buffer, JSON_BUFFER_SIZE);
     if (len <= 0) {
         free(buffer);
         return ESP_FAIL;

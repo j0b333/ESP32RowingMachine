@@ -344,8 +344,9 @@ static int ble_hr_gap_event(struct ble_gap_event *event, void *arg) {
                 s_reconnect_attempts++;
                 s_last_disconnect_time_us = esp_timer_get_time();
                 if (s_reconnect_task == NULL) {
-                    xTaskCreate(reconnect_task_fn, "hr_reconn", 2560, NULL, 3,
-                                &s_reconnect_task);
+                    xTaskCreate(reconnect_task_fn, "hr_reconn",
+                                HR_RECONNECT_TASK_STACK_SIZE, NULL,
+                                HR_RECONNECT_TASK_PRIORITY, &s_reconnect_task);
                 }
             }
             break;

@@ -216,7 +216,8 @@ esp_err_t session_manager_end_session(rowing_metrics_t *metrics) {
         // (sub-sample longer sessions). Each sample is 8 bytes; 4000 samples =
         // 32 KB which still requires a healthy partition but is well within the
         // 64 KB practical max. If still too large, drop to every-Nth sample.
-        const uint32_t MAX_SAMPLES_TO_SAVE = 4000;
+        // (See app_config.h: MAX_SAMPLES_TO_SAVE — 4000 samples × 8 bytes =
+        //  32 KB, fits comfortably in NVS even with other blobs present.)
         uint32_t samples_to_save = s_sample_count;
         uint32_t stride = 1;
         if (samples_to_save > MAX_SAMPLES_TO_SAVE) {

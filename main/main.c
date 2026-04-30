@@ -127,14 +127,35 @@ static void monitor_heap(void) {
         ESP_LOGI(TAG, "Heap monitor: free=%u min=%u largest_block=%u",
                  (unsigned)free_heap, (unsigned)min_free, (unsigned)largest_block);
 
-        if (free_heap < 20000) {
+        // Per-task stack high water marks. If any task has come within ~256
+        // bytes of overflowing its stack we surface a warning while the
+        // device is still alive — this is the earliest possible signal of an
+        // imminent stack-overflow crash.
+        TaskHandle_t self = xTaskGetCurrentTaskHandle();
+        UBaseType_t self_hw = uxTaskGetStackHighWaterMark(self);
+        ESP_LOGI(TAG, "Stack high watermark: metrics=%u",
+                 (unsigned)self_hw);
+        if (self_hw < STACK_LOW_WARN_BYTES) {
+            ESP_LOGW(TAG, "STACK NEAR OVERFLOW (metrics task): %u bytes free",
+                     (unsigned)self_hw);
+        }
+        if (broadcast_task_handle != NULL) {
+            UBaseType_t b_hw = uxTaskGetStackHighWaterMark(broadcast_task_handle);
+            ESP_LOGI(TAG, "Stack high watermark: broadcast=%u", (unsigned)b_hw);
+            if (b_hw < STACK_LOW_WARN_BYTES) {
+                ESP_LOGW(TAG, "STACK NEAR OVERFLOW (broadcast task): %u bytes free",
+                         (unsigned)b_hw);
+            }
+        }
+
+        if (free_heap < LOW_HEAP_WARN_BYTES) {
             ESP_LOGW(TAG, "LOW HEAP: %u bytes free — risk of allocation failure",
                      (unsigned)free_heap);
         }
         // If the largest free block is much smaller than total free heap, we're
         // fragmented and a large allocation (like the session JSON or NVS save)
         // will fail even though "enough" memory is technically available.
-        if (free_heap > 0 && largest_block < free_heap / 4 && largest_block < 8192) {
+        if (free_heap > 0 && largest_block < free_heap / 4 && largest_block < HEAP_FRAGMENT_WARN_BYTES) {
             ESP_LOGW(TAG, "HEAP FRAGMENTED: free=%u largest_block=%u",
                      (unsigned)free_heap, (unsigned)largest_block);
         }
@@ -201,21 +222,35 @@ static void broadcast_task(void *arg) {
         ble_counter++;
         ws_counter++;
         
+        bool need_ble = (ble_counter >= ble_divisor && g_config.ble_enabled);
+        bool need_ws = (ws_counter >= ws_divisor && g_config.wifi_enabled);
+
+        // Take a single atomic snapshot per tick if either send is needed.
+        // Avoids two snapshots per iteration and ensures BLE & WS see the
+        // same state.
+        rowing_metrics_t snap;
+        bool have_snap = false;
+        if (need_ble || need_ws) {
+            metrics_calculator_get_snapshot(&g_metrics, &snap);
+            have_snap = true;
+        }
+
         // Send BLE notification
-        if (ble_counter >= ble_divisor && g_config.ble_enabled) {
+        if (need_ble) {
             ble_counter = 0;
             if (ble_ftms_is_connected()) {
-                ble_ftms_notify_metrics(&g_metrics);
+                ble_ftms_notify_metrics(&snap);
             }
         }
         
         // Send WebSocket broadcast
-        if (ws_counter >= ws_divisor && g_config.wifi_enabled) {
+        if (need_ws) {
             ws_counter = 0;
             if (web_server_has_ws_clients()) {
-                web_server_broadcast_metrics(&g_metrics);
+                web_server_broadcast_metrics(&snap);
             }
         }
+        (void)have_snap;
         
         vTaskDelay(pdMS_TO_TICKS(100));
     }

@@ -173,11 +173,33 @@
 // ============================================================================
 // BUFFER SIZES
 // ============================================================================
+// ============================================================================
+// System resource thresholds (used by runtime monitors and safety checks)
+// ============================================================================
+#define HEAP_SAFETY_MARGIN_BYTES        4096    // Min free-block headroom before allocating large response buffers
+#define STACK_LOW_WARN_BYTES            256     // Warn when task stack high-water-mark drops below this
+#define LOW_HEAP_WARN_BYTES             20000   // Warn at periodic monitor below this free-heap value
+#define HEAP_FRAGMENT_WARN_BYTES        8192    // Warn when largest_free_block drops below this AND << total_free
+
+// Reboot helper task (keeps HTTP worker free during the 2 s reboot delay)
+#define REBOOT_TASK_STACK_SIZE          2048
+#define REBOOT_TASK_PRIORITY            5
+
+// HR reconnect backoff helper task
+#define HR_RECONNECT_TASK_STACK_SIZE    2560
+#define HR_RECONNECT_TASK_PRIORITY      3
+
+// Hard cap on session samples persisted to NVS in one blob. Each sample is
+// 8 bytes so 4000 = 32 KB — well within NVS practical blob limits but
+// large enough for ~1 hour at 1 Hz. Longer sessions are sub-sampled.
+#define MAX_SAMPLES_TO_SAVE             4000
+
 // JSON buffer for /api/metrics and broadcast — sized to comfortably hold the
 // full payload (21+ keys with floats and strings); 512 was on the edge of
 // truncation which produced unterminated/invalid JSON intermittently.
 #define JSON_BUFFER_SIZE                1024
 #define PACE_STRING_BUFFER_SIZE         16
+
 
 // ============================================================================
 // DEBUG CONFIGURATION
