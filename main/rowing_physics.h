@@ -37,16 +37,26 @@ typedef enum {
 
 /**
  * Inertia calibration data structure
+ *
+ * Note: All fields must only be accessed while holding the calibration mutex
+ * (see `web_server_*_inertia_calibration` accessors). The sensor task and
+ * HTTP handler tasks run on different cores; on a 32-bit MCU even reading a
+ * 64-bit timestamp without synchronization can produce torn values.
  */
 typedef struct {
     calibration_state_t state;          // Current calibration state
     int64_t start_time_us;              // When calibration started
-    int64_t peak_time_us;               // When peak velocity was detected
-    int64_t stop_time_us;               // When flywheel stopped
+    int64_t peak_time_us;               // Timestamp of the recorded peak velocity
+    int64_t stop_time_us;               // First time velocity dropped below stop threshold
+    int64_t last_pulse_time_us;         // Timestamp of most recent pulse seen during calibration
     float peak_velocity_rad_s;          // Peak angular velocity
+    float final_velocity_rad_s;         // Last measured velocity before flywheel was declared stopped
+    int64_t final_time_us;              // Timestamp paired with final_velocity_rad_s
     float calculated_inertia;           // Calculated moment of inertia
     float drag_coefficient_used;        // Drag coefficient used in calculation
     uint32_t sample_count;              // Number of samples collected
+    uint16_t spinup_consecutive;        // Consecutive samples above MIN_PEAK_VELOCITY (debounce)
+    uint16_t spindown_consecutive;      // Consecutive samples below decline threshold (debounce)
     char status_message[64];            // Human-readable status
 } inertia_calibration_t;
 
@@ -304,6 +314,21 @@ void rowing_physics_cancel_inertia_calibration(inertia_calibration_t *calibratio
 bool rowing_physics_update_inertia_calibration(inertia_calibration_t *calibration, 
                                                 float angular_velocity, 
                                                 int64_t current_time_us);
+
+/**
+ * Time-driven tick for inertia calibration.
+ *
+ * Call this periodically from the sensor task even when no flywheel pulses
+ * are arriving. It allows the SPINDOWN state to complete when the flywheel
+ * has fully halted (no more pulses are being generated to drive the
+ * pulse-based update path).
+ *
+ * @param calibration Pointer to calibration structure
+ * @param current_time_us Current timestamp
+ * @return true if calibration state changed
+ */
+bool rowing_physics_tick_inertia_calibration(inertia_calibration_t *calibration,
+                                              int64_t current_time_us);
 
 /**
  * Get inertia calibration status
