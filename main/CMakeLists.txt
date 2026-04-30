@@ -14,6 +14,7 @@ idf_component_register(
         "hr_receiver.c"
         "dns_server.c"
         "utils.c"
+        "hardware.c"
     INCLUDE_DIRS
         "."
     EMBED_FILES
@@ -34,4 +35,12 @@ idf_component_register(
         cJSON
         mdns
         lwip
+        hw_hal
+        board
+        display
+        touch
+        input_buttons
+        input_encoder
+        audio
+        indicator_led
 )

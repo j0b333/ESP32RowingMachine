@@ -1,0 +1,61 @@
+menu "Rowing Monitor: Touch input"
+
+choice ROWING_TOUCH_DRIVER
+    prompt "Touch controller"
+    default ROWING_TOUCH_NONE
+
+    config ROWING_TOUCH_NONE
+        bool "None"
+    config ROWING_TOUCH_XPT2046
+        bool "XPT2046 resistive (SPI) — Cheap Yellow Display"
+    config ROWING_TOUCH_GT911
+        bool "GT911 capacitive (I2C)"
+    config ROWING_TOUCH_FT5X06
+        bool "FT5x06 / FT6236 capacitive (I2C)"
+    config ROWING_TOUCH_CST816S
+        bool "CST816S capacitive (I2C) — round watches"
+endchoice
+
+config ROWING_TOUCH_ENABLED
+    bool
+    default y if !ROWING_TOUCH_NONE
+    default n
+
+if ROWING_TOUCH_ENABLED
+
+config ROWING_TOUCH_I2C_ADDR
+    hex "I2C address (capacitive controllers)"
+    depends on ROWING_TOUCH_GT911 || ROWING_TOUCH_FT5X06 || ROWING_TOUCH_CST816S
+    default 0x5D if ROWING_TOUCH_GT911
+    default 0x38 if ROWING_TOUCH_FT5X06
+    default 0x15 if ROWING_TOUCH_CST816S
+    range 0x00 0x7F
+
+config ROWING_TOUCH_INT_PIN
+    int "Touch interrupt pin (-1 = polling)"
+    default -1
+
+config ROWING_TOUCH_RST_PIN
+    int "Touch reset pin (-1 = unused)"
+    default -1
+
+config ROWING_TOUCH_SWAP_XY
+    bool "Swap X / Y axes"
+    default n
+
+config ROWING_TOUCH_INVERT_X
+    bool "Invert X axis"
+    default n
+
+config ROWING_TOUCH_INVERT_Y
+    bool "Invert Y axis"
+    default n
+
+config ROWING_TOUCH_POLL_HZ
+    int "Polling rate (Hz)"
+    default 50
+    range 10 200
+
+endif
+
+endmenu

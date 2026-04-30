@@ -1,0 +1,61 @@
+menu "Rowing Monitor: Audio"
+
+choice ROWING_AUDIO_DRIVER
+    prompt "Audio output"
+    default ROWING_AUDIO_NONE
+    help
+      Select the audio backend. The audio API is the same for every
+      driver, so application code never needs to change.
+
+    config ROWING_AUDIO_NONE
+        bool "None"
+    config ROWING_AUDIO_PASSIVE_BUZZER
+        bool "Passive buzzer (LEDC PWM tones)"
+    config ROWING_AUDIO_ACTIVE_BUZZER
+        bool "Active buzzer (GPIO on/off)"
+    config ROWING_AUDIO_INTERNAL_DAC
+        bool "ESP32 internal DAC (8-bit, ESP32 only) — basic I2S only"
+        depends on IDF_TARGET_ESP32
+        help
+          Routes I2S output to the on-chip DAC pins (GPIO 25/26).
+          Requires that you wire BOARD_I2S_BCLK / LRCLK / DOUT to
+          dummy GPIOs and use the external pull-down/up combinations
+          documented for your board. Most users prefer ROWING_AUDIO_I2S_DAC
+          with a small MAX98357A breakout.
+    config ROWING_AUDIO_I2S_DAC
+        bool "I2S DAC: MAX98357A / PCM5102 (no codec)"
+    config ROWING_AUDIO_ES8388
+        bool "I2S codec: ES8388 (M5Stack Core2 etc)"
+endchoice
+
+config ROWING_AUDIO_ENABLED
+    bool
+    default y if !ROWING_AUDIO_NONE
+    default n
+
+if ROWING_AUDIO_ENABLED
+
+config ROWING_AUDIO_PIN
+    int "Buzzer / DAC pin (-1 = use board default)"
+    default -1
+    depends on ROWING_AUDIO_PASSIVE_BUZZER || ROWING_AUDIO_ACTIVE_BUZZER || ROWING_AUDIO_INTERNAL_DAC
+
+config ROWING_AUDIO_DEFAULT_VOL
+    int "Default volume (0-100%)"
+    range 0 100
+    default 70
+
+config ROWING_AUDIO_MUTED_DEFAULT
+    bool "Start muted"
+    default n
+
+config ROWING_AUDIO_BEEP_STROKE
+    bool "Beep on stroke"
+    default n
+config ROWING_AUDIO_BEEP_INTERVALS
+    bool "Beep on interval boundaries"
+    default y
+
+endif
+
+endmenu

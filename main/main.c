@@ -42,6 +42,7 @@
 #include "hr_receiver.h"
 #include "dns_server.h"
 #include "utils.h"
+#include "hardware.h"
 
 static const char *TAG = "MAIN";
 
@@ -96,6 +97,8 @@ static void metrics_update_task(void *arg) {
                 uint8_t hr = hr_receiver_get_current();
                 session_manager_record_sample(&g_metrics, hr);
             }
+            // Refresh the optional display once per second.
+            hardware_render_metrics(&g_metrics);
         }
         
         vTaskDelayUntil(&last_wake_time, update_period);
@@ -194,7 +197,16 @@ static esp_err_t init_subsystems(void) {
         ESP_LOGE(TAG, "Failed to initialize sensor manager");
         return ret;
     }
-    
+
+    // Initialize optional hardware peripherals (display, touch, buttons,
+    // encoder, audio, status LED) selected via Kconfig. Failures here are
+    // non-fatal — the rower still works without any of them.
+    ESP_LOGI(TAG, "Initializing optional hardware peripherals...");
+    esp_err_t hw_ret = hardware_init(&g_metrics, &g_config);
+    if (hw_ret != ESP_OK) {
+        ESP_LOGW(TAG, "hardware_init reported 0x%x — continuing", hw_ret);
+    }
+
     // Start sensor processing task
     ret = sensor_manager_start_task(&g_metrics, &g_config);
     if (ret != ESP_OK) {
@@ -374,6 +386,12 @@ void app_main(void) {
         
         loop_counter++;
         
+        // Update the optional status indicator LED based on current state.
+        hardware_update_indicator(&g_metrics,
+                                  /* wifi_connected   */ true,
+                                  /* ble_advertising  */ ble_ftms_is_connected(),
+                                  /* hr_connected     */ hr_receiver_get_current() > 0);
+        
         // Log status
         if (g_metrics.is_active) {
             ESP_LOGI(TAG, "Active: %lu strokes, %.1fm, SPM=%.1f, Power=%.0fW",
@@ -411,6 +429,7 @@ void app_main(void) {
     ble_ftms_deinit();
     sensor_manager_deinit();
     hr_receiver_deinit();
+    hardware_deinit();
     
     ESP_LOGI(TAG, "Shutdown complete");
 }

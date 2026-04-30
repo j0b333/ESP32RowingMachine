@@ -1,0 +1,46 @@
+menu "Rowing Monitor: Rotary encoder"
+
+config ROWING_ENCODER_ENABLED
+    bool "Enable rotary encoder"
+    default n
+    help
+      Adds a quadrature rotary encoder using the ESP32 PCNT peripheral.
+      A short press of its built-in switch posts the configured action.
+
+if ROWING_ENCODER_ENABLED
+
+config ROWING_ENCODER_PIN_A
+    int "Encoder phase-A GPIO"
+    default -1
+config ROWING_ENCODER_PIN_B
+    int "Encoder phase-B GPIO"
+    default -1
+config ROWING_ENCODER_PIN_BTN
+    int "Encoder push-button GPIO (-1 if absent)"
+    default -1
+
+config ROWING_ENCODER_STEPS_PER_DETENT
+    int "PCNT counts per physical detent"
+    range 1 8
+    default 4
+
+config ROWING_ENCODER_INVERT
+    bool "Invert direction"
+    default n
+
+config ROWING_ENCODER_CW_ACTION
+    int "Action for clockwise step (ui_action_t)"
+    range 0 24
+    default 8                           # BRIGHTNESS_UP
+config ROWING_ENCODER_CCW_ACTION
+    int "Action for counter-clockwise step"
+    range 0 24
+    default 9                           # BRIGHTNESS_DOWN
+config ROWING_ENCODER_BTN_ACTION
+    int "Action for encoder push button"
+    range 0 24
+    default 1                           # START_STOP
+
+endif
+
+endmenu

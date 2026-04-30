@@ -1,0 +1,50 @@
+menu "Rowing Monitor: Board profile"
+
+choice ROWING_BOARD
+    prompt "Target board"
+    default ROWING_BOARD_DEVKITC_S3
+    help
+      Pre-defined pin mappings for popular ESP32 boards. The chosen board
+      sets sane defaults for the display, touch, audio, and indicator
+      components below — but every individual pin can still be overridden
+      in the per-component menus.
+
+    config ROWING_BOARD_DEVKITC_S3
+        bool "Espressif ESP32-S3 DevKitC-1 (default)"
+    config ROWING_BOARD_DEVKITC_ESP32
+        bool "Espressif ESP32 DevKitC (original ESP32)"
+    config ROWING_BOARD_LILYGO_TDISPLAY_S3
+        bool "LilyGO T-Display-S3 (ST7789 320x170 + 2 buttons)"
+    config ROWING_BOARD_LILYGO_TDISPLAY
+        bool "LilyGO T-Display (ESP32, ST7789 240x135)"
+    config ROWING_BOARD_CYD_2432S028
+        bool "Cheap Yellow Display ESP32-2432S028 (ILI9341 + XPT2046)"
+    config ROWING_BOARD_WT32_SC01
+        bool "WT32-SC01 (ILI9488 + FT6236 capacitive)"
+    config ROWING_BOARD_WT32_SC01_PLUS
+        bool "WT32-SC01-Plus (ST7796 + GT911 capacitive)"
+    config ROWING_BOARD_M5STACK_CORE2
+        bool "M5Stack Core2 (ILI9342 + FT6336 + ES8388)"
+    config ROWING_BOARD_WAVESHARE_LCD128
+        bool "Waveshare ESP32-S3-Touch-LCD-1.28 (GC9A01 + CST816S)"
+    config ROWING_BOARD_ESP_BOX
+        bool "Espressif ESP-Box / ESP-Box-3 (ILI9341/ST7789 + TT21100)"
+    config ROWING_BOARD_HEADLESS
+        bool "Headless / custom (configure pins manually)"
+endchoice
+
+config ROWING_BOARD_NAME
+    string
+    default "esp32s3-devkitc"      if ROWING_BOARD_DEVKITC_S3
+    default "esp32-devkitc"        if ROWING_BOARD_DEVKITC_ESP32
+    default "lilygo-t-display-s3"  if ROWING_BOARD_LILYGO_TDISPLAY_S3
+    default "lilygo-t-display"     if ROWING_BOARD_LILYGO_TDISPLAY
+    default "cyd-2432s028"         if ROWING_BOARD_CYD_2432S028
+    default "wt32-sc01"            if ROWING_BOARD_WT32_SC01
+    default "wt32-sc01-plus"       if ROWING_BOARD_WT32_SC01_PLUS
+    default "m5stack-core2"        if ROWING_BOARD_M5STACK_CORE2
+    default "waveshare-lcd128"     if ROWING_BOARD_WAVESHARE_LCD128
+    default "esp-box"              if ROWING_BOARD_ESP_BOX
+    default "headless"             if ROWING_BOARD_HEADLESS
+
+endmenu

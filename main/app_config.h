@@ -23,19 +23,39 @@
 // ============================================================================
 // GPIO PIN ASSIGNMENTS
 // ============================================================================
+// Pin defaults come from the board profile selected by Kconfig
+// (components/board/Kconfig). Define ROWING_USE_BOARD_PINS=0 in your
+// build to fall back to the legacy hard-coded pins below.
+#include "board.h"
+
 // Sensor inputs
-#define GPIO_FLYWHEEL_SENSOR    15      // White wire - flywheel reed switch
-#define GPIO_SEAT_SENSOR        16      // Red wire - seat position reed switch
+#ifndef GPIO_FLYWHEEL_SENSOR
+#define GPIO_FLYWHEEL_SENSOR    BOARD_FLYWHEEL_PIN  // White wire - flywheel reed switch
+#endif
+#ifndef GPIO_SEAT_SENSOR
+#define GPIO_SEAT_SENSOR        BOARD_SEAT_PIN      // Red wire - seat position reed switch
+#endif
 
-// Future expansion (optional OLED)
-#define GPIO_I2C_SDA            21
-#define GPIO_I2C_SCL            22
+// Future expansion (optional OLED) — these are the I2C bus pins shared
+// by display, touch, and other I2C peripherals.
+#ifndef GPIO_I2C_SDA
+#define GPIO_I2C_SDA            BOARD_I2C_SDA
+#endif
+#ifndef GPIO_I2C_SCL
+#define GPIO_I2C_SCL            BOARD_I2C_SCL
+#endif
 
-// User button (optional)
-#define GPIO_USER_BUTTON        13
+// User button (optional) — kept for backward compatibility. New
+// programmable buttons live in components/input_buttons.
+#ifndef GPIO_USER_BUTTON
+#define GPIO_USER_BUTTON        (BOARD_BTN1_PIN >= 0 ? BOARD_BTN1_PIN : 13)
+#endif
 
-// RGB LED (ESP32-S3 DevKitC built-in)
-#define GPIO_RGB_LED            48
+// RGB LED (ESP32-S3 DevKitC built-in) — overridden by indicator_led
+// component when enabled.
+#ifndef GPIO_RGB_LED
+#define GPIO_RGB_LED            (BOARD_RGB_LED_PIN >= 0 ? BOARD_RGB_LED_PIN : 48)
+#endif
 
 // ============================================================================
 // SENSOR TIMING CONFIGURATION
