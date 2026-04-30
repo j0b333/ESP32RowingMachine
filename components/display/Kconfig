@@ -1,0 +1,91 @@
+menu "Rowing Monitor: Display"
+
+choice ROWING_DISPLAY_DRIVER
+    prompt "Display driver"
+    default ROWING_DISPLAY_NONE
+    help
+      Select which physical display is connected. Choose "None" to keep
+      the firmware headless (web UI + BLE only).
+
+    config ROWING_DISPLAY_NONE
+        bool "None / headless"
+    config ROWING_DISPLAY_SSD1306
+        bool "SSD1306 OLED 128x64 (I2C)"
+    config ROWING_DISPLAY_SH1106
+        bool "SH1106 OLED 128x64 (I2C)"
+    config ROWING_DISPLAY_ST7789
+        bool "ST7789 IPS TFT (SPI)"
+    config ROWING_DISPLAY_ILI9341
+        bool "ILI9341 TFT 320x240 (SPI)"
+    config ROWING_DISPLAY_ILI9488
+        bool "ILI9488 TFT 480x320 (SPI)"
+    config ROWING_DISPLAY_GC9A01
+        bool "GC9A01 round IPS 240x240 (SPI)"
+    config ROWING_DISPLAY_ST7796
+        bool "ST7796 TFT 480x320 (SPI)"
+endchoice
+
+config ROWING_DISPLAY_ENABLED
+    bool
+    default y if !ROWING_DISPLAY_NONE
+    default n
+
+if ROWING_DISPLAY_ENABLED
+
+config ROWING_DISPLAY_WIDTH
+    int "Display width (px)"
+    default 128 if ROWING_DISPLAY_SSD1306 || ROWING_DISPLAY_SH1106
+    default 240 if ROWING_DISPLAY_GC9A01 || ROWING_DISPLAY_ST7789
+    default 320 if ROWING_DISPLAY_ILI9341
+    default 480 if ROWING_DISPLAY_ILI9488 || ROWING_DISPLAY_ST7796
+    default 320
+
+config ROWING_DISPLAY_HEIGHT
+    int "Display height (px)"
+    default 64  if ROWING_DISPLAY_SSD1306 || ROWING_DISPLAY_SH1106
+    default 240 if ROWING_DISPLAY_GC9A01 || ROWING_DISPLAY_ILI9341
+    default 320 if ROWING_DISPLAY_ILI9488 || ROWING_DISPLAY_ST7796
+    default 240
+
+config ROWING_DISPLAY_ROTATION
+    int "Rotation (0/90/180/270)"
+    range 0 270
+    default 0
+
+config ROWING_DISPLAY_I2C_ADDR
+    hex "I2C address (OLED)"
+    depends on ROWING_DISPLAY_SSD1306 || ROWING_DISPLAY_SH1106
+    default 0x3C
+    range 0x00 0x7F
+
+config ROWING_DISPLAY_I2C_FREQ_HZ
+    int "I2C frequency (Hz)"
+    depends on ROWING_DISPLAY_SSD1306 || ROWING_DISPLAY_SH1106
+    default 400000
+
+config ROWING_DISPLAY_SPI_FREQ_HZ
+    int "SPI frequency (Hz)"
+    depends on ROWING_DISPLAY_ST7789 || ROWING_DISPLAY_ILI9341 || ROWING_DISPLAY_ILI9488 || ROWING_DISPLAY_GC9A01 || ROWING_DISPLAY_ST7796
+    default 40000000
+
+config ROWING_DISPLAY_PIN_CS
+    int "CS pin (SPI displays, -1 to use board default)"
+    default -1
+config ROWING_DISPLAY_PIN_DC
+    int "DC pin"
+    default -1
+config ROWING_DISPLAY_PIN_RST
+    int "Reset pin (-1 = unused)"
+    default -1
+config ROWING_DISPLAY_PIN_BL
+    int "Backlight pin (-1 = unused)"
+    default -1
+
+config ROWING_DISPLAY_DEFAULT_BACKLIGHT
+    int "Default backlight (0-100%)"
+    range 0 100
+    default 80
+
+endif # ROWING_DISPLAY_ENABLED
+
+endmenu

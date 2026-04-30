@@ -1,0 +1,16 @@
+menu "Rowing Monitor: Hardware"
+
+# Per-component menus contributed by the components themselves are
+# already rolled into the top-level menuconfig automatically via each
+# component's `Kconfig` file. This file exists so the main project gets
+# its own dedicated section even when no component-level menus apply
+# yet — e.g. for selecting headless mode.
+
+config ROWING_HW_MENU_PRESENT
+    bool
+    default y
+    help
+      Sentinel symbol so other Kconfigs can `depends on
+      ROWING_HW_MENU_PRESENT` if desired.
+
+endmenu

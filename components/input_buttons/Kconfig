@@ -1,0 +1,114 @@
+menu "Rowing Monitor: Buttons"
+
+config ROWING_BUTTONS_ENABLED
+    bool "Enable programmable buttons"
+    default n
+    help
+      Enables a small button manager that supports up to 4 GPIO buttons
+      with short-press, long-press, and double-press detection. Each
+      gesture is mapped to a UI action (see ui_action_t in hw_hal.h).
+
+if ROWING_BUTTONS_ENABLED
+
+config ROWING_BUTTONS_COUNT
+    int "Number of buttons"
+    range 1 4
+    default 1
+
+config ROWING_BUTTONS_ACTIVE_LOW
+    bool "Buttons are active-low"
+    default y
+
+config ROWING_BUTTONS_INTERNAL_PULLUP
+    bool "Enable internal pull-up"
+    default y
+
+config ROWING_BUTTONS_DEBOUNCE_MS
+    int "Debounce time (ms)"
+    range 5 200
+    default 25
+
+config ROWING_BUTTONS_LONG_MS
+    int "Long-press threshold (ms)"
+    range 200 5000
+    default 800
+
+config ROWING_BUTTONS_DOUBLE_MS
+    int "Max gap for double-press (ms)"
+    range 50 1000
+    default 350
+
+config ROWING_BUTTON1_PIN
+    int "Button 1 GPIO"
+    default -1
+config ROWING_BUTTON2_PIN
+    int "Button 2 GPIO"
+    default -1
+config ROWING_BUTTON3_PIN
+    int "Button 3 GPIO"
+    default -1
+config ROWING_BUTTON4_PIN
+    int "Button 4 GPIO"
+    default -1
+
+# Action numbers correspond to the UI_ACTION_* enum in hw_hal.h.
+# 0=NONE 1=START_STOP 2=PAUSE_RESUME 3=LAP 4=RESET_SESSION
+# 5=NEXT_SCREEN 6=PREV_SCREEN 7=SCREEN_HOME
+# 8=BRIGHT_UP 9=BRIGHT_DOWN 10=VOL_UP 11=VOL_DOWN 12=MUTE
+# 13=HR_SCAN 14=WIFI_PROV 15=BLE_TOGGLE 16..23=USER_1..8
+
+config ROWING_BUTTON1_SHORT_ACTION
+    int "Button 1 short-press action"
+    range 0 24
+    default 1
+config ROWING_BUTTON1_LONG_ACTION
+    int "Button 1 long-press action"
+    range 0 24
+    default 5
+config ROWING_BUTTON1_DOUBLE_ACTION
+    int "Button 1 double-press action"
+    range 0 24
+    default 3
+
+config ROWING_BUTTON2_SHORT_ACTION
+    int "Button 2 short-press action"
+    range 0 24
+    default 5
+config ROWING_BUTTON2_LONG_ACTION
+    int "Button 2 long-press action"
+    range 0 24
+    default 12
+config ROWING_BUTTON2_DOUBLE_ACTION
+    int "Button 2 double-press action"
+    range 0 24
+    default 6
+
+config ROWING_BUTTON3_SHORT_ACTION
+    int "Button 3 short-press action"
+    range 0 24
+    default 8
+config ROWING_BUTTON3_LONG_ACTION
+    int "Button 3 long-press action"
+    range 0 24
+    default 10
+config ROWING_BUTTON3_DOUBLE_ACTION
+    int "Button 3 double-press action"
+    range 0 24
+    default 0
+
+config ROWING_BUTTON4_SHORT_ACTION
+    int "Button 4 short-press action"
+    range 0 24
+    default 9
+config ROWING_BUTTON4_LONG_ACTION
+    int "Button 4 long-press action"
+    range 0 24
+    default 11
+config ROWING_BUTTON4_DOUBLE_ACTION
+    int "Button 4 double-press action"
+    range 0 24
+    default 0
+
+endif # ROWING_BUTTONS_ENABLED
+
+endmenu

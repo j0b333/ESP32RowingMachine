@@ -1,0 +1,49 @@
+menu "Rowing Monitor: Status indicator"
+
+choice ROWING_LED_DRIVER
+    prompt "Status indicator"
+    default ROWING_LED_NONE
+
+    config ROWING_LED_NONE
+        bool "None"
+    config ROWING_LED_PLAIN
+        bool "Plain GPIO LED (on/off)"
+    config ROWING_LED_PWM
+        bool "PWM LED (LEDC, brightness)"
+    config ROWING_LED_RGB_PWM
+        bool "RGB LED (3x PWM channels)"
+    config ROWING_LED_WS2812
+        bool "WS2812 / NeoPixel (single pixel via RMT)"
+endchoice
+
+config ROWING_LED_ENABLED
+    bool
+    default y if !ROWING_LED_NONE
+    default n
+
+if ROWING_LED_ENABLED
+
+config ROWING_LED_PIN
+    int "LED data / mono pin (-1 = use board default)"
+    default -1
+config ROWING_LED_R_PIN
+    int "RGB R pin"
+    depends on ROWING_LED_RGB_PWM
+    default -1
+config ROWING_LED_G_PIN
+    int "RGB G pin"
+    depends on ROWING_LED_RGB_PWM
+    default -1
+config ROWING_LED_B_PIN
+    int "RGB B pin"
+    depends on ROWING_LED_RGB_PWM
+    default -1
+
+config ROWING_LED_ACTIVE_LOW
+    bool "Plain LED is active-low"
+    depends on ROWING_LED_PLAIN
+    default n
+
+endif
+
+endmenu
