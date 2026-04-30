@@ -31,6 +31,10 @@
 #include "audio_driver.h"
 #include "board.h"
 
+/* 32 kHz keeps even high tones (~6 kHz) well above the Nyquist limit
+ * while remaining cheap enough for square-wave generation on the CPU.
+ * Beep audio quality requirements are minimal, so a higher rate would
+ * be wasted bandwidth. */
 #define SAMPLE_RATE 32000
 
 static i2s_chan_handle_t s_tx = NULL;

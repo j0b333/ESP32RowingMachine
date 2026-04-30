@@ -19,6 +19,8 @@
 
 #if CONFIG_ROWING_ENCODER_ENABLED
 
+#define ENC_BTN_DEBOUNCE_MS 25
+
 static const char *TAG = "encoder";
 
 static pcnt_unit_handle_t    s_unit  = NULL;
@@ -67,7 +69,7 @@ static void enc_task(void *arg)
         bool pressed = gpio_get_level((gpio_num_t)CONFIG_ROWING_ENCODER_PIN_BTN) == 0;
         int64_t now = esp_timer_get_time();
         if (pressed != btn_was) {
-            if ((now - btn_change_us) / 1000 > 25) {        /* 25 ms debounce */
+            if ((now - btn_change_us) / 1000 > ENC_BTN_DEBOUNCE_MS) {
                 btn_was = pressed;
                 btn_change_us = now;
                 if (pressed && s_btn != UI_ACTION_NONE) {

@@ -246,7 +246,11 @@ static void send_color_run(hw_color_t color, uint32_t count)
     pix[2] = (color << 3) & 0xF8;
 #endif
 
-    enum { CHUNK = 64 };
+    enum { CHUNK = 64 };  /* 64 pixels per SPI burst keeps us well under
+                             the 4 KB max_transfer_sz with a 3-byte/pixel
+                             worst case (ILI9488), trades a small amount
+                             of CPU for predictable latency on the polling
+                             SPI driver. */
     uint8_t buf[CHUNK * PIXEL_BYTES];
     for (uint32_t i = 0; i < CHUNK; ++i) {
         memcpy(&buf[i * PIXEL_BYTES], pix, PIXEL_BYTES);

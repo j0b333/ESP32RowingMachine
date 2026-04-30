@@ -34,8 +34,10 @@ static void map_coords(int16_t rx, int16_t ry, int16_t *out_x, int16_t *out_y)
 #if CONFIG_ROWING_TOUCH_INVERT_Y
     y = (int16_t)(s_drv->raw_max_y - y);
 #endif
-    uint16_t dw = display_width()  ? display_width()  : 240;
-    uint16_t dh = display_height() ? display_height() : 240;
+    uint16_t dw_raw = display_width();
+    uint16_t dh_raw = display_height();
+    uint16_t dw = dw_raw ? dw_raw : 240;
+    uint16_t dh = dh_raw ? dh_raw : 240;
     uint16_t mx = s_drv->raw_max_x ? s_drv->raw_max_x : 4095;
     uint16_t my = s_drv->raw_max_y ? s_drv->raw_max_y : 4095;
     *out_x = (int16_t)((int32_t)x * dw / mx);

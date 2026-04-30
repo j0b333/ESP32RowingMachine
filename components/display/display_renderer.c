@@ -19,9 +19,13 @@
 
 uint8_t display_renderer_screen_count(void) { return SCREEN_COUNT; }
 
+/* Maximum displayable pace = 99:59 minutes per 500 m. Anything slower
+ * is rendered as "--:--" to avoid overflowing the layout. */
+#define MAX_DISPLAYABLE_PACE_SEC 5999.0f
+
 static void format_pace(float seconds, char *out, size_t n)
 {
-    if (seconds <= 0.0f || seconds > 5999.0f) {
+    if (seconds <= 0.0f || seconds > MAX_DISPLAYABLE_PACE_SEC) {
         snprintf(out, n, "--:--");
         return;
     }
